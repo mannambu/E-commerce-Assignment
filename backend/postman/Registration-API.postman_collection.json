@@ -1,0 +1,370 @@
+{
+  "info": {
+    "_postman_id": "9f9a2cc0-5f6a-4b32-b93f-43b34ca9f001",
+    "name": "ECommerce Backend - Registration API",
+    "description": "Collection test luồng đăng ký Customer/PT + realtime validation email/username.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (!pm.collectionVariables.get('runId')) {",
+          "  pm.collectionVariables.set('runId', String(Date.now()));",
+          "}",
+          "const runId = pm.collectionVariables.get('runId');",
+          "pm.collectionVariables.set('customerEmail', `customer_${runId}@gmail.com`);",
+          "pm.collectionVariables.set('customerUsername', `cus_${runId}`);",
+          "pm.collectionVariables.set('ptEmail', `pt_${runId}@gmail.com`);",
+          "pm.collectionVariables.set('ptUsername', `pt_${runId}`);"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000"
+    },
+    {
+      "key": "runId",
+      "value": ""
+    },
+    {
+      "key": "customerEmail",
+      "value": ""
+    },
+    {
+      "key": "customerUsername",
+      "value": ""
+    },
+    {
+      "key": "ptEmail",
+      "value": ""
+    },
+    {
+      "key": "ptUsername",
+      "value": ""
+    },
+    {
+      "key": "strongPassword",
+      "value": "Abcdef12"
+    },
+    {
+      "key": "weakPassword",
+      "value": "12345678"
+    },
+    {
+      "key": "phoneVN",
+      "value": "0912345678"
+    }
+  ],
+  "item": [
+    {
+      "name": "1) Check Email Available (Realtime)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/users/check-email?email={{customerEmail}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "users",
+            "check-email"
+          ],
+          "query": [
+            {
+              "key": "email",
+              "value": "{{customerEmail}}"
+            }
+          ]
+        },
+        "description": "Kiểm tra email đã tồn tại hay chưa để frontend validate realtime khi user đang gõ."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('Response has exists flag', function () {",
+              "  pm.expect(json).to.have.property('exists');",
+              "  pm.expect(typeof json.exists).to.eql('boolean');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2) Check Username Available (Realtime)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/users/check-username?username={{customerUsername}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "users",
+            "check-username"
+          ],
+          "query": [
+            {
+              "key": "username",
+              "value": "{{customerUsername}}"
+            }
+          ]
+        },
+        "description": "Kiểm tra username đã tồn tại hay chưa để frontend validate realtime khi user đang gõ."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('Response has exists flag', function () {",
+              "  pm.expect(json).to.have.property('exists');",
+              "  pm.expect(typeof json.exists).to.eql('boolean');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3) Register Customer - Success",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{customerEmail}}\",\n  \"username\": \"{{customerUsername}}\",\n  \"password\": \"{{strongPassword}}\",\n  \"confirm_password\": \"{{strongPassword}}\",\n  \"phone\": \"{{phoneVN}}\",\n  \"role\": \"Customer\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/users/register",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "users",
+            "register"
+          ]
+        },
+        "description": "Customer đăng ký thành công sẽ nhận access_token + refresh_token."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('Has register success shape', function () {",
+              "  pm.expect(json).to.have.property('message');",
+              "  pm.expect(json).to.have.property('result');",
+              "  pm.expect(json.result).to.have.property('access_token');",
+              "  pm.expect(json.result).to.have.property('refresh_token');",
+              "  pm.expect(json.result).to.have.property('role');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4) Register Duplicate Email - Fail",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{customerEmail}}\",\n  \"username\": \"{{customerUsername}}_new\",\n  \"password\": \"{{strongPassword}}\",\n  \"confirm_password\": \"{{strongPassword}}\",\n  \"phone\": \"{{phoneVN}}\",\n  \"role\": \"Customer\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/users/register",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "users",
+            "register"
+          ]
+        },
+        "description": "Test lỗi email trùng để frontend hiển thị cảnh báo đỏ."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code should be validation error', function () {",
+              "  pm.expect([400, 422]).to.include(pm.response.code);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5) Register Weak Password - Fail",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"weak_{{$timestamp}}@gmail.com\",\n  \"username\": \"weak_{{$randomInt}}\",\n  \"password\": \"{{weakPassword}}\",\n  \"confirm_password\": \"{{weakPassword}}\",\n  \"phone\": \"{{phoneVN}}\",\n  \"role\": \"Customer\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/users/register",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "users",
+            "register"
+          ]
+        },
+        "description": "Test rule mật khẩu mạnh theo yêu cầu nghiệp vụ."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code should be validation error', function () {",
+              "  pm.expect([400, 422]).to.include(pm.response.code);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6) Register PT - Success Pending Approval",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{ptEmail}}\",\n  \"username\": \"{{ptUsername}}\",\n  \"password\": \"{{strongPassword}}\",\n  \"confirm_password\": \"{{strongPassword}}\",\n  \"phone\": \"0987654321\",\n  \"role\": \"PT\",\n  \"ptProfile\": {\n    \"experienceYears\": 2,\n    \"specialties\": [\"Weight Loss\"],\n    \"rating\": 0,\n    \"portfolioImages\": []\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/users/register",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "users",
+            "register"
+          ]
+        },
+        "description": "PT đăng ký thành công sẽ trả requires_approval = true và chưa được login ngay."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "pm.test('PT registration is pending approval', function () {",
+              "  pm.expect(json).to.have.property('result');",
+              "  pm.expect(json.result).to.have.property('requires_approval', true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7) PT Login Before Approval - Fail",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"identifier\": \"{{ptEmail}}\",\n  \"password\": \"{{strongPassword}}\",\n  \"remember_me\": true\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/users/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "users",
+            "login"
+          ]
+        },
+        "description": "Theo nghiệp vụ, PT chưa duyệt sẽ không đăng nhập được."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code should be 403', function () {",
+              "  pm.response.to.have.status(403);",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

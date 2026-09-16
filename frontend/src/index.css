@@ -1,0 +1,71 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800;900&family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", serif;
+  
+  --radius-3xl: 1.5rem;
+  --radius-4xl: 2rem;
+  --radius-5xl: 3rem;
+}
+
+:root {
+  --role-accent: #f97316;
+  --role-accent-soft: #ffedd5;
+  --role-page-bg: #fff7ef;
+  --role-surface: #ffffff;
+  --role-border: #fde4cf;
+}
+
+body.role-theme-customer {
+  --role-accent: #f97316;
+  --role-accent-soft: #ffedd5;
+  --role-page-bg: #fff7ef;
+  --role-surface: #ffffff;
+  --role-border: #fde4cf;
+}
+
+body.role-theme-pt {
+  --role-accent: #4f46e5;
+  --role-accent-soft: #e0e7ff;
+  --role-page-bg: #f5f7ff;
+  --role-surface: #ffffff;
+  --role-border: #dbe4ff;
+}
+
+body.role-theme-admin {
+  --role-accent: #0f766e;
+  --role-accent-soft: #dff8f4;
+  --role-page-bg: #f2fbfa;
+  --role-surface: #ffffff;
+  --role-border: #c7ece8;
+}
+
+@layer base {
+  body {
+    @apply font-sans text-gray-900 antialiased bg-white;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .role-page-shell {
+    background:
+      radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--role-accent) 11%, transparent), transparent 38%),
+      radial-gradient(circle at 88% 92%, color-mix(in srgb, var(--role-accent) 8%, transparent), transparent 42%),
+      var(--role-page-bg);
+  }
+
+  .role-input-focus {
+    outline: none;
+  }
+
+  .role-input-focus:focus {
+    border-color: color-mix(in srgb, var(--role-accent) 55%, white);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--role-accent) 25%, white);
+  }
+}

@@ -1,0 +1,45 @@
+# Logs (Các file ghi lỗi)
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies (Thư viện tải về - Rất nặng, tuyệt đối không push)
+node_modules/
+
+# Production build (Thư mục chứa code đã được build ra sản phẩm)
+dist/
+dist-ssr/
+build/
+
+# Environment Variables (Các file chứa API Key, Mật khẩu - Tuyệt đối không push)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Editor directories and files (Cấu hình máy cá nhân của IDE/Editor)
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS generated files (File rác do hệ điều hành tự tạo)
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
