@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "tsx --test tests/*.test.ts",
+    "test:schema": "tsx --test tests/schema.test.ts",
+    "schema:indexes": "tsx scripts/schema-indexes.ts",
     "dev": "npx nodemon",
     "build": "rimraf ./dist && tsc && tsc-alias",
     "start": "node dist/index.js",
@@ -12,7 +14,6 @@
     "prettier": "prettier --check .",
     "prettier:fix": "prettier --write .",
     "seed:cart": "npx tsx scripts/seed-cart.ts",
-    "seed:pt-services": "npx tsx scripts/seed-pt-services.ts",
     "seed:admin": "npx tsx scripts/seed-admin.ts"
   },
   "keywords": [],

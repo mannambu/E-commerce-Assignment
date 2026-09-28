@@ -27,7 +27,7 @@ export const USERS_MESSAGES = {
   CONFIRM_PASSWORD_LENGTH_MUST_BE_FROM_6_TO_50: 'Xác nhận mật khẩu phải có độ dài từ 6 đến 50 ký tự',
   PHONE_IS_REQUIRED: 'Số điện thoại là bắt buộc',
   PHONE_IS_INVALID: 'Số điện thoại không hợp lệ',
-  ROLE_MUST_BE_CUSTOMER_OR_PT: 'Vai trò phải là Customer hoặc PT',
+  ROLE_MUST_BE_CUSTOMER: 'Đăng ký chỉ hỗ trợ tài khoản Customer',
   IDENTIFIER_IS_REQUIRED: 'Vui lòng nhập email hoặc tên đăng nhập',
   IDENTIFIER_MUST_BE_A_STRING: 'Email hoặc tên đăng nhập phải là chuỗi',
   REMEMBER_ME_MUST_BE_BOOLEAN: 'Trường remember_me phải là kiểu boolean',
@@ -43,8 +43,9 @@ export const USERS_MESSAGES = {
   ACCESS_TOKEN_IS_INVALID: 'Access token không hợp lệ',
   INVALID_ACCESS_TOKEN_TYPE: 'Loại access token không hợp lệ',
   TOO_MANY_LOGIN_ATTEMPTS: 'Bạn đã nhập sai quá nhiều lần. Để bảo mật, tài khoản bị khóa trong 5 phút',
+  ACCOUNT_IS_LOCKED: 'Tài khoản đã bị khóa, vui lòng liên hệ Admin',
+  ACCOUNT_IS_INACTIVE: 'Tài khoản không hoạt động',
   ACCOUNT_IS_TEMPORARILY_LOCKED: 'Bạn đã nhập sai quá nhiều lần. Tài khoản đang bị khóa tạm thời',
-  PT_ACCOUNT_PENDING_APPROVAL: 'Tài khoản PT đang chờ Admin xét duyệt',
   RESET_PASSWORD_TOKEN_IS_INVALID_OR_USED: 'Token đặt lại mật khẩu không hợp lệ hoặc đã được sử dụng',
 
   CHECK_EMAIL_TO_RESET_PASSWORD: 'Vui lòng kiểm tra email để đặt lại mật khẩu',
@@ -53,15 +54,6 @@ export const USERS_MESSAGES = {
   USER_NOT_FOUND: 'Không tìm thấy người dùng',
   PROFILE_RETRIEVED_SUCCESS: 'Lấy thông tin hồ sơ thành công',
   PROFILE_UPDATED_SUCCESS: 'Cập nhật hồ sơ thành công',
-  PT_PROFILE_UPDATED_SUCCESS: 'Cập nhật hồ sơ PT thành công',
-  ONLY_PT_CAN_UPDATE_PT_PROFILE: 'Chỉ tài khoản PT mới có thể cập nhật hồ sơ PT',
-  ONLY_CUSTOMER_CAN_REGISTER_PT_SERVICE: 'Chỉ khách hàng mới có thể đăng ký gói PT',
-  PT_SERVICE_ID_IS_REQUIRED: 'PT service id là bắt buộc',
-  PT_SERVICE_ID_IS_INVALID: 'PT service id không đúng định dạng',
-  PT_SERVICE_NOT_FOUND: 'Không tìm thấy gói dịch vụ PT',
-  PT_SERVICE_ALREADY_REGISTERED: 'Bạn đã đăng ký gói PT này rồi',
-  PT_SERVICE_REGISTERED_SUCCESS: 'Đăng ký gói PT thành công',
-  REGISTERED_PT_SERVICES_RETRIEVED_SUCCESS: 'Lấy danh sách gói PT đã đăng ký thành công',
 
   HEALTH_PROFILE_UPDATED_SUCCESS: 'Cập nhật hồ sơ sức khỏe thành công',
   HEALTH_METRICS_RETRIEVED_SUCCESS: 'Lấy chỉ số sức khỏe thành công',
@@ -88,10 +80,8 @@ export const USERS_MESSAGES = {
   FOOD_ID_IS_INVALID: 'Mã món ăn không hợp lệ',
   TARGET_CALORIES_MUST_BE_A_NUMBER: 'Target calories phải là số',
   TARGET_CALORIES_MUST_BE_POSITIVE: 'Target calories phải lớn hơn 0',
-  RECOMMENDATION_LIMIT_IS_INVALID: 'Giới hạn PT gợi ý phải trong khoảng từ 1 đến 10',
   MEAL_RECOMMENDATION_GENERATED_SUCCESS: 'Gợi ý thực đơn thành công',
   FOOD_SWAP_RECOMMENDATION_SUCCESS: 'Đổi món gợi ý thành công',
-  PT_RECOMMENDATION_GENERATED_SUCCESS: 'Gợi ý PT thành công',
   NO_FOOD_MATCHES_RESTRICTIONS: 'Không tìm thấy món ăn phù hợp với dị ứng/kiêng kỵ của bạn',
   NO_SWAP_CANDIDATE_FOUND: 'Không tìm thấy món thay thế phù hợp',
 
@@ -102,8 +92,6 @@ export const USERS_MESSAGES = {
   CALORIES_CONSUMED_IS_REQUIRED: 'Calories tiêu thụ là bắt buộc',
   CALORIES_CONSUMED_MUST_BE_NON_NEGATIVE: 'Calories tiêu thụ phải là số không âm',
 
-  PT_SUCCESSFULLY_REGISTERED:
-    'Hồ sơ của bạn đã được ghi nhận. Quản trị viên sẽ liên hệ và xét duyệt tài khoản của bạn trong vòng 24 giờ. Vui lòng chờ email thông báo',
   // Controller messages
   REGISTER_SUCCESS: 'Đăng ký thành công',
   LOGIN_SUCCESS: 'Đăng nhập thành công',
@@ -128,8 +116,6 @@ export const USERS_MESSAGES = {
   CART_QUANTITY_IS_REQUIRED: 'Số lượng là bắt buộc',
   CART_QUANTITY_MUST_BE_POSITIVE: 'Số lượng phải lớn hơn 0',
   CART_QUANTITY_MUST_BE_ZERO_OR_POSITIVE: 'Số lượng phải lớn hơn hoặc bằng 0',
-  CART_PT_SERVICE_QUANTITY_MUST_BE_ONE: 'Dịch vụ PT chỉ có thể chọn số lượng là 1',
-  CART_PT_SERVICE_QUANTITY_NOT_ALLOWED: 'Dịch vụ PT không nhận trường số lượng, hệ thống mặc định là 1',
   CART_FOOD_QUANTITY_EXCEEDS_STOCK: 'Số lượng món ăn vượt quá tồn kho hiện tại',
 
   // Order + Checkout + Payment
@@ -165,8 +151,6 @@ export const USERS_MESSAGES = {
   DELIVERY_DATES_MUST_BE_ARRAY: 'deliveryDates phải là mảng ngày',
   DELIVERY_SCHEDULE_DISTANCE_MISMATCH: 'Số ngày giao và số khoảng cách không khớp',
   DAILY_DISTANCE_COUNT_MISMATCH: 'deliveryDistancesKm phải có cùng số phần tử với deliveryDates',
-  ORDER_MIXED_ITEM_TYPES_NOT_ALLOWED:
-    'Không thể đặt chung món ăn và dịch vụ PT trong cùng một đơn. Vui lòng tách đơn riêng',
   WEEKLY_PACKAGE_REQUIRES_COMBO_CART: 'Gói WEEKLY_7D chỉ áp dụng cho giỏ COMBO',
 
   PAYMENT_METHOD_IS_REQUIRED: 'Phương thức thanh toán là bắt buộc',
@@ -184,12 +168,12 @@ export const USERS_MESSAGES = {
   GET_REVIEWS_SUCCESS: 'Lấy danh sách đánh giá thành công',
   UPDATE_REVIEW_SUCCESS: 'Cập nhật đánh giá thành công',
   REVIEW_NOT_FOUND: 'Không tìm thấy đánh giá',
-  TARGET_TYPE_INVALID: 'Loại đánh giá không hợp lệ (Chỉ hỗ trợ Food hoặc PT)',
+  TARGET_TYPE_INVALID: 'Chỉ hỗ trợ đánh giá món ăn (Food)',
   TARGET_ID_INVALID: 'ID đối tượng đánh giá không hợp lệ',
   TARGET_NOT_FOUND: 'Không tìm thấy đối tượng cần đánh giá',
   RATING_INVALID: 'Điểm đánh giá phải từ 1 đến 5',
   COMMENT_REQUIRED: 'Nội dung đánh giá không được để trống',
-  REVIEW_FORBIDDEN: 'Bạn chỉ có thể đánh giá khi đã mua hoặc sử dụng dịch vụ',
+  REVIEW_FORBIDDEN: 'Bạn chỉ có thể đánh giá món ăn trong đơn đã hoàn thành',
   REVIEW_EDIT_EXPIRED: 'Chỉ có thể chỉnh sửa đánh giá trong vòng 7 ngày',
   REVIEW_ALREADY_EXISTS: 'Bạn đã đánh giá đối tượng này rồi'
 }

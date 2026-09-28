@@ -7,13 +7,11 @@ import {
   LoginReqBody,
   MealRecommendationReqBody,
   LogoutReqBody,
-  RecommendPTReqQuery,
   RefreshTokenReqBody,
   RegisterReqBody,
   ResetPasswordReqBody,
   SwapMealRecommendationReqBody,
   UpdateMeReqBody,
-  UpdatePTProfileReqBody,
   TokenPayload
 } from '~/models/requests/User.request'
 import { AccountStatus } from '~/models/schemas/User.schema'
@@ -159,41 +157,12 @@ export const updateMeController = async (
   })
 }
 
-export const updatePTProfileController = async (
-  req: Request<ParamsDictionary, Record<string, never>, UpdatePTProfileReqBody>,
-  res: Response
-) => {
-  const decoded_authorization = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-  const result = await usersService.updatePTProfile(decoded_authorization.user_id, req.body)
-  return res.status(HTTP_STATUS.OK).json({
-    message: USERS_MESSAGES.PT_PROFILE_UPDATED_SUCCESS,
-    result
-  })
-}
-
 export const updateUserStatusController = async (req: Request, res: Response) => {
   const { user_id } = req.params as { user_id: string }
   const { status } = req.body
 
   const result = await usersService.updateUserStatus(user_id, status)
   return res.status(HTTP_STATUS.OK).json(result)
-}
-
-export const registerPTServiceController = async (req: Request<{ service_id: string }>, res: Response) => {
-  const decoded_authorization = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-  const result = await usersService.registerPTService(decoded_authorization.user_id, req.params.service_id)
-
-  return res.status(HTTP_STATUS.OK).json(result)
-}
-
-export const getMyRegisteredPTServicesController = async (req: Request, res: Response) => {
-  const decoded_authorization = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-  const result = await usersService.getMyRegisteredPTServices(decoded_authorization.user_id)
-
-  return res.status(HTTP_STATUS.OK).json({
-    message: USERS_MESSAGES.REGISTERED_PT_SERVICES_RETRIEVED_SUCCESS,
-    result
-  })
 }
 
 export const recommendMealsController = async (
@@ -224,25 +193,4 @@ export const swapMealRecommendationController = async (
     message: USERS_MESSAGES.FOOD_SWAP_RECOMMENDATION_SUCCESS,
     result
   })
-}
-
-export const recommendPTController = async (
-  req: Request<ParamsDictionary, Record<string, never>, Record<string, never>, RecommendPTReqQuery>,
-  res: Response
-) => {
-  const decoded_authorization = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-  const limit = Number(req.query.limit || 3)
-  const result = await usersService.recommendPTs(decoded_authorization.user_id, limit)
-
-  return res.status(HTTP_STATUS.OK).json({
-    message: USERS_MESSAGES.PT_RECOMMENDATION_GENERATED_SUCCESS,
-    result
-  })
-}
-
-export const approvePTController = async (req: Request, res: Response) => {
-  const { user_id } = req.params as { user_id: string }
-  const result = await usersService.approvePTAccount(user_id)
-  
-  return res.status(HTTP_STATUS.OK).json(result)
 }

@@ -1,18 +1,28 @@
 import { Router } from 'express'
-import { createReviewController, deleteReviewController, getReviewsController, updateReviewController } from '~/controllers/reviews.controllers'
-import { createReviewValidator, getReviewsValidator, reviewIdParamValidator, updateReviewValidator } from '~/middlewares/reviews.middlewares'
+import {
+  createReviewController,
+  deleteReviewController,
+  getReviewsController,
+  updateReviewController
+} from '~/controllers/reviews.controllers'
+import {
+  createReviewValidator,
+  getReviewsValidator,
+  reviewIdParamValidator,
+  updateReviewValidator
+} from '~/middlewares/reviews.middlewares'
 import { accessTokenValidator } from '~/middlewares/users.middlewares'
 import { wrapRequestHandler } from '~/utils/handlers'
 
 const reviewsRouter = Router()
 
 /**
- * Description. Create a new review for Food or PT
+ * Description. Create a new review for Food
  * Path: /
  * Method: POST
  * Header: { Authorization: Bearer <access_token> }
  * Body: {
- *   targetType: 'Food' | 'PT',
+ *   targetType: 'Food',
  *   targetId: string,
  *   rating: number,
  *   comment: string,
@@ -26,7 +36,7 @@ reviewsRouter.post('/', accessTokenValidator, createReviewValidator, wrapRequest
  * Path: /:targetType/:targetId
  * Method: GET
  * Params: {
- *   targetType: 'Food' | 'PT',
+ *   targetType: 'Food',
  *   targetId: string
  * }
  */

@@ -5,24 +5,21 @@ import { ObjectId } from 'mongodb'
 
 export const createReviewValidator = validate(
   checkSchema({
+    foodId: { in: ['body'], optional: true, isMongoId: true },
+    orderId: { in: ['body'], optional: true, isMongoId: true },
     targetType: {
       in: ['body'],
-      notEmpty: {
-        errorMessage: USERS_MESSAGES.TARGET_TYPE_INVALID
-      },
+      optional: true,
       isIn: {
-        options: [['Food', 'PT']],
+        options: [['Food']],
         errorMessage: USERS_MESSAGES.TARGET_TYPE_INVALID
       }
     },
     targetId: {
       in: ['body'],
-      notEmpty: {
-        errorMessage: USERS_MESSAGES.TARGET_ID_INVALID
-      },
       custom: {
-        options: (value) => {
-          if (!ObjectId.isValid(value)) {
+        options: (value, { req }) => {
+          if (!ObjectId.isValid(req.body.foodId || value)) {
             throw new Error(USERS_MESSAGES.TARGET_ID_INVALID)
           }
           return true
@@ -76,7 +73,7 @@ export const getReviewsValidator = validate(
         errorMessage: USERS_MESSAGES.TARGET_TYPE_INVALID
       },
       isIn: {
-        options: [['Food', 'PT']],
+        options: [['Food']],
         errorMessage: USERS_MESSAGES.TARGET_TYPE_INVALID
       }
     },

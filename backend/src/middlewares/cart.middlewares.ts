@@ -5,6 +5,11 @@ import { validate } from '~/utils/validation'
 export const addCartItemValidator = validate(
   checkSchema(
     {
+      cartType: { optional: true, isIn: { options: [['FOOD', 'COMBO']] } },
+      deliveryDate: { optional: true, isISO8601: true },
+      mealSlot: { optional: true, isIn: { options: [['Breakfast', 'Lunch', 'Dinner', 'Snack']] } },
+      mealPlanId: { optional: true, isMongoId: true },
+      mealPlanItemId: { optional: true, isMongoId: true },
       itemId: {
         notEmpty: {
           errorMessage: USERS_MESSAGES.CART_ITEM_ID_IS_REQUIRED

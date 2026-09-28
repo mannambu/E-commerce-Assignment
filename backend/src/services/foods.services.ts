@@ -2,6 +2,7 @@ import { Filter, ObjectId } from 'mongodb'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { ErrorWithStatus } from '~/models/Errors'
 import Food, { FoodType } from '~/models/schemas/Food.schema'
+import { normalizeSearchText } from '~/models/schemas/common'
 import databaseService from './database.services'
 
 type GetFoodsQuery = {
@@ -13,7 +14,6 @@ type GetFoodsQuery = {
   maxPrice?: string
   minCalories?: string
   maxCalories?: string
-  isCombo?: string
   sortBy?: string
   order?: 'asc' | 'desc'
 }
@@ -51,12 +51,6 @@ class FoodService {
       if (tagsArray.length > 0) {
         match.tags = { $in: tagsArray }
       }
-    }
-
-    if (query.isCombo === 'true') {
-      match.isCombo = true
-    } else if (query.isCombo === 'false') {
-      match.isCombo = false
     }
 
     // Filter theo khoảng giá
@@ -146,7 +140,6 @@ class FoodService {
     const food = new Food({
       name: payload.name.trim(),
       description: payload.description.trim(),
-      details: payload.details?.trim() || '',
       images: payload.images,
       price: payload.price,
       calories: payload.calories,
@@ -162,7 +155,7 @@ class FoodService {
       tags: payload.tags.map((tag) => tag.trim()),
       stock: payload.stock,
       isActive: payload.isActive ?? true,
-      isCombo: payload.isCombo ?? false
+      goalTags: payload.goalTags || []
     })
 
     const result = await databaseService.foods.insertOne(food)
@@ -173,7 +166,7 @@ class FoodService {
     }
   }
 
-  async updateFood(food_id: string, payload: any) {
+  async updateFood(food_id: string, payload: Partial<FoodType>) {
     if (!ObjectId.isValid(food_id)) {
       throw new ErrorWithStatus({
         message: 'ID món ăn không hợp lệ',
@@ -181,10 +174,29 @@ class FoodService {
       })
     }
 
+    const update: Partial<Food> = {}
+    if (payload.name !== undefined) {
+      update.name = payload.name.trim()
+      update.normalizedName = normalizeSearchText(update.name)
+    }
+    for (const key of [
+      'description',
+      'images',
+      'price',
+      'calories',
+      'nutrition',
+      'ingredients',
+      'tags',
+      'goalTags',
+      'stock',
+      'isActive'
+    ] as const) {
+      if (payload[key] !== undefined) Object.assign(update, { [key]: payload[key] })
+    }
     const updatedFood = await databaseService.foods.findOneAndUpdate(
       { _id: new ObjectId(food_id) },
-      { 
-        $set: payload,
+      {
+        $set: update,
         $currentDate: { updatedAt: true }
       },
       { returnDocument: 'after' } // Trả về data mới sau khi update

@@ -10,7 +10,6 @@ const foodsRouter = Router()
  * Description. Get foods list with optional filtering, sorting and pagination
  * Path: /
  * Method: GET
-//  * Query: { page?: number, limit?: number, search?: string, tags?: string, minPrice?: number, maxPrice?: number, minCalories?: number, maxCalories?: number, isCombo?: 'true' | 'false', sortBy?: string, order?: 'asc' | 'desc' }
  */
 foodsRouter.get('/', wrapRequestHandler(getFoodsController))
 

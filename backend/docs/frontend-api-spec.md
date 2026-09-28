@@ -1,6 +1,6 @@
 # **Frontend API Spec (E-commerce Backend)**
 
-Tài liệu này tổng hợp API thực tế từ source code backend hiện tại, bao gồm các tính năng quản lý PT, Admin Dashboard, E-commerce (Food/Combo), Tracking và Upload.
+Tài liệu này tổng hợp API thực tế từ source code backend hiện tại, bao gồm Admin Dashboard, E-commerce (Food/Combo), Tracking và Upload.
 
 * **Base URL local**: http://localhost:4000  
 * **Content-Type**: application/json (Trừ các API Upload dùng multipart/form-data)  
@@ -56,7 +56,7 @@ Một số endpoint auth trả về trực tiếp object (không có result), v�
 
 ### **POST /users/register**
 
-Đăng ký Customer/PT.
+Đăng ký tài khoản Customer.
 
 Body:
 ```json
@@ -70,8 +70,7 @@ Body:
 }
 ```
 
-* role: Customer | PT (mặc định Customer)  
-* PT cần chờ duyệt, có thể không nhận token ngay.
+* role: chỉ nhận Customer hoặc bỏ trống; Admin/Manager không đăng ký qua API này.
 
 Response (Customer):
 ```json
@@ -81,17 +80,6 @@ Response (Customer):
     "access_token": "...",  
     "refresh_token": "...",  
     "role": "Customer"  
-  }  
-}
-```
-
-Response (PT):
-```json
-{  
-  "message": "Đăng ký thành công",  
-  "result": {  
-    "requires_approval": true,  
-    "message": "Hồ sơ của bạn đã được ghi nhận..."  
   }  
 }
 ```
@@ -195,7 +183,6 @@ Response:
 
 ### **GET /users/me (Auth)**
 
-*(Lưu ý: Trường ptProfile.rating sẽ được Backend tự động cập nhật dựa trên các đánh giá của người dùng)*
 
 Response:
 ```json
@@ -208,8 +195,7 @@ Response:
     "phone": "...",  
     "role": "Customer",  
     "account_status": "Active",  
-    "healthProfile": {},  
-    "ptProfile": {}  
+    "healthProfile": {}
   }  
 }
 ```
@@ -225,55 +211,9 @@ Body (optional fields):
 }
 ```
 
-### **PATCH /users/me/pt-profile (Auth, PT)**
-
-*(Lưu ý: PT không thể tự sửa trường approvedByAdmin)*
-
-Body:
-```json
-{  
-  "experienceYears": 3,  
-  "specialties": ["weight loss", "strength"],  
-  "portfolioImages": ["https://..."]  
-}
-```
-
-### **POST /users/me/pt-services/:service_id/register (Auth, Customer)**
-
-*(Lưu ý: Mảng registeredPTServices sẽ lưu Object chứa tiến độ học (remainingSessions) thay vì chỉ lưu ID)*
-
-Response:
-```json
-{  
-  "message": "Đăng ký gói PT thành công",  
-  "result": { "_id": "...", "title": "..." }  
-}
-```
-
-### **GET /users/me/pt-services (Auth)**
-
-Response:
-```json
-{  
-  "message": "Lấy danh sách gói PT đã đăng ký thành công",  
-  "result": {  
-    "services": []  
-  }  
-}
-```
-
 ### **GET /users (Auth, Admin)**
 
-Lấy toàn bộ danh sách User, PT, Admin trên hệ thống.
-
-### **PATCH /users/:user_id/approve-pt (Auth, Admin)**
-
-Admin duyệt hồ sơ PT (Đổi account_status thành Active và cấp quyền approvedByAdmin: true).
-
-Response:
-```json
-{ "message": "Duyệt tài khoản PT thành công" }
-```
+Lấy danh sách tài khoản Customer, Admin và Manager trên hệ thống.
 
 ### **PATCH /users/:user_id/status (Auth, Admin)**
 
@@ -339,14 +279,10 @@ Body:
 }
 ```
 
-### **GET /users/recommendations/pts?limit=3 (Auth)**
-
-* limit: 1..10
-
 ## 3) Upload Media (`/medias`)
 
 ### POST `/medias/upload-image` (Auth)
-Upload một file ảnh lên hệ thống (được lưu trữ trực tiếp trên Cloudinary). Dùng cho ảnh đại diện, ảnh món ăn, portfolio của PT, hoặc ảnh đính kèm trong review.
+Upload một file ảnh lên hệ thống (được lưu trữ trực tiếp trên Cloudinary). Dùng cho ảnh đại diện, ảnh món ăn hoặc ảnh đính kèm trong review.
 
 - **Headers:**
   - `Authorization: Bearer <access_token>`
@@ -360,7 +296,7 @@ Upload một file ảnh lên hệ thống (được lưu trữ trực tiếp tr�
 {
   "message": "Upload ảnh thành công",
   "result": [
-    "https://res.cloudinary.com/dtxhrmafz/image/upload/v1775898185/pt-ecommerce/hpdsdddl4dnqe9vlnznl.jpg"
+    "https://example.com/images/food.jpg"
   ]
 }
 ```
@@ -376,14 +312,13 @@ Query optional:
 * tags (CSV, ví dụ Vegan,LowCarb)  
 * minPrice, maxPrice  
 * minCalories, maxCalories  
-* isCombo: true | false  
 * sortBy: createdAt | price | calories | name  
 * order: asc | desc
 
 **Phân quyền (Quan trọng):**
 
 * Nếu Header chứa Token của **Admin**: Trả về TOÀN BỘ thực đơn.  
-* Nếu Không có Token hoặc Token của **Customer**: Chỉ trả về món đang bán (isActive: true và stock > 0).
+* Nếu Không có Token hoặc Token của **Customer**: Chỉ trả về món đang bán (isActive: true). Lọc món còn hàng và cảnh báo dị ứng cá nhân còn cần hoàn thiện theo US-13.
 
 Response:
 ```json
@@ -417,7 +352,6 @@ Body:
 {  
   "name": "Chicken Salad",  
   "description": "...",  
-  "details": "Combo ức gà + nước ép",  
   "images": ["https://..."],  
   "price": 79000,  
   "calories": 420,  
@@ -431,11 +365,11 @@ Body:
   ],  
   "tags": ["HighProtein"],  
   "stock": 20,  
-  "isActive": true,  
-  "isCombo": false  
+  "isActive": true,
+  "goalTags": ["GainMuscle"]
 }
 ```
-* Nếu không truyền isCombo thì backend mặc định false.
+* Food không còn `details` và `isCombo`. Mô tả dùng `description`; gói tuần được chọn trong Cart/Order.
 
 ### **PATCH /foods/:food_id (Auth, Admin)**
 
@@ -469,7 +403,7 @@ Xóa/Ẩn món ăn.
 
 ### **GET /cart**
 
-Trả về cả 2 giỏ: foodCart và comboCart.
+DB chỉ lưu một giỏ/người. Response vẫn có `foodCart` và `comboCart` để hỗ trợ giao diện cũ; hai phần dùng cùng cartId, chỉ phần tương ứng chế độ đang chọn có món.
 
 Response:
 ```json
@@ -493,7 +427,10 @@ Response:
       "cartType": "COMBO",  
       "items": [  
         {  
+          "_id": "<cart_line_id>",
           "itemId": "...",  
+          "deliveryDate": "2026-10-01",
+          "mealSlot": "Lunch",
           "quantity": 1,  
           "itemName": "...",  
           "image": "...",  
@@ -519,21 +456,27 @@ Response:
 
 ### **GET /cart/food**
 
-Trả riêng giỏ FOOD.
+Trả phần FOOD; rỗng nếu giỏ hiện tại đang ở chế độ COMBO.
 
 ### **GET /cart/combo**
 
-Trả riêng giỏ COMBO.
+Trả phần COMBO; rỗng nếu giỏ hiện tại đang ở chế độ FOOD.
 
 ### **POST /cart/items**
 
 Body:
 ```json
-{ "itemId": "<food_id>", "quantity": 1 }
+{
+  "itemId": "<food_id>",
+  "quantity": 1,
+  "cartType": "COMBO",
+  "deliveryDate": "2026-10-01",
+  "mealSlot": "Lunch"
+}
 ```
-* Backend tự xác định giỏ đích theo foods.isCombo:  
-  * isCombo = false -> vào giỏ FOOD  
-  * isCombo = true -> vào giỏ COMBO
+* `cartType`: FOOD hoặc COMBO. Nếu không gửi, dùng chế độ hiện tại; giỏ mới mặc định FOOD.
+* COMBO bắt buộc có `deliveryDate`. Có thể gửi `mealPlanId` và `mealPlanItemId` nếu món lấy từ thực đơn đã lưu.
+* Cùng món nhưng khác ngày/bữa là các dòng khác nhau. Cần xóa giỏ hiện tại trước khi đổi chế độ nếu còn món.
 
 ### **PATCH /cart/items/:itemId**
 
@@ -543,6 +486,7 @@ Body:
 ```
 
 * quantity = 0 => backend xóa item khỏi giỏ.
+* Tham số `itemId` trên URL nên gửi `_id` của **dòng giỏ**. Mã Food cũ chỉ được chấp nhận khi xác định đúng một dòng; nếu món nằm ở nhiều ngày/bữa thì trả lỗi yêu cầu dùng mã dòng.
 
 ### **DELETE /cart/items/:itemId**
 
@@ -586,10 +530,14 @@ Rules:
   * COMBO khi packageType = WEEKLY_7D  
   * FOOD trong các trường hợp còn lại.  
 * WEEKLY_7D chỉ cho phép với cartType = COMBO.
+* Giỏ tuần phải có món cho đủ bảy ngày liên tiếp, bắt đầu từ `deliveryDate`. Backend dùng món của từng ngày, không nhân cùng một giỏ lên bảy lần.
+* Ship chỉ thu ngày đầu; các ngày sau có `shipping.totalFee = 0` và `waivedShippingFee` thể hiện phần miễn.
+* Nên gửi `deliveryDate` có giờ và múi giờ, ví dụ `2026-10-01T12:00:00+07:00`, để giữ giờ giao cố định.
 
 Response chứa:
 
 * cart  
+* deliveries[]: date, scheduledAt, items[], status, statusHistory[], subtotal, shipping, waivedShippingFee
 * pricing: subtotal, shippingFee, grandTotal, shippingBreakdowns[], totalCalories  
 * delivery: address, schedule, daysCount, packageType, cartType
 * payment.method
@@ -598,7 +546,9 @@ Response chứa:
 
 Body giống /orders/quote.
 
-* Tạo order xong backend **clear đúng giỏ đã checkout** (FOOD hoặc COMBO).
+* Tạo order xong backend xóa các món trong giỏ đã checkout.
+* Order trả `deliveries[].items[]`; mỗi item có `foodId`, `foodName`, `quantity`, `price`, `calories`, `nutrition` đã chốt lúc đặt. Không còn `order.items` hoặc `order.deliverySchedule`.
+* `inventoryHold` hiện là `NotReserved`; việc giữ/trừ kho, xác thực IPN và tự hủy chưa được triển khai trong đợt đơn giản hóa schema. Enum schema có `Confirmed` và trạng thái hoàn tiền, nhưng API vận hành hiện vẫn dùng luồng trạng thái cũ bên dưới.
 
 ### **GET /orders**
 
@@ -644,63 +594,7 @@ Body:
 ```
 * Chỉ Admin.
 
-## **7) PT Services (/pt)**
-
-### **GET /pt/services**
-
-Query: page, limit
-
-Response:
-```json
-{  
-  "message": "Lấy danh sách gói PT thành công",  
-  "result": {  
-    "services": [],  
-    "pagination": { "page": 1, "limit": 10, "total": 0, "total_pages": 0 }  
-  }  
-}
-```
-
-### **GET /pt/services/:service_id**
-
-### **POST /pt/services (Auth)**
-
-Body:
-```json
-{  
-  "title": "Gói giảm mỡ 1 tháng",  
-  "description": "...",  
-  "price": 1200000,  
-  "sessions": 12,  
-  "durationDays": 30,  
-  "isActive": true,  
-  "ptId": "..."  
-}
-```
-
-* Nếu user role PT: ptId bị bỏ qua, lấy từ token.  
-* Nếu role Admin: có thể truyền ptId để tạo cho PT khác.
-
-### **GET /pt/clients (Auth, PT)**
-
-PT lấy danh sách học viên đang đăng ký gói tập của mình.
-
-Response: Trả về mảng thông tin user (đã loại bỏ field nhạy cảm), kèm theo mảng registeredPTServices chứa Object tiến độ học.
-
-### **PATCH /pt/clients/:client_id/services/:service_id/check-in (Auth, PT)**
-
-PT Check-in trừ đi 1 buổi tập. Backend sẽ báo lỗi nếu remainingSessions = 0.
-
-Response:
-```json
-{ "message": "Check-in thành công. Học viên còn 11 buổi." }
-```
-
-### **GET /pt/debug/user-by-username?username=...**
-
-Route debug nội bộ.
-
-## **8) Admin Dashboard (/admin)**
+## **7) Admin Dashboard (/admin)**
 
 ### **GET /admin/dashboard-stats (Auth, Admin)**
 
@@ -712,12 +606,10 @@ Response:
   "message": "Lấy thống kê Dashboard thành công",  
   "result": {  
     "users": {  
-      "customers": 9,  
-      "pts": 11  
+      "customers": 9
     },  
     "products": {  
-      "foods": 50,  
-      "ptServices": 10  
+      "foods": 50
     },  
     "revenue": {  
       "overall": {  
@@ -738,7 +630,7 @@ Response:
 }
 ```
 
-## **9 Tracking (/tracking) - Auth bắt buộc**
+## **8) Tracking (/tracking) - Auth bắt buộc**
 
 ### **PUT /tracking/weight**
 
@@ -759,8 +651,8 @@ Response:
 {  
   "message": "Lấy lịch sử cân nặng thành công",  
   "result": [  
-    { "date": "2026-04-01T00:00:00.000Z", "weightKg": 73 },  
-    { "date": "2026-04-07T00:00:00.000Z", "weightKg": 72.5 }  
+    { "date": "2026-04-01", "weightKg": 73 },
+    { "date": "2026-04-07", "weightKg": 72.5 }
   ]  
 }
 ```
@@ -799,35 +691,39 @@ Response:
   "message": "Lấy calo hôm nay thành công",  
   "result": {  
     "targetCalories": 2100,  
-    "date": "2026-04-08T00:00:00.000Z",  
+    "date": "2026-04-08",
     "caloriesConsumed": 920,  
     "entries": []  
   }  
 }
 ```
 
-* Khi order chuyển Completed, backend tự ghi calories theo từng ngày trong deliverySchedule.
+* Ngày tracking trả chuỗi YYYY-MM-DD theo múi giờ Việt Nam. `history[]` có `targetCalories` của từng ngày và `entries[]` là các món đã ăn.
+* Khi order chuyển Completed, backend ghi món trong các delivery đã Completed vào đúng `delivery.date`. Gọi lại cùng suất ăn không cộng trùng.
+* Cân nặng, món đã ăn và lịch sử đổi hồ sơ nằm chung collection `daily_health_logs`; mỗi người chỉ có một document/ngày.
 
-## **10) Reviews (/reviews)**
+## **9) Reviews (/reviews)**
 
 ### **POST /reviews (Auth)**
 
 Body:
 ```json
 {  
-  "targetType": "Food",  
-  "targetId": "...",  
+  "foodId": "<food_id>",
+  "orderId": "<completed_order_id>",
   "rating": 5,  
   "comment": "Rất ngon",  
   "images": ["https://..."]  
 }
 ```
 
-*(Lưu ý: Sau khi tạo mới, Backend sẽ TỰ ĐỘNG tính lại Average Rating và cập nhật vào Profile của đối tượng được đánh giá).*
+* Chỉ người có đơn Completed chứa món mới được đánh giá; mỗi đơn một đánh giá. Nên gửi `orderId` để chọn đúng lần mua.
+* Body cũ `targetType: Food` + `targetId` vẫn được nhận; DB chỉ lưu `foodId` và `orderId`.
+* Sau khi tạo/sửa/xóa, backend tính lại rating món từ những đánh giá đang hiển thị.
 
 ### **GET /reviews/:targetType/:targetId**
 
-* targetType: Food | PT
+* targetType: Food
 
 Response:
 ```json
@@ -868,19 +764,17 @@ Response:
 }
 ```
 
-## **11) Gợi ý tích hợp frontend (quan trọng)**
+## **10) Gợi ý tích hợp frontend (quan trọng)**
 
 1. **Chuẩn hóa client theo envelope:**  
    * Ưu tiên đọc response.result, fallback đọc root object cho vài endpoint auth.  
 2. **Interceptor xử lý token:**  
    * Khi 401, gọi /users/refresh-token, cập nhật access token, retry request.  
 3. **Form validation phía frontend nên bám các rule backend:**  
-   * Password mạnh, days chỉ 1|7, limit PT 1..10, v.v.  
+   * Password mạnh, days chỉ 1|7, v.v.
 4. **Đơn hàng:**  
    * Luôn gọi /orders/quote trước để hiển thị chi phí dự kiến.  
 5. **Cart:**  
    * Sau add/update/remove nên dùng response cart mới trả về để sync UI.  
-6. **Tiến độ tập luyện (PT Dashboard)**   
-   * Khi PT gọi API Check-in thành công, Frontend nên trừ trực tiếp số remainingSessions trên UI State thay vì gọi lại hàm GET để giảm tải server.  
-7. **Hiển thị Doanh thu Admin** 
+6. **Hiển thị Doanh thu Admin**
    * Cấu trúc revenue.breakdown sinh ra để vẽ trực tiếp biểu đồ tròn (Pie Chart). overall và thisMonth dùng cho thẻ thông kê nhanh (Stat Cards).

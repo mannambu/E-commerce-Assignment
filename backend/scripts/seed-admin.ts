@@ -45,11 +45,7 @@ async function runSeedAdmin() {
       role: UserRole.ADMIN,
       account_status: AccountStatus.ACTIVE,
       loginAttempts: 0,
-      forgot_password_token: '',
-      notifications: [],
-      weightTracking: [],
-      calorieTracking: [],
-      registeredPTServices: []
+      forgot_password_token: ''
     })
 
     const result = await usersCollection.updateOne(
@@ -63,10 +59,7 @@ async function runSeedAdmin() {
           account_status: admin.account_status,
           loginAttempts: admin.loginAttempts,
           forgot_password_token: admin.forgot_password_token,
-          notifications: admin.notifications,
-          weightTracking: admin.weightTracking,
-          calorieTracking: admin.calorieTracking,
-          registeredPTServices: admin.registeredPTServices,
+
           updated_at: new Date()
         },
         $setOnInsert: {

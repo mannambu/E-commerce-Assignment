@@ -456,8 +456,7 @@ const SAMPLE_FOODS: Food[] = [
     ],
     tags: ['Combo', 'MealPlan', 'FullDay'],
     stock: 120,
-    isActive: true,
-    isCombo: true
+    isActive: true
   }),
   new Food({
     name: 'Gói Cân Bằng 2 Bữa',
@@ -475,8 +474,7 @@ const SAMPLE_FOODS: Food[] = [
     ],
     tags: ['Combo', 'MealPlan', 'Office'],
     stock: 140,
-    isActive: true,
-    isCombo: true
+    isActive: true
   }),
   new Food({
     name: 'Gói Lean Cut',
@@ -493,8 +491,7 @@ const SAMPLE_FOODS: Food[] = [
     ],
     tags: ['Combo', 'MealPlan', 'LowCalorie'],
     stock: 95,
-    isActive: true,
-    isCombo: true
+    isActive: true
   }),
   new Food({
     name: 'Gói Tăng Cơ Protein+',
@@ -512,8 +509,7 @@ const SAMPLE_FOODS: Food[] = [
     ],
     tags: ['Combo', 'MealPlan', 'HighProtein'],
     stock: 90,
-    isActive: true,
-    isCombo: true
+    isActive: true
   }),
   new Food({
     name: 'Gói Eat Clean Gia Đình',
@@ -531,8 +527,7 @@ const SAMPLE_FOODS: Food[] = [
     ],
     tags: ['Combo', 'MealPlan', 'Family'],
     stock: 70,
-    isActive: true,
-    isCombo: true
+    isActive: true
   }),
   new Food({
     name: 'COMBO 04 GÓI ỨC GÀ VIÊN (MỚI)',
@@ -550,8 +545,7 @@ const SAMPLE_FOODS: Food[] = [
     ],
     tags: ['Combo', 'HighProtein', 'Gym', 'EatClean'],
     stock: 120,
-    isActive: true,
-    isCombo: true
+    isActive: true
   })
 ]
 

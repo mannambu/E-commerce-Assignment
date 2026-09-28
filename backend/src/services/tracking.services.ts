@@ -1,291 +1,245 @@
-import { ObjectId } from 'mongodb'
+import { ClientSession, ObjectId } from 'mongodb'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { USERS_MESSAGES } from '~/constants/messages'
 import { ErrorWithStatus } from '~/models/Errors'
 import Order from '~/models/schemas/Order.schema'
+import DailyHealthLog, { ConsumedMeal, HealthProfileChange } from '~/models/schemas/DailyHealthLog.schema'
+import User, { HealthProfile } from '~/models/schemas/User.schema'
+import { MealSlot, NutritionSnapshot, toLocalDate } from '~/models/schemas/common'
+import { calculateHealthMetrics } from '~/utils/health'
 import databaseService from '~/services/database.services'
 
-type CalorieLogSourceType = 'Order' | 'Manual'
-
-type CaloriesHistoryEntry = {
-  date: Date
-  caloriesConsumed: number
-  entries: Array<{
-    sourceType: CalorieLogSourceType | 'Legacy'
-    sourceId?: string
-    caloriesConsumed: number
-    note?: string
-  }>
-}
-
-type CreateCaloriesLogPayload = {
+type CaloriesPayload = {
   date: string | Date
   caloriesConsumed: number
-  sourceType: CalorieLogSourceType
+  sourceType: ConsumedMeal['sourceType']
   sourceId?: string
+  sourceItemId?: string
+  consumptionKey?: string
+  foodName?: string
+  mealSlot?: MealSlot
+  quantity?: number
+  nutritionConsumed?: NutritionSnapshot
   note?: string
-}
-
-type LegacyCalorieTracking = {
-  date: Date
-  caloriesConsumed: number
 }
 
 class TrackingService {
   private normalizeDate(value: string | Date) {
-    const date = new Date(value)
-
-    if (Number.isNaN(date.getTime())) {
-      throw new ErrorWithStatus({
-        message: 'Định dạng ngày không hợp lệ',
-        status: HTTP_STATUS.BAD_REQUEST
-      })
+    try {
+      return toLocalDate(value)
+    } catch {
+      throw new ErrorWithStatus({ message: 'Ngày không hợp lệ', status: HTTP_STATUS.BAD_REQUEST })
     }
-
-    date.setHours(0, 0, 0, 0)
-    return date
   }
 
-  private aggregateHistory(
-    items: Array<
-      | LegacyCalorieTracking
-      | ({ sourceType: CalorieLogSourceType | 'Legacy'; sourceId?: string; note?: string } & LegacyCalorieTracking)
-    >
-  ) {
-    const buckets = new Map<string, CaloriesHistoryEntry>()
-
-    for (const item of items) {
-      const normalizedDate = this.normalizeDate(item.date)
-      const key = String(normalizedDate.getTime())
-      const current = buckets.get(key) || {
-        date: normalizedDate,
-        caloriesConsumed: 0,
-        entries: []
-      }
-
-      current.caloriesConsumed += Number(item.caloriesConsumed || 0)
-      current.entries.push({
-        sourceType: 'sourceType' in item ? item.sourceType : 'Legacy',
-        sourceId: 'sourceId' in item && item.sourceId ? item.sourceId : undefined,
-        caloriesConsumed: Number(item.caloriesConsumed || 0),
-        note: 'note' in item ? item.note : undefined
-      })
-
-      buckets.set(key, current)
-    }
-
-    return [...buckets.values()].sort((a, b) => a.date.getTime() - b.date.getTime())
-  }
-
-  private async getUserOrThrow(user_id: string) {
+  private async getUserOrThrow(userId: string, session?: ClientSession) {
     const user = await databaseService.users.findOne(
-      { _id: new ObjectId(user_id) },
-      {
-        projection: {
-          healthProfile: 1,
-          calorieTracking: 1,
-          weightTracking: 1
-        }
-      }
+      { _id: new ObjectId(userId) },
+      { projection: { healthProfile: 1 }, session }
     )
-
-    if (!user) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.USER_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
-      })
-    }
-
+    if (!user) throw new ErrorWithStatus({ message: USERS_MESSAGES.USER_NOT_FOUND, status: HTTP_STATUS.NOT_FOUND })
     return user
   }
 
-  async recordCaloriesLog(user_id: string, payload: CreateCaloriesLogPayload) {
-    await this.getUserOrThrow(user_id)
-    const normalizedDate = this.normalizeDate(payload.date)
-    const caloriesConsumed = Number(payload.caloriesConsumed)
-
-    if (!Number.isFinite(caloriesConsumed) || caloriesConsumed < 0) {
-      throw new ErrorWithStatus({
-        message: 'Calories tiêu thụ phải là số không âm',
-        status: HTTP_STATUS.BAD_REQUEST
-      })
+  private async ensureDay(user: User, date: string, session?: ClientSession) {
+    const now = new Date()
+    const day: DailyHealthLog = {
+      userId: user._id!,
+      date,
+      targetSnapshot: {
+        calories: user.healthProfile?.targetCalories || 0,
+        nutrition: user.healthProfile?.macroDistribution
+      },
+      meals: [],
+      profileChanges: [],
+      createdAt: now,
+      updatedAt: now
     }
-
-    if (payload.sourceType === 'Order' && payload.sourceId) {
-      const existing = await databaseService.calorieLogs.findOne({
-        userId: new ObjectId(user_id),
-        sourceType: payload.sourceType,
-        sourceId: new ObjectId(payload.sourceId),
-        date: normalizedDate
-      })
-
-      if (existing) {
-        return existing
-      }
+    try {
+      await databaseService.dailyHealthLogs.updateOne(
+        { userId: user._id!, date },
+        { $setOnInsert: day },
+        { upsert: true, session }
+      )
+    } catch (error) {
+      // Hai request cùng tạo ngày mới: chỉ bỏ qua duplicate ngoài transaction.
+      if (session || (error as { code?: number }).code !== 11000) throw error
     }
+  }
 
-    const log = {
-      userId: new ObjectId(user_id),
-      date: normalizedDate,
-      caloriesConsumed,
+  async recordCaloriesLog(userId: string, payload: CaloriesPayload) {
+    const user = await this.getUserOrThrow(userId)
+    const date = this.normalizeDate(payload.date)
+    const calories = Number(payload.caloriesConsumed)
+    if (!Number.isFinite(calories) || calories < 0) {
+      throw new ErrorWithStatus({ message: 'Calories phải là số không âm', status: HTTP_STATUS.BAD_REQUEST })
+    }
+    await this.ensureDay(user, date)
+    const mealId = new ObjectId()
+    const meal: ConsumedMeal = {
+      _id: mealId,
+      consumptionKey: payload.consumptionKey || `manual:${mealId}`,
       sourceType: payload.sourceType,
       sourceId: payload.sourceId ? new ObjectId(payload.sourceId) : undefined,
-      note: payload.note || '',
-      createdAt: new Date(),
-      updatedAt: new Date()
-    }
-
-    const result = await databaseService.calorieLogs.insertOne(log)
-
-    return {
-      _id: result.insertedId,
-      ...log
-    }
-  }
-
-  async recordOrderCalories(user_id: string, order: Pick<Order, '_id' | 'items' | 'deliverySchedule' | 'note'>) {
-    const caloriesByDate = new Map<number, number>()
-
-    for (const item of order.items) {
-      const normalizedDate = this.normalizeDate(item.deliveryDate)
-      const dateKey = normalizedDate.getTime()
-      const calories = Number(item.quantity || 0) * Number(item.calories || 0)
-      const current = caloriesByDate.get(dateKey) || 0
-      caloriesByDate.set(dateKey, current + calories)
-    }
-
-    const createdLogs = []
-    for (const [dateKey, calories] of caloriesByDate.entries()) {
-      if (calories <= 0) continue
-
-      const created = await this.recordCaloriesLog(user_id, {
-        date: new Date(dateKey),
-        caloriesConsumed: calories,
-        sourceType: 'Order',
-        sourceId: order._id ? String(order._id) : undefined,
-        note: order.note || ''
-      })
-
-      createdLogs.push(created)
-    }
-
-    return createdLogs
-  }
-
-  async addManualCalories(user_id: string, payload: { date: string; caloriesConsumed: number; note?: string }) {
-    return this.recordCaloriesLog(user_id, {
-      date: payload.date,
-      caloriesConsumed: payload.caloriesConsumed,
-      sourceType: 'Manual',
+      sourceItemId: payload.sourceItemId ? new ObjectId(payload.sourceItemId) : undefined,
+      foodName: payload.foodName || payload.note || 'Món nhập tay',
+      mealSlot: payload.mealSlot,
+      quantity: payload.quantity ?? 1,
+      caloriesConsumed: calories,
+      nutritionConsumed: payload.nutritionConsumed,
+      consumedAt: new Date(),
       note: payload.note || ''
+    }
+    // Kiểm tra mã và thêm món trong cùng một update, không dùng find rồi push.
+    await databaseService.dailyHealthLogs.updateOne(
+      { userId: user._id!, date, 'meals.consumptionKey': { $ne: meal.consumptionKey } },
+      { $push: { meals: meal }, $currentDate: { updatedAt: true } }
+    )
+    const day = await databaseService.dailyHealthLogs.findOne({ userId: user._id!, date })
+    return day!.meals.find((entry) => entry.consumptionKey === meal.consumptionKey)!
+  }
+
+  async recordOrderCalories(userId: string, order: Order) {
+    const logs: ConsumedMeal[] = []
+    for (const delivery of order.deliveries) {
+      if (delivery.status !== 'Completed') continue
+      for (const item of delivery.items) {
+        const consumptionKey = item.mealPlanItemId
+          ? `meal-plan:${item.mealPlanItemId}`
+          : `order:${order._id}:item:${item._id}`
+        logs.push(
+          await this.recordCaloriesLog(userId, {
+            date: delivery.date,
+            sourceType: 'Order',
+            sourceId: String(order._id),
+            sourceItemId: String(item._id),
+            consumptionKey,
+            foodName: item.foodName,
+            mealSlot: item.mealSlot,
+            quantity: item.quantity,
+            caloriesConsumed: item.calories * item.quantity,
+            nutritionConsumed: {
+              protein: item.nutrition.protein * item.quantity,
+              carb: item.nutrition.carb * item.quantity,
+              fat: item.nutrition.fat * item.quantity
+            },
+            note: order.note
+          })
+        )
+      }
+    }
+    return logs
+  }
+
+  async addManualCalories(
+    userId: string,
+    payload: { date: string; caloriesConsumed: number; note?: string; foodName?: string }
+  ) {
+    return this.recordCaloriesLog(userId, { ...payload, sourceType: 'Manual' })
+  }
+
+  async saveHealthProfile(userId: string, profile: HealthProfile, reason: HealthProfileChange['reason']) {
+    await databaseService.withTransaction(async (session) => {
+      const user = await this.getUserOrThrow(userId, session)
+      const date = this.normalizeDate(new Date())
+      await this.ensureDay(user, date, session)
+      const snapshot = { ...profile, version: (user.healthProfile?.version || 0) + 1, calculatedAt: new Date() }
+      await databaseService.users.updateOne(
+        { _id: user._id },
+        { $set: { healthProfile: snapshot }, $currentDate: { updated_at: true } },
+        { session }
+      )
+      await databaseService.dailyHealthLogs.updateOne(
+        { userId: user._id!, date },
+        {
+          $set: { targetSnapshot: { calories: snapshot.targetCalories || 0, nutrition: snapshot.macroDistribution } },
+          $push: { profileChanges: { changedAt: new Date(), reason, profileSnapshot: snapshot } },
+          $currentDate: { updatedAt: true }
+        },
+        { session }
+      )
     })
   }
 
-  async updateWeight(user_id: string, payload: { date: string; weightKg: number }) {
-    const user = await this.getUserOrThrow(user_id)
-
-    const inputDate = new Date(payload.date)
-    inputDate.setHours(0, 0, 0, 0)
-    const existingIndex =
-      user.weightTracking?.findIndex((item) => {
-        const d = new Date(item.date)
-        d.setHours(0, 0, 0, 0)
-        return d.getTime() === inputDate.getTime()
-      }) ?? -1
-
-    if (existingIndex >= 0) {
+  async updateWeight(userId: string, payload: { date: string; weightKg: number }) {
+    const date = this.normalizeDate(payload.date)
+    const weightKg = Number(payload.weightKg)
+    if (!Number.isFinite(weightKg) || weightKg < 25 || weightKg > 300) {
+      throw new ErrorWithStatus({ message: 'Cân nặng phải từ 25 đến 300 kg', status: HTTP_STATUS.BAD_REQUEST })
+    }
+    await databaseService.withTransaction(async (session) => {
+      const user = await this.getUserOrThrow(userId, session)
+      await this.ensureDay(user, date, session)
+      await databaseService.dailyHealthLogs.updateOne(
+        { userId: user._id!, date },
+        { $set: { weightKg, weightRecordedAt: new Date() }, $currentDate: { updatedAt: true } },
+        { session }
+      )
+      // Sửa số cân của ngày cũ không được thay cân hiện tại của hồ sơ.
+      const newerWeight = await databaseService.dailyHealthLogs.findOne(
+        { userId: user._id!, date: { $gt: date }, weightKg: { $exists: true } },
+        { session }
+      )
+      if (!user.healthProfile || newerWeight) return
+      const profile: HealthProfile = {
+        ...user.healthProfile,
+        weightKg,
+        ...calculateHealthMetrics({ ...user.healthProfile, weightKg }),
+        version: (user.healthProfile.version || 0) + 1,
+        calculatedAt: new Date()
+      }
       await databaseService.users.updateOne(
+        { _id: user._id },
+        { $set: { healthProfile: profile }, $currentDate: { updated_at: true } },
+        { session }
+      )
+      const changedDate = this.normalizeDate(new Date())
+      await this.ensureDay(user, changedDate, session)
+      await databaseService.dailyHealthLogs.updateOne(
+        { userId: user._id!, date: changedDate },
         {
-          _id: new ObjectId(user_id),
-          'weightTracking.date': user.weightTracking[existingIndex].date
+          $set: { targetSnapshot: { calories: profile.targetCalories!, nutrition: profile.macroDistribution } },
+          $push: { profileChanges: { changedAt: new Date(), reason: 'WeightUpdate', profileSnapshot: profile } },
+          $currentDate: { updatedAt: true }
         },
-        {
-          $set: {
-            'weightTracking.$.weightKg': payload.weightKg
-          },
-          $currentDate: {
-            updated_at: true
-          }
-        }
+        { session }
       )
-    } else {
-      await databaseService.users.updateOne(
-        { _id: new ObjectId(user_id) },
-        {
-          $push: {
-            weightTracking: {
-              date: inputDate,
-              weightKg: payload.weightKg
-            }
-          },
-          $currentDate: {
-            updated_at: true
-          }
-        }
-      )
-    }
-
-    return {
-      date: inputDate,
-      weightKg: payload.weightKg
-    }
+    })
+    return { date, weightKg }
   }
 
-  async getWeightHistory(user_id: string) {
-    const user = await this.getUserOrThrow(user_id)
-
-    const history = [...(user.weightTracking || [])].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-    )
-
-    return history
-  }
-
-  async getDailyCalories(user_id: string) {
-    const user = await this.getUserOrThrow(user_id)
-
-    const logs = await databaseService.calorieLogs
-      .find({ userId: new ObjectId(user_id) })
-      .sort({ date: 1, createdAt: 1 })
+  async getWeightHistory(userId: string) {
+    await this.getUserOrThrow(userId)
+    const days = await databaseService.dailyHealthLogs
+      .find({ userId: new ObjectId(userId), weightKg: { $exists: true } }, { projection: { date: 1, weightKg: 1 } })
+      .sort({ date: 1 })
       .toArray()
-
-    const legacyHistory = (user.calorieTracking || []).map((item) => ({
-      date: item.date,
-      caloriesConsumed: item.caloriesConsumed,
-      sourceType: 'Legacy' as const,
-      note: 'Dữ liệu lịch sử cũ'
-    }))
-
-    const history = this.aggregateHistory([
-      ...legacyHistory,
-      ...logs.map((log) => ({
-        date: log.date,
-        caloriesConsumed: log.caloriesConsumed,
-        sourceType: log.sourceType,
-        sourceId: log.sourceId ? String(log.sourceId) : undefined,
-        note: log.note
-      }))
-    ])
-
-    return {
-      targetCalories: user.healthProfile?.targetCalories || 0,
-      history
-    }
+    return days.map((day) => ({ date: day.date, weightKg: day.weightKg }))
   }
 
-  async getTodayCalories(user_id: string) {
-    const { targetCalories, history } = await this.getDailyCalories(user_id)
-    const today = this.normalizeDate(new Date())
-    const todayEntry = history.find((item) => item.date.getTime() === today.getTime())
+  async getDailyCalories(userId: string) {
+    const user = await this.getUserOrThrow(userId)
+    const days = await databaseService.dailyHealthLogs.find({ userId: user._id! }).sort({ date: 1 }).toArray()
+    const history = days.map((day) => ({
+      date: day.date,
+      targetCalories: day.targetSnapshot.calories,
+      caloriesConsumed: day.meals.reduce((sum, meal) => sum + meal.caloriesConsumed, 0),
+      entries: day.meals
+    }))
+    return { targetCalories: user.healthProfile?.targetCalories || 0, history }
+  }
 
+  async getTodayCalories(userId: string) {
+    const { targetCalories, history } = await this.getDailyCalories(userId)
+    const date = this.normalizeDate(new Date())
+    const today = history.find((day) => day.date === date)
     return {
-      targetCalories,
-      date: today,
-      caloriesConsumed: todayEntry?.caloriesConsumed || 0,
-      entries: todayEntry?.entries || []
+      date,
+      targetCalories: today?.targetCalories ?? targetCalories,
+      caloriesConsumed: today?.caloriesConsumed || 0,
+      entries: today?.entries || []
     }
   }
 }
 
-const trackingService = new TrackingService()
-export default trackingService
+export default new TrackingService()

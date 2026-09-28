@@ -9,7 +9,8 @@ import {
   UpdateOrderStatusReqBody,
   UpdatePaymentStatusReqBody
 } from '~/models/requests/CartOrder.request'
-import Order, { OrderStatus, PackageType, ShippingBreakdown } from '~/models/schemas/Order.schema'
+import Order, { DeliveryPeriod, OrderStatus, PackageType, ShippingBreakdown } from '~/models/schemas/Order.schema'
+import { PAYMENT_TIMEOUT_MINUTES, toLocalDate } from '~/models/schemas/common'
 import { UserRole } from '~/models/schemas/User.schema'
 import { CartTypeValue } from '~/models/schemas/Cart.schema'
 import cartService from '~/services/cart.services'
@@ -198,7 +199,8 @@ class OrdersService {
     if (packageType === 'WEEKLY_7D') {
       return Array.from({ length: this.WEEKLY_PACKAGE_DAYS }).map((_, index) => {
         const date = new Date(startDate)
-        date.setDate(startDate.getDate() + index)
+        // Dùng UTC để múi giờ của server không làm lệch giờ giao giữa các ngày.
+        date.setUTCDate(startDate.getUTCDate() + index)
         return date
       })
     }
@@ -253,21 +255,66 @@ class OrdersService {
       payload.distanceKm !== undefined
         ? Number(payload.distanceKm)
         : await this.getDistanceKmFromAddress(payload.deliveryAddress)
-    console.info('[shipping] quote inputs', {
-      address: payload.deliveryAddress,
-      cartType,
-      distanceKm
-    })
 
     const shippingBreakdown = this.calculateShippingForDistance(distanceKm, cartType)
-    console.info('[shipping] breakdown', shippingBreakdown)
-    const shippingBreakdowns = schedule.map(() => shippingBreakdown)
+    if (cart.items.some((item) => !item.availability.isActive || !item.availability.inStock)) {
+      throw new ErrorWithStatus({
+        message: 'Giỏ có món ngừng bán hoặc không đủ tồn kho',
+        status: HTTP_STATUS.BAD_REQUEST
+      })
+    }
+    const dates = schedule.map((date) => toLocalDate(date))
+    if (
+      cart.items.some((item) => (item.deliveryDate ? !dates.includes(item.deliveryDate) : packageType === 'WEEKLY_7D'))
+    ) {
+      throw new ErrorWithStatus({
+        message: 'Ngày giao trong giỏ không khớp lịch đặt hàng',
+        status: HTTP_STATUS.BAD_REQUEST
+      })
+    }
+    const now = new Date()
+    const deliveries: DeliveryPeriod[] = schedule.map((scheduledAt, index) => {
+      const date = dates[index]
+      const lines = cart.items.filter(
+        (item) => item.deliveryDate === date || (!item.deliveryDate && packageType === 'ONE_DAY')
+      )
+      if (!lines.length) {
+        throw new ErrorWithStatus({ message: `Chưa có món cho ngày ${date}`, status: HTTP_STATUS.BAD_REQUEST })
+      }
+      return {
+        _id: new ObjectId(),
+        date,
+        scheduledAt,
+        items: lines.map((item) => ({
+          _id: new ObjectId(),
+          foodId: item.itemId,
+          foodName: item.itemName,
+          image: item.image || undefined,
+          quantity: item.quantity,
+          price: item.unitPrice,
+          calories: item.unitCalories,
+          nutrition: item.nutrition,
+          mealSlot: item.mealSlot,
+          mealPlanId: item.mealPlanId,
+          mealPlanItemId: item.mealPlanItemId
+        })),
+        status: 'Pending',
+        statusHistory: [{ status: 'Pending', changedAt: now }],
+        subtotal: lines.reduce((sum, item) => sum + item.lineTotal, 0),
+        shipping:
+          index === 0 ? { ...shippingBreakdown } : { ...shippingBreakdown, baseFee: 0, extraFee: 0, totalFee: 0 },
+        waivedShippingFee: index === 0 ? 0 : shippingBreakdown.totalFee,
+        refundedAmount: 0
+      }
+    })
+    const shippingBreakdowns = deliveries.map((delivery) => delivery.shipping)
     const shippingFee = shippingBreakdowns.reduce((sum, item) => sum + item.totalFee, 0)
-    const subtotal = cart.summary.subtotal * schedule.length
-    const totalCalories = cart.summary.totalCalories * schedule.length
+    const subtotal = deliveries.reduce((sum, delivery) => sum + delivery.subtotal, 0)
+    const totalCalories = cart.summary.totalCalories
 
     return {
       cart,
+      deliveries,
       pricing: {
         subtotal,
         shippingFee,
@@ -291,42 +338,33 @@ class OrdersService {
 
   async createOrder(userId: string, payload: CreateOrderReqBody) {
     const quote = await this.quoteOrder(userId, payload)
-
-    const items = quote.delivery.schedule.flatMap((deliveryDate) =>
-      quote.cart.items.map((item) => ({
-        itemId: new ObjectId(String(item.itemId)),
-        quantity: item.quantity,
-        price: item.unitPrice,
-        calories: item.unitCalories,
-        deliveryDate: new Date(deliveryDate)
-      }))
-    )
-
-    const order = new Order({
+    const now = new Date()
+    const orderId = new ObjectId()
+    const order: Order = {
+      _id: orderId,
       userId: new ObjectId(userId),
-      items,
+      orderCode: orderId.toHexString().toUpperCase(),
       packageType: quote.delivery.packageType,
-      deliverySchedule: quote.delivery.schedule,
-      shippingBreakdowns: quote.pricing.shippingBreakdowns,
+      deliveries: quote.deliveries,
       subtotal: quote.pricing.subtotal,
       shippingFee: quote.pricing.shippingFee,
       grandTotal: quote.pricing.grandTotal,
       status: 'Pending',
+      statusHistory: [{ status: 'Pending', changedAt: now }],
       deliveryAddress: payload.deliveryAddress,
       note: payload.note || '',
-      payment: {
-        method: payload.paymentMethod,
-        status: 'Pending'
-      }
-    })
-
-    const inserted = await databaseService.orders.insertOne(order)
-    await cartService.clearCartByType(userId, quote.delivery.cartType)
-
-    return {
-      orderId: inserted.insertedId,
-      ...order
+      payment: { method: payload.paymentMethod, status: 'Pending' },
+      // Chỉ chuyển Held khi service thực sự giữ kho trong transaction.
+      inventoryHold: { status: 'NotReserved', items: [] },
+      paymentDueAt:
+        payload.paymentMethod === 'COD' ? undefined : new Date(now.getTime() + PAYMENT_TIMEOUT_MINUTES * 60000),
+      version: 0,
+      createdAt: now,
+      updatedAt: now
     }
+    await databaseService.orders.insertOne(order)
+    await cartService.clearCartByType(userId, quote.delivery.cartType)
+    return { ...order, orderId }
   }
 
   async getMyOrders(userId: string) {
@@ -392,17 +430,32 @@ class OrdersService {
       })
     }
 
-    await databaseService.orders.updateOne(
-      { _id: order._id },
+    const cancelledAt = new Date()
+    const cancelledBy = user.role === UserRole.ADMIN ? ('Admin' as const) : ('Customer' as const)
+    const deliveries = order.deliveries.map((delivery) => {
+      if (delivery.status === 'Completed' || delivery.status === 'Cancelled') return delivery
+      return {
+        ...delivery,
+        status: 'Cancelled' as const,
+        statusHistory: [
+          ...delivery.statusHistory,
+          { status: 'Cancelled' as const, changedAt: cancelledAt, actorId: user._id }
+        ],
+        cancellation: { cancelledAt, cancelledBy, reason: 'Order cancelled' }
+      }
+    })
+    const result = await databaseService.orders.updateOne(
+      { _id: order._id, status: order.status, version: order.version },
       {
-        $set: {
-          status: 'Cancelled',
-          cancelledBy: user.role === UserRole.ADMIN ? 'Admin' : 'Customer',
-          cancelledAt: new Date()
-        },
+        $set: { status: 'Cancelled', cancelledBy, cancelledAt, deliveries },
+        $push: { statusHistory: { status: 'Cancelled', changedAt: cancelledAt, actorId: user._id } },
+        $inc: { version: 1 },
         $currentDate: { updatedAt: true }
       }
     )
+    if (!result.matchedCount) {
+      throw new ErrorWithStatus({ message: 'Order changed; please reload', status: HTTP_STATUS.CONFLICT })
+    }
 
     return {
       message: USERS_MESSAGES.CANCEL_ORDER_SUCCESS
@@ -461,18 +514,29 @@ class OrdersService {
       })
     }
 
-    await databaseService.orders.updateOne(
-      { _id: order._id },
+    const changedAt = new Date()
+    const deliveries = order.deliveries.map((delivery) => {
+      if (delivery.status === 'Cancelled' || delivery.status === 'Completed') return delivery
+      return {
+        ...delivery,
+        status: payload.status,
+        statusHistory: [...delivery.statusHistory, { status: payload.status, changedAt, actorId: admin._id }]
+      }
+    })
+    const result = await databaseService.orders.updateOne(
+      { _id: order._id, status: order.status, version: order.version },
       {
-        $set: {
-          status: payload.status
-        },
+        $set: { status: payload.status, deliveries },
+        $push: { statusHistory: { status: payload.status, changedAt, actorId: admin._id } },
+        $inc: { version: 1 },
         $currentDate: { updatedAt: true }
       }
     )
-
+    if (!result.matchedCount) {
+      throw new ErrorWithStatus({ message: 'Đơn đã thay đổi, vui lòng tải lại', status: HTTP_STATUS.CONFLICT })
+    }
     if (payload.status === 'Completed') {
-      await trackingService.recordOrderCalories(String(order.userId), order)
+      await trackingService.recordOrderCalories(String(order.userId), { ...order, deliveries })
     }
 
     return {
@@ -546,7 +610,6 @@ class OrdersService {
       statusKept: order.status
     }
   }
-
 }
 
 const ordersService = new OrdersService()

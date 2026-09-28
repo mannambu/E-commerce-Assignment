@@ -9,12 +9,10 @@ Hệ thống được chia thành các module độc lập sau:
 - `src/modules/user`
 - `src/modules/health`
 - `src/modules/food`
-- `src/modules/pt`
 - `src/modules/cart`
 - `src/modules/order`
 - `src/modules/payment`
 - `src/modules/tracking`
-- `src/modules/chat-workout`
 - `src/modules/notification`
 - `src/modules/admin`
 - `src/modules/review`
@@ -27,14 +25,12 @@ Hệ thống được chia thành các module độc lập sau:
 | **User** | Thành viên B | Thành viên A | Hồ sơ cá nhân/Cài đặt tài khoản |
 | **Health** | Thành viên B | Thành viên A | Khảo sát sức khỏe/Tính BMR-TDEE/Macro |
 | **Food** | Thành viên A | Thành viên B | Danh mục món ăn/Chi tiết/Bộ lọc |
-| **PT** | Thành viên B | Thành viên A | Hồ sơ PT/Danh sách PT/Các gói dịch vụ |
 | **Cart** | Thành viên A | Thành viên B | Quản lý giỏ hàng/Số lượng/Tổng tiền |
 | **Order** | Thành viên A | Thành viên B | Thanh toán (Checkout)/Vòng đời đơn hàng |
 | **Payment** | Thành viên A | Thành viên B | Tích hợp cổng thanh toán (VNPay/MoMo) |
 | **Tracking** | Thành viên B | Thành viên A | Theo dõi cân nặng & Calo tiêu thụ hàng ngày |
-| **Chat-workout** | Thành viên B | Thành viên A | Chat (PT - Khách hàng)/Giao bài tập |
 | **Notification** | Thành viên B | Thành viên A | Thông báo chuông/Sự kiện hệ thống |
-| **Admin** | Thành viên A | Thành viên B | Trang quản trị/Duyệt PT/Vận hành |
+| **Admin** | Thành viên A | Thành viên B | Trang quản trị/Quản lý tài khoản/Vận hành |
 | **Review** | Thành viên A | Thành viên B | Đánh giá xác thực (Verified)/Chấm điểm (Rating) |
 
 ## 3. Quy Tắc Hợp Nhất (Merge Rules)
@@ -56,7 +52,6 @@ Sử dụng định dạng sau để đặt tên nhánh:
 - `feature/member-a-food-catalog`
 - `feature/member-a-checkout-payment`
 - `feature/member-b-health-metrics`
-- `feature/member-b-chat-workout`
 
 **Cho các tác vụ dọn dẹp, tích hợp (Chore branches):**
 - `chore/integration-routes`

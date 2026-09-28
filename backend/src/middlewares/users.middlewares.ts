@@ -6,7 +6,7 @@ import HTTP_STATUS from '~/constants/httpStatus'
 import { USERS_MESSAGES } from '~/constants/messages'
 import { ErrorWithStatus } from '~/models/Errors'
 import { TokenPayload } from '~/models/requests/User.request'
-import { UserRole } from '~/models/schemas/User.schema'
+import { AccountStatus, UserRole } from '~/models/schemas/User.schema'
 import databaseService from '~/services/database.services'
 import usersService from '~/services/user.services'
 import { verifyToken } from '~/utils/jwt'
@@ -111,8 +111,8 @@ export const registerValidator = validate(
       role: {
         optional: true,
         isIn: {
-          options: [[UserRole.CUSTOMER, UserRole.PT]],
-          errorMessage: USERS_MESSAGES.ROLE_MUST_BE_CUSTOMER_OR_PT
+          options: [[UserRole.CUSTOMER]],
+          errorMessage: USERS_MESSAGES.ROLE_MUST_BE_CUSTOMER
         }
       }
     },
@@ -245,7 +245,7 @@ export const refreshTokenValidator = validate(
               })
             }
 
-            const refreshTokenInDb = await databaseService.refreshTokens.findOne({ token: value })
+            const refreshTokenInDb = await databaseService.sessions.findOne({ token: value })
             if (!refreshTokenInDb) {
               throw new ErrorWithStatus({
                 message: USERS_MESSAGES.REFRESH_TOKEN_NOT_FOUND,
@@ -256,6 +256,17 @@ export const refreshTokenValidator = validate(
             if (decoded_refresh_token.token_type !== TokenType.RefreshToken) {
               throw new ErrorWithStatus({
                 message: USERS_MESSAGES.INVALID_REFRESH_TOKEN_TYPE,
+                status: HTTP_STATUS.UNAUTHORIZED
+              })
+            }
+            const user = await databaseService.users.findOne({
+              _id: new ObjectId(decoded_refresh_token.user_id),
+              role: { $in: [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER] },
+              account_status: AccountStatus.ACTIVE
+            })
+            if (!user) {
+              throw new ErrorWithStatus({
+                message: USERS_MESSAGES.REFRESH_TOKEN_NOT_FOUND,
                 status: HTTP_STATUS.UNAUTHORIZED
               })
             }
@@ -304,6 +315,17 @@ export const accessTokenValidator = validate(
             if (decoded_authorization.token_type !== TokenType.AccessToken) {
               throw new ErrorWithStatus({
                 message: USERS_MESSAGES.INVALID_ACCESS_TOKEN_TYPE,
+                status: HTTP_STATUS.UNAUTHORIZED
+              })
+            }
+            const user = await databaseService.users.findOne({
+              _id: new ObjectId(decoded_authorization.user_id),
+              role: { $in: [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER] },
+              account_status: AccountStatus.ACTIVE
+            })
+            if (!user) {
+              throw new ErrorWithStatus({
+                message: USERS_MESSAGES.ACCESS_TOKEN_IS_INVALID,
                 status: HTTP_STATUS.UNAUTHORIZED
               })
             }
@@ -499,75 +521,6 @@ export const updateMeValidator = validate(
   )
 )
 
-export const updatePTProfileValidator = validate(
-  checkSchema(
-    {
-      experienceYears: {
-        optional: true,
-        isInt: {
-          options: {
-            min: 0,
-            max: 80
-          },
-          errorMessage: USERS_MESSAGES.VALIDATION_ERROR
-        },
-        toInt: true
-      },
-      specialties: {
-        optional: true,
-        isArray: {
-          errorMessage: USERS_MESSAGES.VALIDATION_ERROR
-        },
-        custom: {
-          options: (value: unknown[]) => {
-            if (!Array.isArray(value) || value.every((item) => typeof item === 'string')) {
-              return true
-            }
-            throw new Error(USERS_MESSAGES.VALIDATION_ERROR)
-          }
-        }
-      },
-      portfolioImages: {
-        optional: true,
-        isArray: {
-          errorMessage: USERS_MESSAGES.VALIDATION_ERROR
-        },
-        custom: {
-          options: (value: unknown[]) => {
-            if (!Array.isArray(value) || value.every((item) => typeof item === 'string')) {
-              return true
-            }
-            throw new Error(USERS_MESSAGES.VALIDATION_ERROR)
-          }
-        }
-      }
-    },
-    ['body']
-  )
-)
-
-export const ptServiceIdParamValidator = validate(
-  checkSchema(
-    {
-      service_id: {
-        in: ['params'],
-        notEmpty: {
-          errorMessage: USERS_MESSAGES.PT_SERVICE_ID_IS_REQUIRED
-        },
-        custom: {
-          options: (value: string) => {
-            if (!ObjectId.isValid(value)) {
-              throw new Error(USERS_MESSAGES.PT_SERVICE_ID_IS_INVALID)
-            }
-            return true
-          }
-        }
-      }
-    },
-    ['params']
-  )
-)
-
 export const mealRecommendationValidator = validate(
   checkSchema(
     {
@@ -620,25 +573,6 @@ export const swapMealRecommendationValidator = validate(
   )
 )
 
-export const recommendPTQueryValidator = validate(
-  checkSchema(
-    {
-      limit: {
-        optional: true,
-        isInt: {
-          options: {
-            min: 1,
-            max: 10
-          },
-          errorMessage: USERS_MESSAGES.RECOMMENDATION_LIMIT_IS_INVALID
-        },
-        toInt: true
-      }
-    },
-    ['query']
-  )
-)
-
 export const updateUserStatusValidator = validate(
   checkSchema(
     {
@@ -675,18 +609,20 @@ export const debugValidator = (req: Request, res: Response, next: NextFunction) 
 export const isAdminValidator = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const decoded_authorization = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-    
+
     // Tìm user trong database dựa vào user_id lấy từ token
-    const user = await databaseService.users.findOne({ 
-      _id: new ObjectId(decoded_authorization.user_id) 
+    const user = await databaseService.users.findOne({
+      _id: new ObjectId(decoded_authorization.user_id)
     })
 
     // Kiểm tra Role
     if (!user || user.role !== UserRole.ADMIN) {
-      return next(new ErrorWithStatus({
-        message: 'Chỉ có Quản trị viên (Admin) mới được phép thực hiện hành động này',
-        status: HTTP_STATUS.FORBIDDEN
-      }))
+      return next(
+        new ErrorWithStatus({
+          message: 'Chỉ có Quản trị viên (Admin) mới được phép thực hiện hành động này',
+          status: HTTP_STATUS.FORBIDDEN
+        })
+      )
     }
 
     // Nếu đúng là Admin thì cho phép đi tiếp

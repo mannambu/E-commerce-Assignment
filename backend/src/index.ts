@@ -6,7 +6,6 @@ import ordersRouter from '~/routes/orders.routes'
 import databaseService from '~/services/database.services'
 import cors from 'cors'
 import { defaultErrorHandler } from '~/middlewares/errors.middlewares'
-import ptRouter from './routes/pt.routes'
 import foodsRouter from './routes/foods.routes'
 import trackingRouter from '~/routes/tracking.routes'
 import reviewsRouter from '~/routes/reviews.routes'
@@ -14,16 +13,7 @@ import mediasRouter from './routes/medias.routes'
 import adminRouter from './routes/admin.routes'
 
 config()
-// connect xong thì tạo index
-databaseService.connect().then(async () => {
-  await databaseService.indexUsers()
-  await databaseService.indexRefreshTokens()
-  await databaseService.indexCarts()
-  await databaseService.indexOrders()
-  await databaseService.indexCalorieLogs()
-  // await autogenerateUsers()
-  // await autogenerateTweets()
-})
+// Index được chuẩn bị riêng bằng npm run schema:indexes; startup không sửa DB cũ.
 const app = express()
 const allowedOrigins = [
   'http://localhost:3000',
@@ -52,7 +42,6 @@ app.use(express.json())
 app.use('/users', usersRouter)
 app.use('/cart', cartRouter)
 app.use('/orders', ordersRouter)
-app.use('/pt', ptRouter)
 app.use('/foods', foodsRouter)
 app.use('/tracking', trackingRouter)
 app.use('/reviews', reviewsRouter)
@@ -66,6 +55,12 @@ app.use('/medias', mediasRouter)
 app.use('/admin', adminRouter)
 
 app.use(defaultErrorHandler)
-app.listen(port, () => {
-  console.log(`Example app listening on http://localhost:${port}`)
-})
+databaseService
+  .connect()
+  .then(() => {
+    app.listen(port, () => console.log(`Server listening on http://localhost:${port}`))
+  })
+  .catch(() => {
+    console.error('Cannot connect to database; check configuration')
+    process.exitCode = 1
+  })

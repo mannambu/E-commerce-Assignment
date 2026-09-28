@@ -1,6 +1,6 @@
 import { JwtPayload } from 'jsonwebtoken'
 import { TokenType } from '~/constants/enums'
-import { HealthProfile, PTProfile, UserRole } from '~/models/schemas/User.schema'
+import { HealthProfile, UserRole } from '~/models/schemas/User.schema'
 
 export interface TokenPayload extends JwtPayload {
   user_id: string
@@ -8,6 +8,9 @@ export interface TokenPayload extends JwtPayload {
   exp: number
   iat: number
   status?: string
+  role?: UserRole
+  sessionId?: string
+  tokenVersion?: number
 }
 
 export interface RegisterReqBody {
@@ -16,9 +19,8 @@ export interface RegisterReqBody {
   password: string
   confirm_password: string
   phone: string
-  role?: UserRole
+  role?: UserRole.CUSTOMER
   healthProfile?: HealthProfile
-  ptProfile?: PTProfile
 }
 
 export interface LoginReqBody {
@@ -53,13 +55,6 @@ export interface UpdateMeReqBody {
   date_of_birth?: string
   avatar?: string | null
   healthProfile?: HealthProfile
-  ptProfile?: PTProfile
-}
-
-export interface UpdatePTProfileReqBody {
-  experienceYears?: number
-  specialties?: string[]
-  portfolioImages?: string[]
 }
 
 export interface HealthProfileIntakeReqBody {
@@ -79,8 +74,4 @@ export interface MealRecommendationReqBody {
 export interface SwapMealRecommendationReqBody {
   current_food_id: string
   target_calories?: number
-}
-
-export interface RecommendPTReqQuery {
-  limit?: string
 }

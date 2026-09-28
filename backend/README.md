@@ -2,11 +2,13 @@
 
 Backend sử dụng Node.js + Express + TypeScript + MongoDB.
 
+Database gồm 12 collection; giải thích từng collection, cấu trúc đơn/ngày giao và nhật ký sức khỏe nằm trong [database_schema.md](../docs/database_schema.md). Xem trước index bằng `npm run schema:indexes`; kiểm tra backend bằng `npm test`.
+
 ## Yêu cầu môi trường
 
 - Node.js 18+
 - npm 9+
-- MongoDB (local hoặc cloud)
+- MongoDB replica set hoặc Atlas (luồng cập nhật hồ sơ/nhật ký dùng transaction)
 
 ## Cài đặt
 
@@ -24,17 +26,21 @@ PORT=4000
 DB_USERNAME=
 DB_PASSWORD=
 DB_NAME=
+# Có thể dùng DB_URI thay cho DB_USERNAME/DB_PASSWORD.
+DB_URI=
 
 DB_USERS_COLLECTION=users
-DB_REFRESH_TOKENS_COLLECTION=refresh_tokens
+DB_SESSIONS_COLLECTION=sessions
 DB_FOODS_COLLECTION=foods
-DB_PT_SERVICES_COLLECTION=pt_services
 DB_ORDERS_COLLECTION=orders
 DB_CARTS_COLLECTION=carts
 DB_REVIEWS_COLLECTION=reviews
-DB_CHATS_COLLECTION=chats
-DB_ANALYTICS_COLLECTION=analytics
-DB_CALORIE_LOGS_COLLECTION=calorie_logs
+DB_MEAL_PLANS_COLLECTION=meal_plans
+DB_DAILY_HEALTH_LOGS_COLLECTION=daily_health_logs
+DB_NOTIFICATIONS_COLLECTION=notifications
+DB_TRANSACTIONS_COLLECTION=transactions
+DB_AUDIT_LOGS_COLLECTION=audit_logs
+DB_SETTINGS_COLLECTION=settings
 
 JWT_SECRET_ACCESS_TOKEN=
 JWT_SECRET_REFRESH_TOKEN=
@@ -57,6 +63,8 @@ CLOUDINARY_API_SECRET=
 
 ## Chạy dự án
 
+Chuẩn bị DB mới và index theo [hướng dẫn database](../docs/database_schema.md#chuẩn-bị-database) trước khi seed/chạy server. Code không tự chuyển dữ liệu Order/Cart/Tracking cũ. Script seed hiện vẫn dùng DB_USERNAME/DB_PASSWORD.
+
 ```bash
 npm run dev
 ```
@@ -73,6 +81,7 @@ npm run start
 ## Các lệnh chính
 
 - `npm run dev`: chạy server với nodemon + tsx
+- `npm test`: kiểm tra schema, đăng ký, xác thực và đánh giá món ăn bằng dữ liệu giả; không kết nối MongoDB
 - `npm run build`: build TypeScript ra `dist`
 - `npm run start`: chạy bản build
 - `npm run lint`: kiểm tra lint
@@ -84,7 +93,6 @@ npm run start
 
 - `npm run seed:admin`
 - `npm run seed:cart`
-- `npm run seed:pt-services`
 
 ## Cấu trúc thư mục (cấp 2)
 
@@ -109,7 +117,6 @@ backend/
 - `/users`
 - `/cart`
 - `/orders`
-- `/pt`
 - `/foods`
 - `/tracking`
 - `/reviews`

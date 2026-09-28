@@ -2,13 +2,12 @@ import { ObjectId } from 'mongodb'
 
 export enum UserRole {
   CUSTOMER = 'Customer',
-  PT = 'PT',
+  MANAGER = 'Manager',
   ADMIN = 'Admin'
 }
 
 export enum AccountStatus {
   ACTIVE = 'Active',
-  PENDING = 'Pending',
   LOCKED = 'Locked'
 }
 
@@ -30,62 +29,36 @@ export interface HealthProfile {
   activityLevel: ActivityLevel
   goal: HealthGoal
   allergies: string[]
+  dietaryRestrictions?: string[]
+  targetWeightKg?: number
   bmr?: number
   tdee?: number
   targetCalories?: number
   macroDistribution?: MacroDistribution
-}
-
-export interface PTProfile {
-  experienceYears: number
-  specialties: string[]
-  rating: number
-  portfolioImages: string[]
-  approvedByAdmin?: boolean
-}
-
-export interface Notification {
-  _id: ObjectId
-  type: 'Order' | 'Chat' | 'System'
-  message: string
-  read: boolean
-  createdAt: Date
-}
-
-export interface WeightTracking {
-  date: Date
-  weightKg: number
-}
-
-export interface CalorieTracking {
-  date: Date
-  caloriesConsumed: number
-}
-
-export interface RegisteredPTService {
-  serviceId: ObjectId
+  version?: number
+  calculatedAt?: Date
 }
 
 export interface UserType {
   _id?: ObjectId
   email: string
-  username: string
+  username?: string
   avatar?: string
+  date_of_birth?: Date
   password: string
-  phone: string
-  role: UserRole
-  account_status: AccountStatus
-  loginAttempts: number
+  phone?: string
+  role?: UserRole
+  account_status?: AccountStatus
+  loginAttempts?: number
   locked_until?: Date
   created_at?: Date
   updated_at?: Date
-  forgot_password_token: string // jwt hoặc '' nếu đã xác thực email
+  forgot_password_token?: string // Legacy reset JWT; empty after use, never an email verification token.
+  forgot_password_expires_at?: Date
+  password_changed_at?: Date
+  tokenVersion?: number // Increment to revoke every session after reset/lock/role changes.
+  notificationPreferences?: { newsEnabled: boolean }
   healthProfile?: HealthProfile
-  ptProfile?: PTProfile
-  notifications: Notification[]
-  weightTracking: WeightTracking[]
-  calorieTracking: CalorieTracking[]
-  registeredPTServices: ObjectId[]
 }
 
 export default class User implements UserType {
@@ -93,6 +66,7 @@ export default class User implements UserType {
   email: string
   username: string
   avatar?: string
+  date_of_birth?: Date
   password: string
   phone: string
   role: UserRole
@@ -101,32 +75,31 @@ export default class User implements UserType {
   locked_until?: Date
   created_at?: Date
   updated_at?: Date
-  forgot_password_token: string // jwt hoặc '' nếu đã xác thực email
+  forgot_password_token: string
+  forgot_password_expires_at?: Date
+  password_changed_at?: Date
+  tokenVersion: number
+  notificationPreferences: { newsEnabled: boolean }
   healthProfile?: HealthProfile
-  ptProfile?: PTProfile
-  notifications: Notification[]
-  weightTracking: WeightTracking[]
-  calorieTracking: CalorieTracking[]
-  registeredPTServices: ObjectId[]
 
   constructor(user: UserType) {
     this._id = user._id
     this.email = user.email
-    this.username = user.username
+    this.username = user.username ?? ''
     this.avatar = user.avatar
+    this.date_of_birth = user.date_of_birth
     this.password = user.password
-    this.phone = user.phone
-    this.role = user.role
-    this.account_status = user.account_status || AccountStatus.PENDING
-    this.loginAttempts = user.loginAttempts || 0
+    this.phone = user.phone ?? ''
+    this.role = user.role ?? UserRole.CUSTOMER
+    this.account_status = user.account_status ?? AccountStatus.ACTIVE
+    this.loginAttempts = user.loginAttempts ?? 0
     this.locked_until = user.locked_until
-    this.forgot_password_token = user.forgot_password_token
+    this.forgot_password_token = user.forgot_password_token ?? ''
+    this.forgot_password_expires_at = user.forgot_password_expires_at
+    this.password_changed_at = user.password_changed_at
+    this.tokenVersion = user.tokenVersion ?? 0
+    this.notificationPreferences = user.notificationPreferences ?? { newsEnabled: true }
     this.healthProfile = user.healthProfile
-    this.ptProfile = user.ptProfile
-    this.notifications = user.notifications || []
-    this.weightTracking = user.weightTracking || []
-    this.calorieTracking = user.calorieTracking || []
-    this.registeredPTServices = user.registeredPTServices || []
     const now = new Date()
     this.created_at = user.created_at || now
     this.updated_at = user.updated_at || now

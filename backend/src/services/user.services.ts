@@ -4,20 +4,15 @@ import { TokenType } from '~/constants/enums'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { USERS_MESSAGES } from '~/constants/messages'
 import { ErrorWithStatus } from '~/models/Errors'
-import { LoginReqBody, RegisterReqBody, UpdateMeReqBody, UpdatePTProfileReqBody } from '~/models/requests/User.request'
+import { LoginReqBody, RegisterReqBody, UpdateMeReqBody } from '~/models/requests/User.request'
 import Food from '~/models/schemas/Food.schema'
-import RefreshToken from '~/models/schemas/RefreshToken.schema'
-import User, {
-  AccountStatus,
-  ActivityLevel,
-  HealthGoal,
-  HealthProfile,
-  PTProfile,
-  UserRole
-} from '~/models/schemas/User.schema'
+import Session from '~/models/schemas/Session.schema'
+import User, { AccountStatus, ActivityLevel, HealthGoal, HealthProfile, UserRole } from '~/models/schemas/User.schema'
 import databaseService from '~/services/database.services'
 import { hashPassword } from '~/utils/crypto'
 import { signToken, verifyToken } from '~/utils/jwt'
+import trackingService from './tracking.services'
+import { calculateHealthMetrics } from '~/utils/health'
 import { SignOptions } from 'jsonwebtoken'
 
 config()
@@ -34,20 +29,6 @@ const parseExpiresIn = (value: string | undefined, fallbackSeconds: number): Sig
 }
 
 type MealSlot = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack'
-
-const ACTIVITY_MULTIPLIERS: Record<ActivityLevel, number> = {
-  Sedentary: 1.2,
-  Light: 1.375,
-  Moderate: 1.55,
-  Active: 1.725,
-  'Very Active': 1.9
-}
-
-const MACRO_RATIOS: Record<HealthGoal, { protein: number; carb: number; fat: number }> = {
-  LoseFat: { protein: 0.4, carb: 0.3, fat: 0.3 },
-  GainMuscle: { protein: 0.3, carb: 0.45, fat: 0.25 },
-  MaintainWeight: { protein: 0.3, carb: 0.4, fat: 0.3 }
-}
 
 const MEAL_CALORIE_RATIOS: Record<MealSlot, number> = {
   Breakfast: 0.25,
@@ -66,43 +47,6 @@ class UsersService {
           .filter(Boolean)
       )
     )
-  }
-
-  private calculateHealthMetrics(profile: {
-    gender: 'Male' | 'Female'
-    age: number
-    heightCm: number
-    weightKg: number
-    activityLevel: ActivityLevel
-    goal: HealthGoal
-  }) {
-    const bmrRaw =
-      profile.gender === 'Male'
-        ? 10 * profile.weightKg + 6.25 * profile.heightCm - 5 * profile.age + 5
-        : 10 * profile.weightKg + 6.25 * profile.heightCm - 5 * profile.age - 161
-
-    const tdeeRaw = bmrRaw * ACTIVITY_MULTIPLIERS[profile.activityLevel]
-    let targetCaloriesRaw = tdeeRaw
-
-    if (profile.goal === 'LoseFat') {
-      targetCaloriesRaw = tdeeRaw - 500
-    } else if (profile.goal === 'GainMuscle') {
-      targetCaloriesRaw = tdeeRaw + 300
-    }
-
-    const targetCalories = Math.max(1200, Math.round(targetCaloriesRaw))
-    const macroRatio = MACRO_RATIOS[profile.goal]
-
-    return {
-      bmr: Math.round(bmrRaw),
-      tdee: Math.round(tdeeRaw),
-      targetCalories,
-      macroDistribution: {
-        protein: Math.round((targetCalories * macroRatio.protein) / 4),
-        carb: Math.round((targetCalories * macroRatio.carb) / 4),
-        fat: Math.round((targetCalories * macroRatio.fat) / 9)
-      }
-    }
   }
 
   private isFoodAllowed(food: Food, restrictions: string[]) {
@@ -164,18 +108,6 @@ class UsersService {
       targetCalories,
       deltaCalories: totalCalories - targetCalories
     }
-  }
-
-  private buildGoalKeywords(goal: HealthGoal) {
-    if (goal === 'LoseFat') {
-      return ['lose fat', 'weight loss', 'fat loss', 'đốt mỡ', 'giam mo', 'giam can']
-    }
-
-    if (goal === 'GainMuscle') {
-      return ['gain muscle', 'hypertrophy', 'strength', 'tăng cơ', 'tang co']
-    }
-
-    return ['maintain', 'wellness', 'fitness tổng quát', 'general fitness', 'sức khỏe']
   }
 
   private getDefaultRefreshTokenExpiresIn() {
@@ -271,7 +203,7 @@ class UsersService {
 
   private async saveRefreshToken(user_id: ObjectId, refresh_token: string) {
     const { iat, exp } = await this.decodeRefreshToken(refresh_token)
-    await databaseService.refreshTokens.insertOne(new RefreshToken({ user_id, token: refresh_token, iat, exp }))
+    await databaseService.sessions.insertOne(new Session({ user_id, token: refresh_token, iat, exp }))
   }
 
   async checkEmailExist(email: string) {
@@ -286,9 +218,6 @@ class UsersService {
 
   async register(payload: RegisterReqBody) {
     const user_id = new ObjectId()
-    const role = payload.role || UserRole.CUSTOMER
-    // PT mặc định sẽ có trạng thái pending, cần admin duyệt mới active để đăng nhập được
-    const account_status = role === UserRole.PT ? AccountStatus.PENDING : AccountStatus.ACTIVE
     const username = payload.username.trim()
 
     await databaseService.users.insertOne(
@@ -298,26 +227,13 @@ class UsersService {
         username,
         password: hashPassword(payload.password),
         phone: payload.phone,
-        role,
-        account_status,
+        role: UserRole.CUSTOMER,
+        account_status: AccountStatus.ACTIVE,
         loginAttempts: 0,
         forgot_password_token: '',
-        healthProfile: payload.healthProfile,
-        ptProfile: payload.ptProfile,
-        notifications: [],
-        weightTracking: [],
-        calorieTracking: [],
-        registeredPTServices: []
+        healthProfile: payload.healthProfile
       })
     )
-
-    // PT cần chờ duyệt, chưa cấp token đăng nhập
-    if (role === UserRole.PT) {
-      return {
-        requires_approval: true,
-        message: USERS_MESSAGES.PT_SUCCESSFULLY_REGISTERED
-      }
-    }
 
     const [access_token, refresh_token] = await this.signAccessAndRefreshToken({
       user_id: user_id.toString(),
@@ -347,12 +263,12 @@ class UsersService {
     const [new_access_token, new_refresh_token] = await Promise.all([
       this.signAccessToken({ user_id, status }),
       this.signRefreshToken({ user_id, status, exp }),
-      databaseService.refreshTokens.deleteOne({ token: refresh_token })
+      databaseService.sessions.deleteOne({ token: refresh_token })
     ])
 
     const decoded_refresh_token = await this.decodeRefreshToken(new_refresh_token)
-    await databaseService.refreshTokens.insertOne(
-      new RefreshToken({
+    await databaseService.sessions.insertOne(
+      new Session({
         user_id: new ObjectId(user_id),
         token: new_refresh_token,
         iat: decoded_refresh_token.iat,
@@ -405,6 +321,7 @@ class UsersService {
   async login(payload: LoginReqBody) {
     const identifier = (payload.identifier || payload.email || '').trim()
     const user = await databaseService.users.findOne({
+      role: { $in: [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER] },
       $or: [{ email: identifier.toLowerCase() }, { username: identifier }]
     })
 
@@ -415,10 +332,9 @@ class UsersService {
       })
     }
 
-    // PT chưa duyệt không cho đăng nhập
-    if (user.role === UserRole.PT && user.account_status === AccountStatus.PENDING) {
+    if (user.account_status === AccountStatus.LOCKED && !user.locked_until) {
       throw new ErrorWithStatus({
-        message: USERS_MESSAGES.PT_ACCOUNT_PENDING_APPROVAL,
+        message: USERS_MESSAGES.ACCOUNT_IS_LOCKED,
         status: HTTP_STATUS.FORBIDDEN
       })
     }
@@ -434,18 +350,21 @@ class UsersService {
       return this.handleFailedLogin(user as User & { _id: ObjectId })
     }
 
-    // Mở khóa nếu đã quá thời gian lock và reset login attempts
+    // Chỉ mở khóa tạm đã hết hạn; tài khoản bị Admin khóa đã bị chặn ở trên.
+    const accountStatus = user.account_status === AccountStatus.LOCKED ? AccountStatus.ACTIVE : user.account_status
+    if (accountStatus !== AccountStatus.ACTIVE) {
+      throw new ErrorWithStatus({
+        message: USERS_MESSAGES.ACCOUNT_IS_INACTIVE,
+        status: HTTP_STATUS.FORBIDDEN
+      })
+    }
+
     await databaseService.users.updateOne(
       { _id: user._id },
       {
         $set: {
           loginAttempts: 0,
-          account_status:
-            user.account_status === AccountStatus.LOCKED
-              ? user.role === UserRole.PT
-                ? AccountStatus.PENDING
-                : AccountStatus.ACTIVE
-              : user.account_status
+          account_status: accountStatus
         },
         $unset: { locked_until: '' },
         $currentDate: { updated_at: true }
@@ -454,12 +373,7 @@ class UsersService {
 
     const [access_token, refresh_token] = await this.signAccessAndRefreshToken({
       user_id: user._id!.toString(),
-      status:
-        user.account_status === AccountStatus.LOCKED
-          ? user.role === UserRole.PT
-            ? AccountStatus.PENDING
-            : AccountStatus.ACTIVE
-          : user.account_status,
+      status: accountStatus,
       remember_me: payload.remember_me
     })
 
@@ -474,7 +388,7 @@ class UsersService {
 
   async logout(refresh_token: string) {
     console.log('Logging out, deleting refresh token:', refresh_token)
-    await databaseService.refreshTokens.deleteOne({ token: refresh_token })
+    await databaseService.sessions.deleteOne({ token: refresh_token })
     return {
       message: USERS_MESSAGES.LOGOUT_SUCCESS
     }
@@ -585,53 +499,11 @@ class UsersService {
   async getAllUsers() {
     return databaseService.users
       .find(
-        {}, 
+        { role: { $in: [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER] } },
         { projection: { password: 0, forgot_password_token: 0 } } // Không trả về mật khẩu
       )
       .sort({ created_at: -1 })
       .toArray()
-  }
-
-  async approvePTAccount(targetUserId: string) {
-    if (!ObjectId.isValid(targetUserId)) {
-      throw new ErrorWithStatus({
-        message: 'ID người dùng không hợp lệ',
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    const targetObjectId = new ObjectId(targetUserId)
-
-    const user = await databaseService.users.findOne({ _id: targetObjectId })
-    if (!user) {
-      throw new ErrorWithStatus({ message: 'Không tìm thấy người dùng này', status: HTTP_STATUS.NOT_FOUND })
-    }
-
-    if (user.role !== 'PT') { // Nhớ dùng UserRole.PT nếu bạn có import enum
-      throw new ErrorWithStatus({ message: 'Người dùng này không phải là PT', status: HTTP_STATUS.BAD_REQUEST })
-    }
-
-    const nextPTProfile: PTProfile = {
-      experienceYears: user.ptProfile?.experienceYears ?? 0,
-      specialties: user.ptProfile?.specialties ?? [],
-      rating: user.ptProfile?.rating ?? 0,
-      portfolioImages: user.ptProfile?.portfolioImages ?? [],
-      approvedByAdmin: true
-    }
-
-    // Đảm bảo ptProfile luôn là object hợp lệ để tránh lỗi khi profile cũ bị null
-    await databaseService.users.updateOne(
-      { _id: targetObjectId },
-      { 
-        $set: { 
-          account_status: AccountStatus.ACTIVE,
-          ptProfile: nextPTProfile
-        },
-        $currentDate: { updated_at: true } 
-      }
-    )
-
-    return { message: 'Duyệt tài khoản PT thành công' }
   }
 
   async updateMe(user_id: string, payload: UpdateMeReqBody) {
@@ -693,57 +565,6 @@ class UsersService {
     return updatedUser
   }
 
-  async updatePTProfile(user_id: string, payload: UpdatePTProfileReqBody) {
-    const user = await databaseService.users.findOne(
-      { _id: new ObjectId(user_id) },
-      { projection: { role: 1, ptProfile: 1 } }
-    )
-
-    if (!user) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.USER_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
-      })
-    }
-
-    if (user.role !== UserRole.PT) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.ONLY_PT_CAN_UPDATE_PT_PROFILE,
-        status: HTTP_STATUS.FORBIDDEN
-      })
-    }
-
-    const nextPTProfile: PTProfile = {
-      experienceYears: payload.experienceYears ?? user.ptProfile?.experienceYears ?? 0,
-      specialties: payload.specialties?.map((item) => item.trim()).filter(Boolean) ?? user.ptProfile?.specialties ?? [],
-      rating: user.ptProfile?.rating ?? 0,
-      portfolioImages:
-        payload.portfolioImages?.map((item) => item.trim()).filter(Boolean) ?? user.ptProfile?.portfolioImages ?? [],
-      approvedByAdmin: user.ptProfile?.approvedByAdmin ?? false
-    }
-
-    const updatedUser = await databaseService.users.findOneAndUpdate(
-      { _id: new ObjectId(user_id) },
-      {
-        $set: {
-          ptProfile: nextPTProfile
-        },
-        $currentDate: {
-          updated_at: true
-        }
-      },
-      {
-        returnDocument: 'after',
-        projection: {
-          password: 0,
-          forgot_password_token: 0
-        }
-      }
-    )
-
-    return updatedUser
-  }
-
   async updateUserStatus(targetUserId: string, status: AccountStatus) {
     if (!ObjectId.isValid(targetUserId)) {
       throw new ErrorWithStatus({
@@ -772,171 +593,14 @@ class UsersService {
 
     await databaseService.users.updateOne(
       { _id: targetObjectId },
-      { 
-        $set: { account_status: status }, 
-        $currentDate: { updated_at: true } 
-      }
-    )
-
-    return {
-      message: `Cập nhật trạng thái tài khoản thành ${status} thành công`
-    }
-  }
-
-  async registerPTService(user_id: string, service_id: string) {
-    const user = await databaseService.users.findOne(
-      { _id: new ObjectId(user_id) },
-      { projection: { role: 1, registeredPTServices: 1 } }
-    )
-
-    if (!user) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.USER_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
-      })
-    }
-
-    if (user.role !== UserRole.CUSTOMER) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.ONLY_CUSTOMER_CAN_REGISTER_PT_SERVICE,
-        status: HTTP_STATUS.FORBIDDEN
-      })
-    }
-
-    const ptService = await databaseService.ptServices.findOne({ _id: new ObjectId(service_id) })
-    if (!ptService || !ptService.isActive) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.PT_SERVICE_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
-      })
-    }
-
-    type RegisteredServiceRaw = ObjectId | { serviceId: ObjectId | string }
-    const registeredRaw = (user.registeredPTServices || []) as RegisteredServiceRaw[]
-
-    const registeredServiceIds = registeredRaw
-      .map((item) => {
-        if (typeof item === 'object' && item !== null && 'serviceId' in item) {
-          return String(item.serviceId)
-        }
-        return String(item)
-      })
-      .filter(Boolean)
-
-    if (registeredServiceIds.includes(String(ptService._id))) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.PT_SERVICE_ALREADY_REGISTERED,
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    await databaseService.users.updateOne(
-      { _id: new ObjectId(user_id) },
       {
-        $push: {
-          registeredPTServices: {
-            serviceId: ptService._id,
-            remainingSessions: ptService.sessions, // Gán số buổi ban đầu
-            totalSessions: ptService.sessions,
-            registeredAt: new Date()
-          } as any // Ép kiểu tạm nếu schema TS báo lỗi
-        },
+        $set: { account_status: status },
         $currentDate: { updated_at: true }
       }
     )
 
     return {
-      message: USERS_MESSAGES.PT_SERVICE_REGISTERED_SUCCESS,
-      result: ptService
-    }
-  }
-
-  async getMyRegisteredPTServices(user_id: string) {
-    const user = await databaseService.users.findOne(
-      { _id: new ObjectId(user_id) },
-      { projection: { role: 1, registeredPTServices: 1 } }
-    )
-
-    if (!user) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.USER_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
-      })
-    }
-
-    if (user.role !== UserRole.CUSTOMER) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.ONLY_CUSTOMER_CAN_REGISTER_PT_SERVICE,
-        status: HTTP_STATUS.FORBIDDEN
-      })
-    }
-
-    type RegisteredServiceRaw =
-      | ObjectId
-      | {
-          serviceId: ObjectId | string
-          remainingSessions?: number
-          totalSessions?: number
-          registeredAt?: Date
-        }
-
-    const registeredRaw = (user.registeredPTServices || []) as RegisteredServiceRaw[]
-
-    const normalizedRegistrations = registeredRaw
-      .map((item) => {
-        if (typeof item === 'object' && item !== null && 'serviceId' in item) {
-          return {
-            serviceId: String(item.serviceId),
-            remainingSessions: Number(item.remainingSessions ?? 0),
-            totalSessions: Number(item.totalSessions ?? 0),
-            registeredAt: item.registeredAt
-          }
-        }
-
-        return {
-          serviceId: String(item),
-          remainingSessions: 0,
-          totalSessions: 0,
-          registeredAt: undefined
-        }
-      })
-      .filter((item) => Boolean(item.serviceId))
-
-    if (normalizedRegistrations.length === 0) {
-      return {
-        services: []
-      }
-    }
-
-    const serviceObjectIds = normalizedRegistrations
-      .filter((item) => ObjectId.isValid(item.serviceId))
-      .map((item) => new ObjectId(item.serviceId))
-
-    if (serviceObjectIds.length === 0) {
-      return {
-        services: []
-      }
-    }
-
-    const services = await databaseService.ptServices.find({ _id: { $in: serviceObjectIds } }).toArray()
-
-    const serviceMap = new Map(services.map((service) => [String(service._id), service]))
-    const orderedServices = normalizedRegistrations
-      .map((registration) => {
-        const service = serviceMap.get(registration.serviceId)
-        if (!service) return null
-
-        return {
-          ...service,
-          remainingSessions: registration.remainingSessions,
-          totalSessions: registration.totalSessions,
-          registeredAt: registration.registeredAt
-        }
-      })
-      .filter((service) => Boolean(service))
-
-    return {
-      services: orderedServices
+      message: `Cập nhật trạng thái tài khoản thành ${status} thành công`
     }
   }
 
@@ -971,7 +635,7 @@ class UsersService {
     }
   ) {
     const allergies = this.normalizeRules(payload.allergies)
-    const metrics = this.calculateHealthMetrics(payload)
+    const metrics = calculateHealthMetrics(payload)
 
     const healthProfile: HealthProfile = {
       ...payload,
@@ -979,22 +643,8 @@ class UsersService {
       ...metrics
     }
 
-    const updated = await databaseService.users.findOneAndUpdate(
-      { _id: new ObjectId(user_id) },
-      {
-        $set: {
-          healthProfile
-        },
-        $currentDate: { updated_at: true }
-      },
-      {
-        returnDocument: 'after',
-        projection: {
-          password: 0,
-          forgot_password_token: 0
-        }
-      }
-    )
+    await trackingService.saveHealthProfile(user_id, healthProfile, 'ProfileUpdate')
+    const updated = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
 
     return {
       profile: updated?.healthProfile,
@@ -1059,7 +709,7 @@ class UsersService {
     }
 
     const targetCalories =
-      user.healthProfile.targetCalories || this.calculateHealthMetrics(user.healthProfile).targetCalories
+      user.healthProfile.targetCalories || calculateHealthMetrics(user.healthProfile).targetCalories
 
     const plans = Array.from({ length: days }).map((_, index) => {
       const date = new Date()
@@ -1152,57 +802,6 @@ class UsersService {
       },
       targetCalories: expectedCalories,
       calorieDelta: nextFood.calories - expectedCalories
-    }
-  }
-
-  async recommendPTs(user_id: string, limit = 3) {
-    const user = await databaseService.users.findOne(
-      { _id: new ObjectId(user_id) },
-      { projection: { healthProfile: 1 } }
-    )
-
-    if (!user?.healthProfile) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.HEALTH_PROFILE_REQUIRED_FOR_RECOMMENDATION,
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    const keywords = this.buildGoalKeywords(user.healthProfile.goal)
-
-    const pts = await databaseService.users
-      .find({
-        role: UserRole.PT,
-        account_status: AccountStatus.ACTIVE,
-        'ptProfile.approvedByAdmin': true
-      })
-      .project<User & { ptProfile?: PTProfile }>({
-        password: 0,
-        forgot_password_token: 0
-      })
-      .toArray()
-
-    const scored = pts
-      .map((pt) => {
-        const specialties = (pt.ptProfile?.specialties || []).map((item) => item.toLowerCase())
-        const score = keywords.reduce(
-          (sum, keyword) => sum + (specialties.some((specialty) => specialty.includes(keyword)) ? 1 : 0),
-          0
-        )
-        return {
-          ...pt,
-          score
-        }
-      })
-      .sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score
-        return (b.ptProfile?.rating || 0) - (a.ptProfile?.rating || 0)
-      })
-      .slice(0, limit)
-
-    return {
-      goal: user.healthProfile.goal,
-      suggestions: scored
     }
   }
 }

@@ -1,4 +1,6 @@
 import { ObjectId } from 'mongodb'
+import { HealthGoal } from './User.schema'
+import { normalizeSearchText } from './common'
 
 export interface Ingredient {
   name: string
@@ -15,7 +17,12 @@ export interface FoodType {
   _id?: ObjectId
   name: string
   description: string
-  details?: string
+  normalizedName?: string
+  goalTags?: HealthGoal[]
+  reservedStock?: number
+  rating?: number
+  reviewCount?: number
+  version?: number
   images: string[]
   price: number
   calories: number
@@ -24,7 +31,6 @@ export interface FoodType {
   tags: string[] // ["Vegan", "GlutenFree"]
   stock: number
   isActive: boolean
-  isCombo?: boolean
   createdAt?: Date
   updatedAt?: Date
 }
@@ -32,8 +38,14 @@ export interface FoodType {
 export default class Food implements FoodType {
   _id?: ObjectId
   name: string
+  normalizedName: string
+  goalTags: HealthGoal[]
+  /** stock = unsold quantity, including holds; available = stock - reservedStock. */
+  reservedStock: number
+  rating: number
+  reviewCount: number
+  version: number
   description: string
-  details: string
   images: string[]
   price: number
   calories: number
@@ -42,15 +54,19 @@ export default class Food implements FoodType {
   tags: string[]
   stock: number
   isActive: boolean
-  isCombo: boolean
   createdAt?: Date
   updatedAt?: Date
 
   constructor(food: FoodType) {
     this._id = food._id
     this.name = food.name
+    this.normalizedName = food.normalizedName ?? normalizeSearchText(food.name)
+    this.goalTags = food.goalTags ?? []
+    this.reservedStock = food.reservedStock ?? 0
+    this.rating = food.rating ?? 0
+    this.reviewCount = food.reviewCount ?? 0
+    this.version = food.version ?? 0
     this.description = food.description
-    this.details = food.details || ''
     this.images = food.images
     this.price = food.price
     this.calories = food.calories
@@ -59,7 +75,6 @@ export default class Food implements FoodType {
     this.tags = food.tags
     this.stock = food.stock
     this.isActive = food.isActive
-    this.isCombo = food.isCombo ?? false
     const now = new Date()
     this.createdAt = food.createdAt || now
     this.updatedAt = food.updatedAt || now

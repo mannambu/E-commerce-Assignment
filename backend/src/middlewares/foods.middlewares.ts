@@ -39,15 +39,6 @@ export const createFoodValidator = validate(
       trim: true
     },
 
-    details: {
-      in: ['body'],
-      optional: true,
-      isString: {
-        errorMessage: 'details phải là chuỗi'
-      },
-      trim: true
-    },
-
     images: {
       in: ['body'],
       isArray: {
@@ -213,15 +204,6 @@ export const createFoodValidator = validate(
         errorMessage: 'isActive phải là boolean'
       },
       toBoolean: true
-    },
-
-    isCombo: {
-      in: ['body'],
-      optional: true,
-      isBoolean: {
-        errorMessage: 'isCombo phải là boolean'
-      },
-      toBoolean: true
     }
   })
 )
@@ -230,30 +212,29 @@ export const updateFoodValidator = validate(
   checkSchema({
     name: { in: ['body'], optional: true, isString: true, trim: true },
     description: { in: ['body'], optional: true, isString: true, trim: true },
-    price: { 
+    price: {
       in: ['body'],
       optional: true,
-      isFloat: { options: { gt: 0 }, errorMessage: 'Giá phải lớn hơn 0' }, 
+      isFloat: { options: { gt: 0 }, errorMessage: 'Giá phải lớn hơn 0' },
       toFloat: true
     },
-    calories: { 
+    calories: {
       in: ['body'],
       optional: true,
-      isFloat: { options: { min: 0 }, errorMessage: 'Calories không được âm' }, 
-      toFloat: true 
+      isFloat: { options: { min: 0 }, errorMessage: 'Calories không được âm' },
+      toFloat: true
     },
     images: { in: ['body'], optional: true, isArray: true },
     'images.*': { in: ['body'], optional: true, isString: true, trim: true },
     nutrition: { in: ['body'], optional: true, isObject: true },
     ingredients: { in: ['body'], optional: true, isArray: true },
     tags: { in: ['body'], optional: true, isArray: true },
-    stock: { 
+    stock: {
       in: ['body'],
       optional: true,
-      isInt: { options: { min: 0 }, errorMessage: 'Tồn kho không được âm' }, 
-      toInt: true 
+      isInt: { options: { min: 0 }, errorMessage: 'Tồn kho không được âm' },
+      toInt: true
     },
-    isActive: { in: ['body'], optional: true, isBoolean: true, toBoolean: true },
-    isCombo: { in: ['body'], optional: true, isBoolean: true, toBoolean: true }
+    isActive: { in: ['body'], optional: true, isBoolean: true, toBoolean: true }
   })
 )
