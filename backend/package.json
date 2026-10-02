@@ -6,6 +6,7 @@
     "test": "tsx --test tests/*.test.ts",
     "test:schema": "tsx --test tests/schema.test.ts",
     "schema:indexes": "tsx scripts/schema-indexes.ts",
+    "data:users": "node scripts/generate-users-import.mjs",
     "dev": "npx nodemon",
     "build": "rimraf ./dist && tsc && tsc-alias",
     "start": "node dist/index.js",
