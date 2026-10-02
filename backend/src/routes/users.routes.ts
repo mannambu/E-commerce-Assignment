@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import {
   accessTokenValidator,
+  createUserValidator,
   checkEmailExistQueryValidator,
   checkUsernameExistQueryValidator,
   forgotPasswordValidator,
@@ -16,6 +17,8 @@ import {
   updateUserStatusValidator
 } from '~/middlewares/users.middlewares'
 import {
+  logoutAllController,
+  createUserController,
   checkEmailExistController,
   checkUsernameExistController,
   forgotPasswordController,
@@ -61,7 +64,15 @@ usersRouter.post('/login', loginValidator, wrapRequestHandler(loginController))
  * Header: { Authorization: Bearer <access_token> }
  * Body: { refresh_token: string }
  */
-usersRouter.post('/logout', accessTokenValidator, refreshTokenValidator, wrapRequestHandler(logoutController))
+usersRouter.post('/logout', refreshTokenValidator, wrapRequestHandler(logoutController))
+usersRouter.post('/logout-all', accessTokenValidator, wrapRequestHandler(logoutAllController))
+usersRouter.post(
+  '/',
+  accessTokenValidator,
+  isAdminValidator,
+  createUserValidator,
+  wrapRequestHandler(createUserController)
+)
 
 /**
  * Description. Check if email is already used

@@ -14,7 +14,6 @@ import {
   UpdateMeReqBody,
   TokenPayload
 } from '~/models/requests/User.request'
-import { AccountStatus } from '~/models/schemas/User.schema'
 import usersService from '~/services/user.services'
 import { USERS_MESSAGES } from '~/constants/messages'
 
@@ -52,15 +51,7 @@ export const refreshTokenController = async (
   req: Request<ParamsDictionary, Record<string, never>, RefreshTokenReqBody>,
   res: Response
 ) => {
-  const decoded_refresh_token = (req as unknown as { decoded_refresh_token: TokenPayload }).decoded_refresh_token
-  const { refresh_token } = req.body
-
-  const result = await usersService.refreshToken({
-    user_id: decoded_refresh_token.user_id,
-    status: (decoded_refresh_token.status as AccountStatus) || AccountStatus.ACTIVE,
-    refresh_token,
-    exp: decoded_refresh_token.exp
-  })
+  const result = await usersService.refreshToken({ refresh_token: req.body.refresh_token })
 
   return res.status(HTTP_STATUS.OK).json(result)
 }
@@ -161,7 +152,7 @@ export const updateUserStatusController = async (req: Request, res: Response) =>
   const { user_id } = req.params as { user_id: string }
   const { status } = req.body
 
-  const result = await usersService.updateUserStatus(user_id, status)
+  const result = await usersService.updateUserStatus(user_id, status, req.decoded_authorization!.user_id)
   return res.status(HTTP_STATUS.OK).json(result)
 }
 
@@ -193,4 +184,14 @@ export const swapMealRecommendationController = async (
     message: USERS_MESSAGES.FOOD_SWAP_RECOMMENDATION_SUCCESS,
     result
   })
+}
+
+export const logoutAllController = async (req: Request, res: Response) => {
+  const result = await usersService.logoutAll(req.decoded_authorization!.user_id)
+  return res.json(result)
+}
+
+export const createUserController = async (req: Request, res: Response) => {
+  const result = await usersService.createUser(req.decoded_authorization!.user_id, req.body)
+  return res.status(201).json({ message: 'Account created', result })
 }

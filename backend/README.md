@@ -6,7 +6,7 @@ Database gồm 12 collection; giải thích từng collection, cấu trúc đơn
 
 ## Yêu cầu môi trường
 
-- Node.js 18+
+- Node.js 20.19 trở lên
 - npm 9+
 - MongoDB replica set hoặc Atlas (luồng cập nhật hồ sơ/nhật ký dùng transaction)
 
@@ -23,11 +23,8 @@ Tạo file `.env` trong thư mục `backend`.
 ```env
 PORT=4000
 
-DB_USERNAME=
-DB_PASSWORD=
-DB_NAME=
-# Có thể dùng DB_URI thay cho DB_USERNAME/DB_PASSWORD.
-DB_URI=
+DB_URI="mongodb+srv://<USER>:<PASSWORD>@<HOST_CLUSTER>/?retryWrites=true&w=majority"
+DB_NAME=fitbite_v2_dev
 
 DB_USERS_COLLECTION=users
 DB_SESSIONS_COLLECTION=sessions
@@ -44,7 +41,6 @@ DB_SETTINGS_COLLECTION=settings
 
 JWT_SECRET_ACCESS_TOKEN=
 JWT_SECRET_REFRESH_TOKEN=
-JWT_SECRET_FORGOT_PASSWORD_TOKEN=
 ACCESS_TOKEN_EXPIRES_IN=15m
 REFRESH_TOKEN_EXPIRES_IN=7d
 
@@ -63,7 +59,7 @@ CLOUDINARY_API_SECRET=
 
 ## Chạy dự án
 
-Chuẩn bị DB mới và index theo [hướng dẫn database](../docs/database_schema.md#chuẩn-bị-database) trước khi seed/chạy server. Code không tự chuyển dữ liệu Order/Cart/Tracking cũ. Script seed hiện vẫn dùng DB_USERNAME/DB_PASSWORD.
+Chuẩn bị DB mới và index theo [hướng dẫn database](../docs/database_schema.md#chuẩn-bị-database) trước khi seed/chạy server. Code không tự chuyển dữ liệu Order/Cart/Tracking cũ.
 
 ```bash
 npm run dev
@@ -89,9 +85,13 @@ npm run start
 - `npm run prettier`: kiểm tra format
 - `npm run prettier:fix`: format code
 
+[Hướng dẫn DB, seed Admin/Manager, Bcrypt và email reset](docs/auth-setup.md).
+
 ## Seed dữ liệu
 
 - `npm run seed:admin`
+- `npm run seed:manager`
+- `npm run seed:foods`
 - `npm run seed:cart`
 
 ## Cấu trúc thư mục (cấp 2)

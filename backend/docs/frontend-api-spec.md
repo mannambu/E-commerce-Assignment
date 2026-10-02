@@ -86,6 +86,8 @@ Response (Customer):
 
 ### **POST /users/login**
 
+JWT mới có role/sessionId/tokenVersion; backend kiểm tra phiên trong DB. Token cũ cần đăng nhập lại. Xem [API tạo Manager, khóa tài khoản và reset](auth-setup.md).
+
 Body:
 ```json
 {  
@@ -106,10 +108,9 @@ Response:
   }  
 }
 ```
-- Admin hiện tại đang có 1 tài khoản là 
-- username: admin@ecommerce.local - password: Admin123456
+### **POST /users/logout**
 
-### **POST /users/logout (Auth)**
+Body có refresh token là đủ; access token có thể đã hết hạn. Thu hồi cả access và refresh của phiên. `POST /users/logout-all` cần Bearer access token, thu hồi mọi phiên.
 
 Body:
 ```json
@@ -130,11 +131,9 @@ Body:
 
 Response:
 ```json
-{  
-  "access_token": "...",  
-  "refresh_token": "..."  
-}
+{ "access_token": "...", "refresh_token": "..." }
 ```
+Lưu cả hai token mới; refresh token cũ không dùng lại được. Reset mật khẩu thành công thu hồi mọi phiên.
 
 ### **POST /users/forgot-password**
 
@@ -142,13 +141,7 @@ Body:
 ```json
 { "email": "a@example.com" }
 ```
-Response:
-```json
-{  
-  "message": "Vui lòng kiểm tra email để đặt lại mật khẩu",  
-  "forgot_password_token": "..."  
-}
-```
+Response chỉ có `message`, không trả token. Liên kết được gửi qua email SMTP, hết hạn sau 15 phút và chỉ dùng một lần. Xem [auth-setup.md](auth-setup.md) để cấu hình và test.
 
 ### **POST /users/reset-password**
 

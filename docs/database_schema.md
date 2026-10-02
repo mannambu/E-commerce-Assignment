@@ -15,7 +15,7 @@ Service tracking, giỏ hàng, đơn, đánh giá, dashboard nhật ký và seed
 | Collection | Nội dung | Lý do giữ riêng |
 | --- | --- | --- |
 | `users` | Email, mật khẩu đã hash, Customer/Admin/Manager, khóa tài khoản, hồ sơ sức khỏe hiện tại | Tài khoản là dữ liệu gốc. Không còn các mảng notifications/weightTracking/calorieTracking cũ. |
-| `sessions` | Token, người dùng, hạn phiên, sessionId, thời điểm thu hồi | Một người có nhiều phiên; cần quản lý từng phiên. Việc đổi tên không tự hoàn thiện thu hồi access token. |
+| `sessions` | Hash của refresh token, người dùng, hạn phiên, sessionId, thời điểm thu hồi | Một người có nhiều phiên; access token được kiểm tra với phiên và tokenVersion trên mỗi request. |
 | `foods` | Tên, mô tả, ảnh, giá, dinh dưỡng, nguyên liệu/dị ứng, tồn kho, nhãn | Dữ liệu món hiện đang bán. Nguyên liệu và dinh dưỡng nằm trong món. |
 | `carts` | Một giỏ/người, chế độ FOOD/COMBO, dòng món theo ngày và bữa | Giỏ chưa phải đơn; giá hiện tại lấy từ Food, không lưu priceAtOrder. Không lưu lịch sử giỏ. |
 | `meal_plans` | Thực đơn 1/7 ngày, các bữa, hồ sơ sức khỏe đã dùng để gợi ý | Khách có thể dùng thực đơn mà chưa mua hàng. |
@@ -136,7 +136,7 @@ Không tự chuyển hoặc xóa dữ liệu DB đang dùng. Thiết kế mới 
 
    Script chỉ chấp nhận DB rỗng, không phải công cụ migration. Collection settings được tạo khi lưu cấu hình lần đầu.
 
-5. Cho server dùng DB_NAME tương ứng. Có thể cấu hình DB_URI hoặc giữ DB_USERNAME/DB_PASSWORD.
+5. Backend và seed bắt buộc dùng DB_URI + DB_NAME. Xem [hướng dẫn xác thực](../backend/docs/auth-setup.md).
 6. Seed dữ liệu mẫu sau khi đã tạo index.
 
 Biến mới: DB_SESSIONS_COLLECTION, DB_DAILY_HEALTH_LOGS_COLLECTION, DB_SETTINGS_COLLECTION. Các biến DB_REFRESH_TOKENS_COLLECTION, DB_CALORIE_LOGS_COLLECTION, DB_ANALYTICS_COLLECTION không còn được backend sử dụng.
@@ -145,9 +145,9 @@ Nếu cần giữ dữ liệu cũ, phải chuyển trên bản sao trước: h�
 
 ## Nghiệp vụ còn thiếu
 
-- Session mới vẫn sử dụng luồng JWT cũ: cần nối sessionId vào JWT và kiểm tra thu hồi access token, đổi sang Bcrypt, gửi email reset.
+- Xác thực đã có Bcrypt, sessionId/tokenVersion, thu hồi phiên và email reset. Cần cấu hình SMTP và nối giao diện frontend; xem [auth-setup.md](../backend/docs/auth-setup.md).
 - Checkout hiện lưu cấu trúc mới và kiểm tra giỏ nhưng chưa thực hiện giữ/trừ kho ACID, idempotency đầy đủ, IPN hay job hết hạn. inventoryHold hiện khởi tạo NotReserved. COD/Confirmed, đối soát, hủy/hoàn từng ngày cần hoàn thiện.
 - Công thức tính target hiện được đưa vào utils/health.ts để dùng chung; quy tắc điều chỉnh theo phần trăm và sàn BMR của US-08 chưa được thay trong đợt schema.
 - MealPlan đã có cấu trúc lưu; API recommendation hiện chưa lưu thực đơn/swap vào collection.
-- Quyền Manager, sổ Transaction, AuditLog, API Settings, WebSocket, ẩn review kèm thông báo và Excel còn cần triển khai. Dashboard tài chính cũ chưa đọc sổ Transaction.
+- Manager đã có quyền đọc đơn; AuditLog đã ghi việc tạo và khóa/mở user. Báo cáo Manager, sổ Transaction, audit nghiệp vụ khác, API Settings, WebSocket, ẩn review kèm thông báo và Excel còn cần triển khai. Dashboard tài chính Admin cũ chưa tách khỏi vận hành và chưa đọc sổ Transaction.
 - Test hiện dùng mock, không chứng minh transaction hoặc index trên một MongoDB thật.

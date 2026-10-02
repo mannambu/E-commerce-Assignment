@@ -1,3 +1,4 @@
+import { getDatabaseConfig } from '../src/utils/database-config'
 import { config } from 'dotenv'
 import { MongoClient, ObjectId } from 'mongodb'
 import { hashPassword } from '../src/utils/crypto'
@@ -7,27 +8,10 @@ import User, { AccountStatus, UserRole } from '../src/models/schemas/User.schema
 
 config()
 
-const username = process.env.DB_USERNAME
-const password = process.env.DB_PASSWORD
-const dbname = process.env.DB_NAME
-
-if (!username || !password) {
-  throw new Error('Missing DB_USERNAME or DB_PASSWORD in the .env file')
-}
-
-const usersCollectionName = process.env.DB_USERS_COLLECTION
-const foodsCollectionName = process.env.DB_FOODS_COLLECTION
-const cartsCollectionName = process.env.DB_CARTS_COLLECTION
-
-if (!usersCollectionName || !foodsCollectionName || !cartsCollectionName) {
-  throw new Error('Missing one of DB_USERS_COLLECTION, DB_FOODS_COLLECTION, DB_CARTS_COLLECTION')
-}
-
-const usersCollectionNameSafe = usersCollectionName
-const foodsCollectionNameSafe = foodsCollectionName
-const cartsCollectionNameSafe = cartsCollectionName
-
-const uri = `mongodb+srv://${username}:${password}@studymongodbbasic.nvb8bql.mongodb.net/?appName=StudyMongoDBBasic`
+const { uri, dbName: dbname } = getDatabaseConfig()
+const usersCollectionNameSafe = process.env.DB_USERS_COLLECTION || 'users'
+const foodsCollectionNameSafe = process.env.DB_FOODS_COLLECTION || 'foods'
+const cartsCollectionNameSafe = process.env.DB_CARTS_COLLECTION || 'carts'
 
 const CUSTOMER_EMAIL = 'seed.customer@ecommerce.local'
 const CUSTOMER_PASSWORD = 'Customer123!'
@@ -37,13 +21,14 @@ async function ensureCustomer(db: ReturnType<MongoClient['db']>) {
 
   const existing = await users.findOne({ email: CUSTOMER_EMAIL })
   if (existing?._id) {
+    if (existing.role !== UserRole.CUSTOMER) throw new Error('Seed email belongs to a non-Customer account')
     return existing._id as ObjectId
   }
 
   const customer = new User({
     email: CUSTOMER_EMAIL,
     username: 'seed_customer',
-    password: hashPassword(CUSTOMER_PASSWORD),
+    password: await hashPassword(CUSTOMER_PASSWORD),
     phone: '0909999999',
     role: UserRole.CUSTOMER,
     account_status: AccountStatus.ACTIVE,
@@ -71,8 +56,8 @@ async function seedCart() {
     await client.connect()
     const db = client.db(dbname)
 
-    const customerId = await ensureCustomer(db)
     const food = await ensureFood(db)
+    const customerId = await ensureCustomer(db)
 
     const carts = db.collection<Cart>(cartsCollectionNameSafe)
     const cart = new Cart({
@@ -89,16 +74,7 @@ async function seedCart() {
     await carts.updateOne(
       { userId: customerId },
       {
-        $set: {
-          userId: customerId,
-          cartType: cart.cartType,
-          version: cart.version,
-          items: cart.items,
-          updatedAt: new Date()
-        },
-        $setOnInsert: {
-          createdAt: new Date()
-        }
+        $setOnInsert: { ...cart, createdAt: new Date(), updatedAt: new Date() }
       },
       { upsert: true }
     )
@@ -107,10 +83,9 @@ async function seedCart() {
     console.log(`👤 Customer email: ${CUSTOMER_EMAIL}`)
     console.log(`🍽️ Food item seeded from: ${food.name}`)
     console.log('🛒 Cart items: Food x2')
-    console.log(`🔐 Customer password: ${CUSTOMER_PASSWORD}`)
   } catch (error) {
     console.error('❌ Error seeding cart:', error)
-    process.exit(1)
+    process.exitCode = 1
   } finally {
     await client.close()
     console.log('🔌 Database connection closed')

@@ -1,15 +1,17 @@
 import { config } from 'dotenv'
 import { ObjectId } from 'mongodb'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { TokenType } from '~/constants/enums'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { USERS_MESSAGES } from '~/constants/messages'
 import { ErrorWithStatus } from '~/models/Errors'
-import { LoginReqBody, RegisterReqBody, UpdateMeReqBody } from '~/models/requests/User.request'
+import { LoginReqBody, RegisterReqBody, UpdateMeReqBody, TokenPayload } from '~/models/requests/User.request'
 import Food from '~/models/schemas/Food.schema'
 import Session from '~/models/schemas/Session.schema'
 import User, { AccountStatus, ActivityLevel, HealthGoal, HealthProfile, UserRole } from '~/models/schemas/User.schema'
 import databaseService from '~/services/database.services'
-import { hashPassword } from '~/utils/crypto'
+import { hashPassword, hashToken, isLegacyPassword, verifyPassword } from '~/utils/crypto'
+import emailService from './email.services'
 import { signToken, verifyToken } from '~/utils/jwt'
 import trackingService from './tracking.services'
 import { calculateHealthMetrics } from '~/utils/health'
@@ -110,100 +112,84 @@ class UsersService {
     }
   }
 
-  private getDefaultRefreshTokenExpiresIn() {
-    return parseExpiresIn(process.env.REFRESH_TOKEN_EXPIRES_IN, 7 * 24 * 60 * 60)
-  }
-
-  private signAccessToken({ user_id, status }: { user_id: string; status: AccountStatus }) {
-    return signToken({
-      payload: {
-        user_id,
-        token_type: TokenType.AccessToken,
-        status
-      },
-      privateKey: process.env.JWT_SECRET_ACCESS_TOKEN as string,
-      options: {
-        expiresIn: parseExpiresIn(process.env.ACCESS_TOKEN_EXPIRES_IN, 60 * 15)
-      }
-    })
-  }
-
-  private signRefreshToken({
-    user_id,
-    status,
-    exp,
-    remember_me
-  }: {
-    user_id: string
-    status: AccountStatus
-    exp?: number
-    remember_me?: boolean
-  }) {
-    if (exp) {
-      return signToken({
-        payload: {
-          user_id,
-          token_type: TokenType.RefreshToken,
-          status,
-          exp
-        },
-        privateKey: process.env.JWT_SECRET_REFRESH_TOKEN as string
-      })
+  private async signSessionTokens(user: User, sessionId: string, rememberMe = false, exp?: number) {
+    const payload = {
+      user_id: user._id!.toString(),
+      role: user.role,
+      status: user.account_status,
+      sessionId,
+      tokenVersion: user.tokenVersion ?? 0
     }
-
-    return signToken({
-      payload: {
-        user_id,
-        token_type: TokenType.RefreshToken,
-        status
-      },
-      privateKey: process.env.JWT_SECRET_REFRESH_TOKEN as string,
-      options: {
-        expiresIn: remember_me ? REMEMBER_ME_SECONDS : this.getDefaultRefreshTokenExpiresIn()
-      }
-    })
-  }
-
-  private signForgotPasswordToken({ user_id, status }: { user_id: string; status: AccountStatus }) {
-    return signToken({
-      payload: {
-        user_id,
-        token_type: TokenType.ForgotPasswordToken,
-        status
-      },
-      privateKey: process.env.JWT_SECRET_FORGOT_PASSWORD_TOKEN as string,
-      options: {
-        // Link reset password 15 phút
-        expiresIn: 15 * 60
-      }
-    })
-  }
-
-  private signAccessAndRefreshToken({
-    user_id,
-    status,
-    remember_me
-  }: {
-    user_id: string
-    status: AccountStatus
-    remember_me?: boolean
-  }) {
-    return Promise.all([
-      this.signAccessToken({ user_id, status }),
-      this.signRefreshToken({ user_id, status, remember_me })
+    const [access_token, refresh_token] = await Promise.all([
+      signToken({
+        payload: { ...payload, token_type: TokenType.AccessToken },
+        privateKey: process.env.JWT_SECRET_ACCESS_TOKEN as string,
+        options: { expiresIn: parseExpiresIn(process.env.ACCESS_TOKEN_EXPIRES_IN, 15 * 60) }
+      }),
+      signToken({
+        payload: { ...payload, token_type: TokenType.RefreshToken, jti: randomUUID(), ...(exp ? { exp } : {}) },
+        privateKey: process.env.JWT_SECRET_REFRESH_TOKEN as string,
+        options: exp
+          ? {}
+          : {
+              expiresIn: rememberMe
+                ? REMEMBER_ME_SECONDS
+                : parseExpiresIn(process.env.REFRESH_TOKEN_EXPIRES_IN, 7 * 24 * 60 * 60)
+            }
+      })
     ])
+    return { access_token, refresh_token }
   }
 
-  private decodeRefreshToken(refresh_token: string) {
-    return verifyToken({
-      token: refresh_token,
+  private async createSession(user: User, rememberMe = false) {
+    const sessionId = new ObjectId()
+    const tokens = await this.signSessionTokens(user, sessionId.toString(), rememberMe)
+    const { iat, exp } = await verifyToken({
+      token: tokens.refresh_token,
       secretOrPublicKey: process.env.JWT_SECRET_REFRESH_TOKEN as string
     })
+    await databaseService.sessions.insertOne(
+      new Session({
+        _id: sessionId,
+        sessionId,
+        user_id: user._id!,
+        token: hashToken(tokens.refresh_token),
+        tokenVersion: user.tokenVersion ?? 0,
+        iat,
+        exp
+      })
+    )
+    return { ...tokens, role: user.role }
   }
 
-  private async saveRefreshToken(user_id: ObjectId, refresh_token: string) {
-    const { iat, exp } = await this.decodeRefreshToken(refresh_token)
-    await databaseService.sessions.insertOne(new Session({ user_id, token: refresh_token, iat, exp }))
+  // Every protected request checks both the account and its login session.
+  async validateSession(payload: TokenPayload, refreshToken?: string) {
+    if (
+      !ObjectId.isValid(payload.user_id || '') ||
+      !ObjectId.isValid(payload.sessionId || '') ||
+      !Number.isInteger(payload.tokenVersion) ||
+      !payload.role
+    ) {
+      throw new ErrorWithStatus({ status: 401, message: 'Invalid or revoked session' })
+    }
+    const user = await databaseService.users.findOne({
+      _id: new ObjectId(payload.user_id),
+      account_status: AccountStatus.ACTIVE,
+      role: { $in: [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER] }
+    })
+    if (!user || user.role !== payload.role || (user.tokenVersion ?? 0) !== payload.tokenVersion) {
+      throw new ErrorWithStatus({ status: 401, message: 'Invalid or revoked session' })
+    }
+    const session = await databaseService.sessions.findOne({
+      sessionId: new ObjectId(payload.sessionId),
+      user_id: user._id,
+      tokenVersion: payload.tokenVersion,
+      revoked_at: null,
+      exp: { $gt: new Date() },
+      ...(refreshToken ? { token: hashToken(refreshToken) } : {})
+    })
+    if (!session) throw new ErrorWithStatus({ status: 401, message: 'Invalid or revoked session' })
+    return user
   }
 
   async checkEmailExist(email: string) {
@@ -220,98 +206,76 @@ class UsersService {
     const user_id = new ObjectId()
     const username = payload.username.trim()
 
-    await databaseService.users.insertOne(
-      new User({
-        _id: user_id,
-        email: payload.email.toLowerCase().trim(),
-        username,
-        password: hashPassword(payload.password),
-        phone: payload.phone,
-        role: UserRole.CUSTOMER,
-        account_status: AccountStatus.ACTIVE,
-        loginAttempts: 0,
-        forgot_password_token: '',
-        healthProfile: payload.healthProfile
-      })
-    )
-
-    const [access_token, refresh_token] = await this.signAccessAndRefreshToken({
-      user_id: user_id.toString(),
-      status: AccountStatus.ACTIVE
+    const user = new User({
+      _id: user_id,
+      email: payload.email.toLowerCase().trim(),
+      username,
+      password: await hashPassword(payload.password),
+      phone: payload.phone,
+      role: UserRole.CUSTOMER,
+      account_status: AccountStatus.ACTIVE
     })
-
-    await this.saveRefreshToken(user_id, refresh_token)
-
-    return {
-      access_token,
-      refresh_token,
-      role: UserRole.CUSTOMER
-    }
+    await databaseService.users.insertOne(user)
+    return this.createSession(user)
   }
 
-  async refreshToken({
-    user_id,
-    status,
-    refresh_token,
-    exp
-  }: {
-    user_id: string
-    status: AccountStatus
-    refresh_token: string
-    exp: number
-  }) {
-    const [new_access_token, new_refresh_token] = await Promise.all([
-      this.signAccessToken({ user_id, status }),
-      this.signRefreshToken({ user_id, status, exp }),
-      databaseService.sessions.deleteOne({ token: refresh_token })
-    ])
-
-    const decoded_refresh_token = await this.decodeRefreshToken(new_refresh_token)
-    await databaseService.sessions.insertOne(
-      new Session({
-        user_id: new ObjectId(user_id),
-        token: new_refresh_token,
-        iat: decoded_refresh_token.iat,
-        exp: decoded_refresh_token.exp
-      })
+  async refreshToken({ refresh_token }: { refresh_token: string }) {
+    const decoded = await verifyToken({
+      token: refresh_token,
+      secretOrPublicKey: process.env.JWT_SECRET_REFRESH_TOKEN as string
+    })
+    if (decoded.token_type !== TokenType.RefreshToken)
+      throw new ErrorWithStatus({ status: 401, message: 'Invalid refresh token' })
+    const user = await this.validateSession(decoded, refresh_token)
+    const tokens = await this.signSessionTokens(user, decoded.sessionId!, false, decoded.exp)
+    // Compare-and-set: only one request can rotate the same refresh token.
+    const result = await databaseService.sessions.updateOne(
+      {
+        sessionId: new ObjectId(decoded.sessionId),
+        user_id: user._id,
+        token: hashToken(refresh_token),
+        revoked_at: null,
+        exp: { $gt: new Date() }
+      },
+      { $set: { token: hashToken(tokens.refresh_token), last_used_at: new Date() } }
     )
-
-    return {
-      access_token: new_access_token,
-      refresh_token: new_refresh_token
-    }
+    if (result.modifiedCount !== 1)
+      throw new ErrorWithStatus({ status: 401, message: 'Refresh token already used or revoked' })
+    return tokens
   }
 
   private async handleFailedLogin(user: User & { _id: ObjectId }) {
-    const nextAttempts = (user.loginAttempts || 0) + 1
-
-    if (nextAttempts >= MAX_LOGIN_ATTEMPTS) {
-      const lockedUntil = new Date(Date.now() + ACCOUNT_LOCK_MINUTES * 60 * 1000)
+    // Increment in MongoDB to avoid losing simultaneous failed attempts.
+    const updated = await databaseService.users.findOneAndUpdate(
+      {
+        _id: user._id,
+        password: user.password,
+        tokenVersion: user.tokenVersion ?? { $exists: false },
+        account_status: user.account_status
+      },
+      { $inc: { loginAttempts: 1 }, $currentDate: { updated_at: true } },
+      { returnDocument: 'after' }
+    )
+    if (updated && updated.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
       await databaseService.users.updateOne(
-        { _id: user._id },
+        {
+          _id: user._id,
+          password: user.password,
+          loginAttempts: { $gte: MAX_LOGIN_ATTEMPTS },
+          tokenVersion: user.tokenVersion ?? { $exists: false }
+        },
         {
           $set: {
             account_status: AccountStatus.LOCKED,
-            locked_until: lockedUntil,
+            locked_until: new Date(Date.now() + ACCOUNT_LOCK_MINUTES * 60 * 1000),
             loginAttempts: 0
           },
+          $inc: { tokenVersion: 1 },
           $currentDate: { updated_at: true }
         }
       )
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.TOO_MANY_LOGIN_ATTEMPTS,
-        status: HTTP_STATUS.BAD_REQUEST
-      })
+      throw new ErrorWithStatus({ message: USERS_MESSAGES.TOO_MANY_LOGIN_ATTEMPTS, status: HTTP_STATUS.BAD_REQUEST })
     }
-
-    await databaseService.users.updateOne(
-      { _id: user._id },
-      {
-        $set: { loginAttempts: nextAttempts },
-        $currentDate: { updated_at: true }
-      }
-    )
-
     throw new ErrorWithStatus({
       message: USERS_MESSAGES.EMAIL_OR_PASSWORD_IS_INCORRECT,
       status: HTTP_STATUS.UNAUTHORIZED
@@ -346,7 +310,7 @@ class UsersService {
       })
     }
 
-    if (hashPassword(payload.password) !== user.password) {
+    if (!(await verifyPassword(payload.password, user.password))) {
       return this.handleFailedLogin(user as User & { _id: ObjectId })
     }
 
@@ -359,69 +323,88 @@ class UsersService {
       })
     }
 
-    await databaseService.users.updateOne(
-      { _id: user._id },
+    const password = isLegacyPassword(user.password) ? await hashPassword(payload.password) : user.password
+    // Do not overwrite a reset/lock that happened while password verification was running.
+    const result = await databaseService.users.updateOne(
       {
-        $set: {
-          loginAttempts: 0,
-          account_status: accountStatus
-        },
+        _id: user._id,
+        password: user.password,
+        account_status: user.account_status,
+        tokenVersion: user.tokenVersion ?? { $exists: false }
+      },
+      {
+        $set: { account_status: accountStatus, loginAttempts: 0, password },
         $unset: { locked_until: '' },
         $currentDate: { updated_at: true }
       }
     )
-
-    const [access_token, refresh_token] = await this.signAccessAndRefreshToken({
-      user_id: user._id!.toString(),
-      status: accountStatus,
-      remember_me: payload.remember_me
-    })
-
-    await this.saveRefreshToken(user._id as ObjectId, refresh_token)
-
-    return {
-      access_token,
-      refresh_token,
-      role: user.role
-    }
+    if (!result.matchedCount) throw new ErrorWithStatus({ status: 401, message: 'Account changed; please login again' })
+    return this.createSession({ ...user, password, account_status: accountStatus }, payload.remember_me)
   }
 
   async logout(refresh_token: string) {
-    console.log('Logging out, deleting refresh token:', refresh_token)
-    await databaseService.sessions.deleteOne({ token: refresh_token })
-    return {
-      message: USERS_MESSAGES.LOGOUT_SUCCESS
+    // Revocation stays on the same session even when refresh rotates its token.
+    const decoded = await verifyToken({
+      token: refresh_token,
+      secretOrPublicKey: process.env.JWT_SECRET_REFRESH_TOKEN as string
+    })
+    if (decoded.token_type !== TokenType.RefreshToken || !ObjectId.isValid(decoded.sessionId || '')) {
+      throw new ErrorWithStatus({ status: 401, message: 'Invalid refresh token' })
     }
+    await databaseService.sessions.updateOne(
+      { sessionId: new ObjectId(decoded.sessionId), user_id: new ObjectId(decoded.user_id) },
+      { $set: { revoked_at: new Date() } }
+    )
+    return { message: USERS_MESSAGES.LOGOUT_SUCCESS }
+  }
+
+  async logoutAll(user_id: string) {
+    await databaseService.withTransaction(async (session) => {
+      await databaseService.users.updateOne({ _id: new ObjectId(user_id) }, { $inc: { tokenVersion: 1 } }, { session })
+      await databaseService.sessions.deleteMany({ user_id: new ObjectId(user_id) }, { session })
+    })
+    return { message: USERS_MESSAGES.LOGOUT_SUCCESS }
   }
 
   async forgotPasswordByEmail(email: string) {
-    const user = await databaseService.users.findOne({ email: email.toLowerCase().trim() })
-    if (!user) {
-      // Trả generic message để tránh lộ email tồn tại hay không
-      return {
-        message: USERS_MESSAGES.CHECK_EMAIL_TO_RESET_PASSWORD
-      }
-    }
-
-    const forgot_password_token = await this.signForgotPasswordToken({
-      user_id: user._id!.toString(),
-      status: user.account_status
+    // Check configuration before lookup, so an unconfigured server responds identically for every email.
+    emailService.getResetConfig()
+    const response = { message: USERS_MESSAGES.CHECK_EMAIL_TO_RESET_PASSWORD }
+    const user = await databaseService.users.findOne({
+      email: email.toLowerCase().trim(),
+      role: { $in: [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER] }
     })
-
-    await databaseService.users.updateOne(
-      { _id: user._id },
+    if (!user) return response
+    const token = randomBytes(32).toString('hex')
+    const tokenHash = hashToken(token)
+    const result = await databaseService.users.updateOne(
       {
-        $set: {
-          forgot_password_token
-        },
+        _id: user._id,
+        $or: [
+          { forgot_password_expires_at: { $exists: false } },
+          { forgot_password_expires_at: null },
+          { forgot_password_expires_at: { $lte: new Date(Date.now() + 14 * 60 * 1000) } }
+        ]
+      },
+      {
+        $set: { forgot_password_token: tokenHash, forgot_password_expires_at: new Date(Date.now() + 15 * 60 * 1000) },
         $currentDate: { updated_at: true }
       }
     )
-
-    return {
-      message: USERS_MESSAGES.CHECK_EMAIL_TO_RESET_PASSWORD,
-      forgot_password_token
+    if (!result.modifiedCount) return response // At most one email per account per minute.
+    try {
+      await emailService.sendPasswordReset(user.email, user._id!.toString(), token)
+    } catch {
+      await databaseService.users.updateOne(
+        { _id: user._id, forgot_password_token: tokenHash },
+        {
+          $set: { forgot_password_token: '' },
+          $unset: { forgot_password_expires_at: '' }
+        }
+      )
+      console.error('Password reset email failed; check SMTP configuration.')
     }
+    return response
   }
 
   async resetPassword({
@@ -433,31 +416,29 @@ class UsersService {
     password: string
     forgot_password_token: string
   }) {
-    const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
-
-    if (!user || !user.forgot_password_token || user.forgot_password_token !== forgot_password_token) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.RESET_PASSWORD_TOKEN_IS_INVALID_OR_USED,
-        status: HTTP_STATUS.UNAUTHORIZED
-      })
-    }
-
-    await databaseService.users.updateOne(
-      { _id: new ObjectId(user_id) },
-      {
-        $set: {
-          forgot_password_token: '',
-          password: hashPassword(password)
+    const invalid = () =>
+      new ErrorWithStatus({ status: 401, message: USERS_MESSAGES.RESET_PASSWORD_TOKEN_IS_INVALID_OR_USED })
+    if (!ObjectId.isValid(user_id) || !/^[a-f0-9]{64}$/.test(forgot_password_token)) throw invalid()
+    const tokenHash = hashToken(forgot_password_token)
+    const userId = new ObjectId(user_id)
+    const filter = { _id: userId, forgot_password_token: tokenHash, forgot_password_expires_at: { $gt: new Date() } }
+    if (!(await databaseService.users.findOne(filter))) throw invalid()
+    const passwordHash = await hashPassword(password)
+    await databaseService.withTransaction(async (session) => {
+      const result = await databaseService.users.updateOne(
+        { ...filter, forgot_password_expires_at: { $gt: new Date() } },
+        {
+          $set: { password: passwordHash, forgot_password_token: '', password_changed_at: new Date() },
+          $unset: { forgot_password_expires_at: '' },
+          $inc: { tokenVersion: 1 },
+          $currentDate: { updated_at: true }
         },
-        $currentDate: {
-          updated_at: true
-        }
-      }
-    )
-
-    return {
-      message: USERS_MESSAGES.RESET_PASSWORD_SUCCESS
-    }
+        { session }
+      )
+      if (result.modifiedCount !== 1) throw invalid()
+      await databaseService.sessions.deleteMany({ user_id: userId }, { session })
+    })
+    return { message: USERS_MESSAGES.RESET_PASSWORD_SUCCESS }
   }
 
   async getMe(user_id: string) {
@@ -565,61 +546,112 @@ class UsersService {
     return updatedUser
   }
 
-  async updateUserStatus(targetUserId: string, status: AccountStatus) {
-    if (!ObjectId.isValid(targetUserId)) {
-      throw new ErrorWithStatus({
-        message: 'ID người dùng không hợp lệ',
-        status: HTTP_STATUS.BAD_REQUEST
-      })
+  async createUser(actorId: string, payload: Omit<RegisterReqBody, 'role'> & { role: UserRole }) {
+    const actor = await databaseService.users.findOne({
+      _id: new ObjectId(actorId),
+      role: UserRole.ADMIN,
+      account_status: AccountStatus.ACTIVE
+    })
+    if (!actor || ![UserRole.CUSTOMER, UserRole.MANAGER].includes(payload.role)) {
+      throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
     }
-
-    const targetObjectId = new ObjectId(targetUserId)
-
-    const user = await databaseService.users.findOne({ _id: targetObjectId })
-    if (!user) {
-      throw new ErrorWithStatus({
-        message: 'Không tìm thấy người dùng này',
-        status: HTTP_STATUS.NOT_FOUND
-      })
+    const user = new User({
+      _id: new ObjectId(),
+      email: payload.email.trim().toLowerCase(),
+      username: payload.username.trim(),
+      password: await hashPassword(payload.password),
+      phone: payload.phone,
+      role: payload.role
+    })
+    if (await databaseService.users.findOne({ $or: [{ email: user.email }, { username: user.username }] })) {
+      throw new ErrorWithStatus({ status: 409, message: 'Email or username already exists' })
     }
-
-    // Không cho phép Admin tự khóa chính mình
-    if (user.role === UserRole.ADMIN && status === AccountStatus.LOCKED) {
-      throw new ErrorWithStatus({
-        message: 'Không thể khóa tài khoản Admin',
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    await databaseService.users.updateOne(
-      { _id: targetObjectId },
-      {
-        $set: { account_status: status },
-        $currentDate: { updated_at: true }
-      }
-    )
-
+    await databaseService.withTransaction(async (session) => {
+      await databaseService.users.insertOne(user, { session })
+      await databaseService.auditLogs.insertOne(
+        {
+          actorId: actor._id,
+          actorRole: UserRole.ADMIN,
+          action: 'UserCreated',
+          entityType: 'User',
+          entityId: user._id!,
+          after: { email: user.email, role: user.role },
+          reason: 'Admin created account',
+          createdAt: new Date()
+        },
+        { session }
+      )
+    })
     return {
-      message: `Cập nhật trạng thái tài khoản thành ${status} thành công`
+      _id: user._id,
+      email: user.email,
+      username: user.username,
+      role: user.role,
+      account_status: user.account_status
     }
   }
 
-  async changePassword(user_id: string, new_password: string) {
-    await databaseService.users.updateOne(
-      { _id: new ObjectId(user_id) },
-      {
-        $set: {
-          password: hashPassword(new_password)
-        },
-        $currentDate: {
-          updated_at: true
-        }
-      }
-    )
-
-    return {
-      message: USERS_MESSAGES.RESET_PASSWORD_SUCCESS
+  async updateUserStatus(targetUserId: string, status: AccountStatus, actorId: string) {
+    if (!ObjectId.isValid(targetUserId) || ![AccountStatus.ACTIVE, AccountStatus.LOCKED].includes(status)) {
+      throw new ErrorWithStatus({ status: 400, message: 'Invalid user or status' })
     }
+    const actor = await databaseService.users.findOne({
+      _id: new ObjectId(actorId),
+      role: UserRole.ADMIN,
+      account_status: AccountStatus.ACTIVE
+    })
+    if (!actor) throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
+    const userId = new ObjectId(targetUserId)
+    await databaseService.withTransaction(async (session) => {
+      const user = await databaseService.users.findOne({ _id: userId }, { session })
+      if (!user) throw new ErrorWithStatus({ status: 404, message: USERS_MESSAGES.USER_NOT_FOUND })
+      if (user.role === UserRole.ADMIN)
+        throw new ErrorWithStatus({ status: 403, message: 'Cannot lock or modify an Admin account' })
+      await databaseService.users.updateOne(
+        { _id: userId },
+        {
+          $set: { account_status: status, loginAttempts: 0, forgot_password_token: '' },
+          $unset: { locked_until: '', forgot_password_expires_at: '' },
+          $inc: { tokenVersion: 1 },
+          $currentDate: { updated_at: true }
+        },
+        { session }
+      )
+      await databaseService.sessions.deleteMany({ user_id: userId }, { session })
+      await databaseService.auditLogs.insertOne(
+        {
+          actorId: actor._id,
+          actorRole: UserRole.ADMIN,
+          action: status === AccountStatus.LOCKED ? 'AccountLocked' : 'AccountUnlocked',
+          entityType: 'User',
+          entityId: userId,
+          before: { account_status: user.account_status },
+          after: { account_status: status },
+          reason: 'Admin updated account status',
+          createdAt: new Date()
+        },
+        { session }
+      )
+    })
+    return { message: 'Account status updated' }
+  }
+
+  async changePassword(user_id: string, new_password: string) {
+    const password = await hashPassword(new_password)
+    await databaseService.withTransaction(async (session) => {
+      await databaseService.users.updateOne(
+        { _id: new ObjectId(user_id) },
+        {
+          $set: { password, forgot_password_token: '', password_changed_at: new Date() },
+          $unset: { forgot_password_expires_at: '' },
+          $inc: { tokenVersion: 1 },
+          $currentDate: { updated_at: true }
+        },
+        { session }
+      )
+      await databaseService.sessions.deleteMany({ user_id: new ObjectId(user_id) }, { session })
+    })
+    return { message: USERS_MESSAGES.RESET_PASSWORD_SUCCESS }
   }
 
   async upsertHealthProfile(

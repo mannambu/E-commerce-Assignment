@@ -53,8 +53,8 @@ export interface UserType {
   locked_until?: Date
   created_at?: Date
   updated_at?: Date
-  forgot_password_token?: string // Legacy reset JWT; empty after use, never an email verification token.
-  forgot_password_expires_at?: Date
+  forgot_password_token?: string // SHA-256 of the random reset token; cleared after use.
+  forgot_password_expires_at?: Date | null
   password_changed_at?: Date
   tokenVersion?: number // Increment to revoke every session after reset/lock/role changes.
   notificationPreferences?: { newsEnabled: boolean }
@@ -76,7 +76,7 @@ export default class User implements UserType {
   created_at?: Date
   updated_at?: Date
   forgot_password_token: string
-  forgot_password_expires_at?: Date
+  forgot_password_expires_at?: Date | null
   password_changed_at?: Date
   tokenVersion: number
   notificationPreferences: { newsEnabled: boolean }

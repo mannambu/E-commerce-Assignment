@@ -6,7 +6,7 @@
     "test": "tsx --test tests/*.test.ts",
     "test:schema": "tsx --test tests/schema.test.ts",
     "schema:indexes": "tsx scripts/schema-indexes.ts",
-    "data:users": "node scripts/generate-users-import.mjs",
+    "data:users": "tsx scripts/generate-users-import.ts",
     "dev": "npx nodemon",
     "build": "rimraf ./dist && tsc && tsc-alias",
     "start": "node dist/index.js",
@@ -15,7 +15,9 @@
     "prettier": "prettier --check .",
     "prettier:fix": "prettier --write .",
     "seed:cart": "npx tsx scripts/seed-cart.ts",
-    "seed:admin": "npx tsx scripts/seed-admin.ts"
+    "seed:admin": "npx tsx scripts/seed-admin.ts",
+    "seed:manager": "tsx scripts/seed-manager.ts",
+    "seed:foods": "tsx scripts/seed-foods.ts"
   },
   "keywords": [],
   "author": "",
@@ -29,6 +31,7 @@
     "@types/lodash": "^4.17.24",
     "@types/multer": "^2.1.0",
     "@types/node": "^25.5.0",
+    "@types/nodemailer": "^8.0.2",
     "eslint": "^10.1.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
@@ -43,6 +46,7 @@
     "typescript-eslint": "^8.57.2"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "cloudinary": "^2.9.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
@@ -52,6 +56,7 @@
     "lodash": "^4.17.21",
     "mongodb": "^7.1.1",
     "mongoose": "^9.3.3",
-    "multer": "^2.1.1"
+    "multer": "^2.1.1",
+    "nodemailer": "^10.0.13"
   }
 }

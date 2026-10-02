@@ -1,5 +1,5 @@
 import { MongoClient, Collection, ClientSession } from 'mongodb'
-import { config } from 'dotenv'
+import { getDatabaseConfig } from '../utils/database-config'
 import User from '~/models/schemas/User.schema'
 import Session from '~/models/schemas/Session.schema'
 import Food from '~/models/schemas/Food.schema'
@@ -13,17 +13,11 @@ import Transaction from '~/models/schemas/Transaction.schema'
 import AuditLog from '~/models/schemas/AuditLog.schema'
 import Settings from '~/models/schemas/Settings.schema'
 
-config()
-const username = process.env.DB_USERNAME
-const password = process.env.DB_PASSWORD
-if (!process.env.DB_URI && (!username || !password)) {
-  throw new Error('Missing DB_URI or DB_USERNAME/DB_PASSWORD')
-}
-const uri = process.env.DB_URI || `mongodb+srv://${username}:${password}@studymongodbbasic.nvb8bql.mongodb.net/`
+const { uri, dbName } = getDatabaseConfig()
 
 class DatabaseService {
   private client = new MongoClient(uri)
-  private db = this.client.db(process.env.DB_NAME)
+  private db = this.client.db(dbName)
 
   async connect() {
     await this.db.command({ ping: 1 })

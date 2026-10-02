@@ -6,3 +6,5 @@ process.env.JWT_SECRET_ACCESS_TOKEN = 'unit-test-access-secret'
 process.env.JWT_SECRET_REFRESH_TOKEN = 'unit-test-refresh-secret'
 process.env.PASSWORD_PEPPER = 'unit-test-pepper'
 process.env.DOTENV_CONFIG_QUIET = 'true'
+
+process.env.DB_URI = 'mongodb://127.0.0.1:27017'

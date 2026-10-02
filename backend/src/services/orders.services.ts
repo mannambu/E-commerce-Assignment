@@ -375,7 +375,12 @@ class OrdersService {
   }
 
   async getMyOrderDetail(userId: string, orderId: string) {
-    const order = await databaseService.orders.findOne({ _id: new ObjectId(orderId), userId: new ObjectId(userId) })
+    const user = await this.getRequestUser(userId)
+    const canReadAll = [UserRole.ADMIN, UserRole.MANAGER].includes(user.role)
+    const order = await databaseService.orders.findOne({
+      _id: new ObjectId(orderId),
+      ...(canReadAll ? {} : { userId: new ObjectId(userId) })
+    })
     if (!order) {
       throw new ErrorWithStatus({
         message: USERS_MESSAGES.ORDER_NOT_FOUND,
@@ -475,7 +480,9 @@ class OrdersService {
   async getAllOrders(adminUserId: string) {
     // 1. Kiểm tra xem người gọi API có phải Admin không
     const admin = await this.getRequestUser(adminUserId)
-    this.assertAdmin(admin.role)
+    if (![UserRole.ADMIN, UserRole.MANAGER].includes(admin.role)) {
+      throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
+    }
 
     // 2. Lấy toàn bộ đơn hàng, sắp xếp mới nhất lên đầu
     return databaseService.orders.find({}).sort({ createdAt: -1 }).toArray()

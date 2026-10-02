@@ -131,13 +131,18 @@ test('valid signed tokens are rejected when the account is no longer supported o
 test('active Customer, Admin and Manager accounts can still use access tokens', async (t) => {
   const account = new User({ _id: new ObjectId(), ...registration })
   t.mock.getter(database, 'users', () => ({ findOne: async () => account }) as unknown as Collection<User>)
-  const accessToken = jwt.sign(
-    { user_id: account._id!.toString(), token_type: TokenType.AccessToken },
-    process.env.JWT_SECRET_ACCESS_TOKEN!
+  const sessionId = new ObjectId().toString()
+  t.mock.getter(
+    database,
+    'sessions',
+    () => ({ findOne: async () => ({ sessionId }) }) as unknown as Collection<Session>
   )
-
   for (const role of [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER]) {
     account.role = role
+    const accessToken = jwt.sign(
+      { user_id: account._id!.toString(), token_type: TokenType.AccessToken, sessionId, tokenVersion: 0, role },
+      process.env.JWT_SECRET_ACCESS_TOKEN!
+    )
     const error = await runValidator(userValidators.accessTokenValidator, {
       headers: { authorization: `Bearer ${accessToken}` }
     })

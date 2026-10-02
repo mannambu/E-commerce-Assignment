@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from 'express'
-import { checkSchema } from 'express-validator'
+import { checkSchema, Schema } from 'express-validator'
+import { validatePassword } from '~/utils/crypto'
 import { ObjectId } from 'mongodb'
 import { TokenType } from '~/constants/enums'
 import HTTP_STATUS from '~/constants/httpStatus'
@@ -12,109 +13,112 @@ import usersService from '~/services/user.services'
 import { verifyToken } from '~/utils/jwt'
 import { validate } from '~/utils/validation'
 
-export const registerValidator = validate(
+const accountFields: Schema = {
+  email: {
+    notEmpty: {
+      errorMessage: USERS_MESSAGES.EMAIL_IS_REQUIRED
+    },
+    isEmail: {
+      errorMessage: USERS_MESSAGES.EMAIL_IS_INVALID
+    },
+    trim: true,
+    custom: {
+      options: async (value: string) => {
+        const existed = await usersService.checkEmailExist(value)
+        if (existed) {
+          throw new Error(USERS_MESSAGES.EMAIL_ALREADY_EXISTS)
+        }
+        return true
+      }
+    }
+  },
+  username: {
+    notEmpty: {
+      errorMessage: USERS_MESSAGES.USERNAME_IS_REQUIRED
+    },
+    isString: {
+      errorMessage: USERS_MESSAGES.USERNAME_MUST_BE_A_STRING
+    },
+    isLength: {
+      options: {
+        min: 3,
+        max: 30
+      },
+      errorMessage: USERS_MESSAGES.USERNAME_LENGTH_MUST_BE_FROM_3_TO_30
+    },
+    trim: true,
+    custom: {
+      options: async (value: string) => {
+        const existed = await usersService.checkUsernameExist(value)
+        if (existed) {
+          throw new Error(USERS_MESSAGES.USERNAME_ALREADY_EXISTS)
+        }
+        return true
+      }
+    }
+  },
+  password: {
+    notEmpty: {
+      errorMessage: USERS_MESSAGES.PASSWORD_IS_REQUIRED
+    },
+    isString: {
+      errorMessage: USERS_MESSAGES.PASSWORD_MUST_BE_A_STRING
+    },
+    isLength: {
+      options: {
+        min: 8,
+        max: 50
+      },
+      errorMessage: USERS_MESSAGES.PASSWORD_LENGTH_MUST_BE_FROM_8_TO_50
+    },
+    custom: {
+      options: (value: string) => {
+        validatePassword(value)
+        return true
+      }
+    }
+  },
+  confirm_password: {
+    notEmpty: {
+      errorMessage: USERS_MESSAGES.CONFIRM_PASSWORD_IS_REQUIRED
+    },
+    isString: {
+      errorMessage: USERS_MESSAGES.CONFIRM_PASSWORD_MUST_BE_A_STRING
+    },
+    custom: {
+      options: (value, { req }) => {
+        if (value !== req.body.password) {
+          throw new Error(USERS_MESSAGES.CONFIRM_PASSWORD_MUST_BE_THE_SAME_AS_PASSWORD)
+        }
+        return true
+      }
+    }
+  },
+  phone: {
+    notEmpty: {
+      errorMessage: USERS_MESSAGES.PHONE_IS_REQUIRED
+    }
+    // matches: {
+    //   options: /^(0[3|5|7|8|9])[0-9]{8}$/,
+    //   errorMessage: 'Số điện thoại không hợp lệ (định dạng Việt Nam 10 số)'
+    // }
+  },
+  role: {
+    optional: true,
+    isIn: {
+      options: [[UserRole.CUSTOMER]],
+      errorMessage: USERS_MESSAGES.ROLE_MUST_BE_CUSTOMER
+    }
+  }
+}
+
+export const registerValidator = validate(checkSchema(accountFields, ['body']))
+
+export const createUserValidator = validate(
   checkSchema(
     {
-      email: {
-        notEmpty: {
-          errorMessage: USERS_MESSAGES.EMAIL_IS_REQUIRED
-        },
-        isEmail: {
-          errorMessage: USERS_MESSAGES.EMAIL_IS_INVALID
-        },
-        trim: true,
-        custom: {
-          options: async (value: string) => {
-            const existed = await usersService.checkEmailExist(value)
-            if (existed) {
-              throw new Error(USERS_MESSAGES.EMAIL_ALREADY_EXISTS)
-            }
-            return true
-          }
-        }
-      },
-      username: {
-        notEmpty: {
-          errorMessage: USERS_MESSAGES.USERNAME_IS_REQUIRED
-        },
-        isString: {
-          errorMessage: USERS_MESSAGES.USERNAME_MUST_BE_A_STRING
-        },
-        isLength: {
-          options: {
-            min: 3,
-            max: 30
-          },
-          errorMessage: USERS_MESSAGES.USERNAME_LENGTH_MUST_BE_FROM_3_TO_30
-        },
-        trim: true,
-        custom: {
-          options: async (value: string) => {
-            const existed = await usersService.checkUsernameExist(value)
-            if (existed) {
-              throw new Error(USERS_MESSAGES.USERNAME_ALREADY_EXISTS)
-            }
-            return true
-          }
-        }
-      },
-      password: {
-        notEmpty: {
-          errorMessage: USERS_MESSAGES.PASSWORD_IS_REQUIRED
-        },
-        isString: {
-          errorMessage: USERS_MESSAGES.PASSWORD_MUST_BE_A_STRING
-        },
-        isLength: {
-          options: {
-            min: 8,
-            max: 50
-          },
-          errorMessage: USERS_MESSAGES.PASSWORD_LENGTH_MUST_BE_FROM_8_TO_50
-        },
-        isStrongPassword: {
-          options: {
-            minLength: 8,
-            minLowercase: 1,
-            minUppercase: 1,
-            minNumbers: 1,
-            minSymbols: 0
-          },
-          errorMessage: 'Mật khẩu phải dài ít nhất 8 ký tự, bao gồm ít nhất 1 chữ hoa, 1 chữ thường và 1 số'
-        }
-      },
-      confirm_password: {
-        notEmpty: {
-          errorMessage: USERS_MESSAGES.CONFIRM_PASSWORD_IS_REQUIRED
-        },
-        isString: {
-          errorMessage: USERS_MESSAGES.CONFIRM_PASSWORD_MUST_BE_A_STRING
-        },
-        custom: {
-          options: (value, { req }) => {
-            if (value !== req.body.password) {
-              throw new Error(USERS_MESSAGES.CONFIRM_PASSWORD_MUST_BE_THE_SAME_AS_PASSWORD)
-            }
-            return true
-          }
-        }
-      },
-      phone: {
-        notEmpty: {
-          errorMessage: USERS_MESSAGES.PHONE_IS_REQUIRED
-        }
-        // matches: {
-        //   options: /^(0[3|5|7|8|9])[0-9]{8}$/,
-        //   errorMessage: 'Số điện thoại không hợp lệ (định dạng Việt Nam 10 số)'
-        // }
-      },
-      role: {
-        optional: true,
-        isIn: {
-          options: [[UserRole.CUSTOMER]],
-          errorMessage: USERS_MESSAGES.ROLE_MUST_BE_CUSTOMER
-        }
-      }
+      ...accountFields,
+      role: { isIn: { options: [[UserRole.CUSTOMER, UserRole.MANAGER]] } }
     },
     ['body']
   )
@@ -124,6 +128,7 @@ export const loginValidator = validate(
   checkSchema(
     {
       identifier: {
+        customSanitizer: { options: (value, { req }) => value || req.body.email },
         notEmpty: {
           errorMessage: USERS_MESSAGES.IDENTIFIER_IS_REQUIRED
         },
@@ -175,9 +180,7 @@ export const resetPasswordValidator = validate(
         notEmpty: {
           errorMessage: USERS_MESSAGES.USER_ID_IS_REQUIRED
         },
-        isString: {
-          errorMessage: USERS_MESSAGES.USER_ID_MUST_BE_A_STRING
-        }
+        isMongoId: { errorMessage: USERS_MESSAGES.USER_ID_MUST_BE_A_STRING }
       },
       forgot_password_token: {
         notEmpty: {
@@ -188,18 +191,11 @@ export const resetPasswordValidator = validate(
         }
       },
       password: {
-        notEmpty: {
-          errorMessage: USERS_MESSAGES.PASSWORD_IS_REQUIRED
-        },
-        isString: {
-          errorMessage: USERS_MESSAGES.PASSWORD_MUST_BE_A_STRING
-        },
-        isLength: {
-          options: {
-            min: 8,
-            max: 50
-          },
-          errorMessage: USERS_MESSAGES.PASSWORD_LENGTH_MUST_BE_FROM_8_TO_50
+        custom: {
+          options: (value: string) => {
+            validatePassword(value)
+            return true
+          }
         }
       },
       confirm_password: {
@@ -245,31 +241,13 @@ export const refreshTokenValidator = validate(
               })
             }
 
-            const refreshTokenInDb = await databaseService.sessions.findOne({ token: value })
-            if (!refreshTokenInDb) {
-              throw new ErrorWithStatus({
-                message: USERS_MESSAGES.REFRESH_TOKEN_NOT_FOUND,
-                status: HTTP_STATUS.UNAUTHORIZED
-              })
-            }
-
             if (decoded_refresh_token.token_type !== TokenType.RefreshToken) {
               throw new ErrorWithStatus({
                 message: USERS_MESSAGES.INVALID_REFRESH_TOKEN_TYPE,
                 status: HTTP_STATUS.UNAUTHORIZED
               })
             }
-            const user = await databaseService.users.findOne({
-              _id: new ObjectId(decoded_refresh_token.user_id),
-              role: { $in: [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER] },
-              account_status: AccountStatus.ACTIVE
-            })
-            if (!user) {
-              throw new ErrorWithStatus({
-                message: USERS_MESSAGES.REFRESH_TOKEN_NOT_FOUND,
-                status: HTTP_STATUS.UNAUTHORIZED
-              })
-            }
+            await usersService.validateSession(decoded_refresh_token, value)
             ;(req as { decoded_refresh_token?: TokenPayload }).decoded_refresh_token = decoded_refresh_token
             return true
           }
@@ -293,7 +271,7 @@ export const accessTokenValidator = validate(
                 status: HTTP_STATUS.UNAUTHORIZED
               })
             }
-            const access_token = authorization.split(' ')[1]
+            const access_token = /^Bearer ([^ ]+)$/i.exec(authorization)?.[1]
             if (!access_token) {
               throw new ErrorWithStatus({
                 message: USERS_MESSAGES.ACCESS_TOKEN_IS_INVALID,
@@ -318,17 +296,7 @@ export const accessTokenValidator = validate(
                 status: HTTP_STATUS.UNAUTHORIZED
               })
             }
-            const user = await databaseService.users.findOne({
-              _id: new ObjectId(decoded_authorization.user_id),
-              role: { $in: [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER] },
-              account_status: AccountStatus.ACTIVE
-            })
-            if (!user) {
-              throw new ErrorWithStatus({
-                message: USERS_MESSAGES.ACCESS_TOKEN_IS_INVALID,
-                status: HTTP_STATUS.UNAUTHORIZED
-              })
-            }
+            await usersService.validateSession(decoded_authorization)
             ;(req as { decoded_authorization?: TokenPayload }).decoded_authorization =
               decoded_authorization as TokenPayload
             return true
@@ -600,34 +568,22 @@ export const updateUserStatusValidator = validate(
   )
 )
 
-export const debugValidator = (req: Request, res: Response, next: NextFunction) => {
-  console.log('Debug Validator - Request Body:', req.body)
-  console.log('Debug Validator - Request Headers:', req.headers)
-  next()
-}
-
-export const isAdminValidator = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const decoded_authorization = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-
-    // Tìm user trong database dựa vào user_id lấy từ token
-    const user = await databaseService.users.findOne({
-      _id: new ObjectId(decoded_authorization.user_id)
-    })
-
-    // Kiểm tra Role
-    if (!user || user.role !== UserRole.ADMIN) {
-      return next(
-        new ErrorWithStatus({
-          message: 'Chỉ có Quản trị viên (Admin) mới được phép thực hiện hành động này',
-          status: HTTP_STATUS.FORBIDDEN
-        })
-      )
+export function requireRoles(...roles: UserRole[]) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = await databaseService.users.findOne({
+        _id: new ObjectId(req.decoded_authorization!.user_id),
+        account_status: AccountStatus.ACTIVE,
+        role: { $in: roles }
+      })
+      if (!user) throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
+      next()
+    } catch (error) {
+      next(error)
     }
-
-    // Nếu đúng là Admin thì cho phép đi tiếp
-    next()
-  } catch (error) {
-    next(error)
   }
 }
+
+export const isAdminValidator = requireRoles(UserRole.ADMIN)
+export const isCustomerValidator = requireRoles(UserRole.CUSTOMER)
+export const isManagerValidator = requireRoles(UserRole.MANAGER)

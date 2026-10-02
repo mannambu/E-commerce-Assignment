@@ -18,7 +18,7 @@ import {
   updateOrderStatusValidator,
   updatePaymentStatusValidator
 } from '~/middlewares/orders.middlewares'
-import { accessTokenValidator } from '~/middlewares/users.middlewares'
+import { accessTokenValidator, isAdminValidator, isCustomerValidator } from '~/middlewares/users.middlewares'
 import { wrapRequestHandler } from '~/utils/handlers'
 
 const ordersRouter = Router()
@@ -31,7 +31,13 @@ const ordersRouter = Router()
  * Body: { deliveryAddress: string, deliveryDate: string, packageType?: 'ONE_DAY' | 'WEEKLY_7D', cartType?: 'FOOD' | 'COMBO', distanceKm?: number, note?: string, paymentMethod: 'COD' | 'VNPay' | 'MoMo' }
  * Note: Neu khong truyen distanceKm, backend se tu tinh khoang cach tu dia chi mac dinh.
  */
-ordersRouter.post('/quote', accessTokenValidator, quoteOrderValidator, wrapRequestHandler(quoteOrderController))
+ordersRouter.post(
+  '/quote',
+  accessTokenValidator,
+  isCustomerValidator,
+  quoteOrderValidator,
+  wrapRequestHandler(quoteOrderController)
+)
 
 /**
  * Description. Create a new order from current cart
@@ -40,7 +46,13 @@ ordersRouter.post('/quote', accessTokenValidator, quoteOrderValidator, wrapReque
  * Header: { Authorization: Bearer <access_token> }
  * Body: Same as quote payload (cartType giúp chọn checkout từ giỏ FOOD/COMBO)
  */
-ordersRouter.post('/', accessTokenValidator, createOrderValidator, wrapRequestHandler(createOrderController))
+ordersRouter.post(
+  '/',
+  accessTokenValidator,
+  isCustomerValidator,
+  createOrderValidator,
+  wrapRequestHandler(createOrderController)
+)
 
 /**
  * Description. Get ALL orders in the system (Admin only)
@@ -97,6 +109,7 @@ ordersRouter.patch(
 ordersRouter.patch(
   '/:orderId/status',
   accessTokenValidator,
+  isAdminValidator,
   orderIdParamValidator,
   updateOrderStatusValidator,
   wrapRequestHandler(updateOrderStatusController)
@@ -113,6 +126,7 @@ ordersRouter.patch(
 ordersRouter.post(
   '/:orderId/payments/retry',
   accessTokenValidator,
+  isCustomerValidator,
   orderIdParamValidator,
   retryPaymentValidator,
   wrapRequestHandler(retryPaymentController)
@@ -129,6 +143,7 @@ ordersRouter.post(
 ordersRouter.patch(
   '/:orderId/payment-status',
   accessTokenValidator,
+  isAdminValidator,
   orderIdParamValidator,
   updatePaymentStatusValidator,
   wrapRequestHandler(updatePaymentStatusController)

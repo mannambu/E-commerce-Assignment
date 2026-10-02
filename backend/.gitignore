@@ -3,3 +3,4 @@ dist/
 .env
 data/import/users.json
 package-lock.json
+*.log
