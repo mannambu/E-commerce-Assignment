@@ -290,9 +290,11 @@ Body (optional fields):
 
 ### **GET /users (Auth, Admin)**
 
-Lấy danh sách tài khoản Customer, Admin và Manager trên hệ thống.
+Tìm kiếm và phân trang tài khoản Customer/Manager. Danh sách này không bao gồm Admin.
 
-Response HTTP **200** dạng `{ "message": "Lấy danh sách người dùng thành công", "result": [] }`. Mỗi phần tử là user đã bỏ `password` và `forgot_password_token`; sắp xếp theo `created_at` giảm dần. Hiện chưa có query tìm kiếm, phân trang hoặc lọc role/status ở endpoint này. Customer/Manager gọi sẽ nhận 403.
+Query: `search` (tối đa 100 ký tự, tìm chuỗi trong email/username/phone, không phân biệt hoa thường), `role=Customer|Manager`, `status=Active|Locked`, `page` (mặc định 1, tối đa 1000000), `limit` (mặc định 20, tối đa 100). Ví dụ: `/users?role=Manager&status=Active&page=1&limit=20`.
+
+Response HTTP **200**: `{ "message": "Lấy danh sách người dùng thành công", "result": { "items": [], "page": 1, "limit": 20, "total": 0 } }`. `total` là số tài khoản khớp bộ lọc, không phải số dòng của trang. Mỗi dòng chỉ gồm `_id`, `email`, `username`, `phone`, `role`, `account_status`, `created_at`; sắp xếp `created_at` và `_id` giảm dần. Không trả hồ sơ sức khỏe hay dữ liệu xác thực. Customer/Manager nhận 403; query sai nhận 422.
 
 ### **POST /users (Auth, Admin)**
 
@@ -330,7 +332,7 @@ Response HTTP **201**:
 
 Không trả password hoặc token đăng nhập cho user mới. Backend ghi audit `UserCreated`; người vừa được tạo cần đăng nhập riêng. Tài khoản Admin được khởi tạo bằng seed, không qua API này.
 
-Lỗi: 401 nếu phiên không hợp lệ; 403 nếu người gọi không phải Admin; 422 nếu validation không đạt (bao gồm role sai hoặc email/username đã tồn tại khi kiểm tra); service có thể trả 409 nếu phát hiện trùng email/username sau bước validation. Chưa có API đổi role của user đã tồn tại.
+Lỗi: 401 nếu phiên không hợp lệ; 403 nếu người gọi không phải Admin; 422 nếu validation không đạt (bao gồm role sai hoặc email/username đã tồn tại khi kiểm tra); service có thể trả 409 nếu phát hiện trùng email/username sau bước validation.
 
 ### **PATCH /users/:user_id/status (Auth, Admin)**
 
@@ -338,22 +340,30 @@ Admin khóa/mở tài khoản Customer/Manager. Backend chặn thay đổi trạ
 
 Body:
 ```json
-{ "status": "Locked" }
+{ "status": "Locked", "reason": "Tạo đơn giả nhiều lần" }
 ```
 
-`status` chỉ nhận `Locked` hoặc `Active`.
+`status` chỉ nhận `Locked` hoặc `Active`; `reason` bắt buộc cho cả khóa/mở, dài 1–500 ký tự sau khi trim.
 
 Response HTTP **200**:
 
 ```json
-{ "message": "Account status updated" }
+{ "message": "Đã cập nhật trạng thái tài khoản", "changed": true }
 ```
 
-Cả khóa và mở khóa đều xóa khóa tạm/bộ đếm đăng nhập sai, hủy token reset đang chờ, tăng tokenVersion và xóa mọi phiên của user. Mở khóa yêu cầu đăng nhập lại; phiên cũ không sống lại. Backend ghi audit `AccountLocked` hoặc `AccountUnlocked`.
+Khi trạng thái thay đổi, cả khóa và mở khóa đều xóa khóa tạm/bộ đếm đăng nhập sai, hủy token reset đang chờ, tăng tokenVersion và xóa mọi phiên của user. Mở khóa yêu cầu đăng nhập lại; phiên cũ không sống lại. Backend ghi audit `AccountLocked` hoặc `AccountUnlocked` kèm lý do trong cùng transaction. Nếu trạng thái đã đúng, trả `changed: false`, không thu hồi phiên hoặc ghi audit lặp. Riêng tài khoản đang khóa tạm (`Locked` có `locked_until`), Admin gửi `Locked` sẽ chuyển thành khóa lâu dài và trả `changed: true`.
 
-User không tồn tại trả 404; sửa tài khoản Admin trả 403; user_id/status không hợp lệ ở validator trả 422. Frontend nên ẩn hoặc khóa nút đổi trạng thái trên các dòng Admin.
+User không tồn tại trả 404; sửa tài khoản Admin trả 403; user_id/status/reason không hợp lệ ở validator trả 422.
 
-### **POST /users/health-profile (Auth)**
+### **PATCH /users/:user_id/role (Auth, Admin)**
+
+Body: `{ "role": "Manager", "reason": "Phân công phụ trách báo cáo" }`. Chỉ đổi Customer ↔ Manager; `reason` bắt buộc, 1–500 ký tự sau khi trim. Không cho nâng thành Admin hoặc sửa role của bất kỳ tài khoản Admin nào, kể cả chính người gọi.
+
+Response HTTP **200**: `{ "message": "Đã cập nhật vai trò tài khoản", "changed": true }`. Thay đổi role, tăng tokenVersion, thu hồi mọi phiên và ghi audit `RoleChanged` (quyền cũ/mới, người thực hiện, lý do) trong cùng transaction. Tài khoản đang Locked vẫn Locked. User cần đăng nhập lại để nhận role mới. Gửi lại cùng role trả `changed: false`, giữ phiên và không ghi audit lặp.
+
+Lỗi: 401 nếu phiên không hợp lệ, 403 nếu không phải Admin hoặc đích là Admin, 404 nếu user không tồn tại, 422 nếu ID/role/reason sai.
+
+### **POST /users/health-profile (Auth, Customer)**
 
 Body:
 ```json
@@ -368,7 +378,7 @@ Body:
 }
 ```
 
-### **GET /users/health-metrics (Auth)**
+### **GET /users/health-metrics (Auth, Customer)**
 
 Response:
 ```json
@@ -389,7 +399,7 @@ Response:
 }
 ```
 
-### **POST /users/recommendations/meals (Auth)**
+### **POST /users/recommendations/meals (Auth, Customer)**
 
 Body:
 ```json
@@ -398,7 +408,7 @@ Body:
 
 * days: chỉ nhận 1 hoặc 7
 
-### **POST /users/recommendations/meals/swap (Auth)**
+### **POST /users/recommendations/meals/swap (Auth, Customer)**
 
 Body:
 ```json
@@ -447,7 +457,7 @@ Query optional:
 **Phân quyền (Quan trọng):**
 
 * Nếu Header chứa Token của **Admin**: Trả về TOÀN BỘ thực đơn.  
-* Nếu không có token hoặc user là **Customer/Manager**: Chỉ trả về món đang bán (isActive: true). Lọc món còn hàng và cảnh báo dị ứng cá nhân còn cần hoàn thiện theo US-13.
+* Nếu không có token, token đã hết hạn/thu hồi, tài khoản bị khóa hoặc user là **Customer/Manager**: Chỉ trả về món đang bán (isActive: true). Quyền Admin chỉ được cấp sau khi kiểm tra JWT + phiên + role/tokenVersion hiện tại trong DB. Lọc món còn hàng và cảnh báo dị ứng cá nhân còn cần hoàn thiện theo US-13.
 
 **Giới hạn hiện tại:** `GET /foods` là API public, tự kiểm tra JWT và role trong DB, chưa gọi `validateSession` để kiểm tra phiên/tokenVersion/trạng thái tài khoản. Token sai hoặc hết hạn bị bỏ qua và request dùng quyền khách; token Admin đã logout nhưng JWT còn hạn vẫn có thể được nhận diện là Admin tại riêng endpoint này. Cần đồng bộ optional auth ở backend trong bước tiếp theo. Các API tạo/sửa/xóa món dùng middleware kiểm tra phiên đầy đủ.
 
@@ -705,7 +715,7 @@ Lấy chi tiết order, response HTTP 200 dạng `{ "message": "...", "result": 
 
 * Customer chỉ hủy được khi Pending.  
 * Admin được hủy rộng hơn, nhưng không hủy được Completed hoặc Cancelled.
-* Manager không được hủy (403 khi đơn tồn tại). API hiện hủy toàn đơn/các kỳ giao chưa hoàn thành; chưa có endpoint hủy riêng từng ngày.
+* Manager không được hủy (403 ngay tại middleware). API hiện hủy toàn đơn/các kỳ giao chưa hoàn thành; chưa có endpoint hủy riêng từng ngày.
 
 ### **PATCH /orders/:orderId/status**
 
@@ -741,9 +751,7 @@ Body:
 
 ### **GET /admin/dashboard-stats (Auth, Admin)**
 
-Lấy các chỉ số thống kê tổng quan cho trang chủ Admin Panel.
-
-Đây là **dashboard cũ đang tồn tại**: vẫn trả thống kê doanh thu cho Admin từ đơn Completed. Chưa tách thành dashboard vận hành Admin và báo cáo tài chính Manager từ Transaction theo yêu cầu mới. Manager gọi endpoint này nhận 403; hiện chưa có API báo cáo/Excel dành cho Manager.
+Thống kê vận hành: số Customer, số món đang bán và số đơn theo từng trạng thái. Không trả doanh thu/chi phí/lãi lỗ. Customer/Manager gọi endpoint này nhận 403. Báo cáo tài chính/Excel của Manager thuộc US-29, chưa có endpoint trong đợt phân quyền này.
 
 Response:
 ```json
@@ -756,21 +764,17 @@ Response:
     "products": {  
       "foods": 50
     },  
-    "revenue": {  
-      "overall": {  
-        "totalAmount": 6187000,  
-        "completedOrders": 6  
-      },  
-      "thisMonth": {  
-        "totalAmount": 6187000,  
-        "completedOrders": 6  
-      },  
-      "breakdown": {  
-        "FOOD_ONE_DAY": { "revenue": 1000000, "orders": 2 },  
-        "COMBO_WEEKLY": { "revenue": 5187000, "orders": 4 },  
-        "OTHER": { "revenue": 0, "orders": 0 }  
-      }  
-    }  
+    "orders": {
+      "total": 9,
+      "byStatus": {
+        "Pending": 2,
+        "Confirmed": 3,
+        "Cooking": 0,
+        "Delivering": 0,
+        "Completed": 4,
+        "Cancelled": 0
+      }
+    }
   }  
 }
 ```
@@ -961,17 +965,18 @@ Response:
 
 | Chức năng | Customer | Admin | Manager |
 | --- | --- | --- | --- |
-| Tạo Customer/Manager, xem danh sách user, khóa/mở user | Không | Có; không sửa trạng thái Admin | Không |
+| Tạo Customer/Manager, tìm/lọc/phân trang user, khóa/mở, đổi role | Không | Có; không sửa tài khoản Admin | Không |
+| Giỏ hàng, hồ sơ sức khỏe, thực đơn, tracking, tạo/sửa review | Có, dữ liệu của mình | Không | Không |
 | CRUD món | Không | Có | Không |
 | Quote/tạo đơn, retry thanh toán | Có, đơn của mình | Không | Không |
 | Xem toàn bộ đơn qua `/orders/all` | Không | Có | Có, chỉ đọc |
 | Xem chi tiết đơn | Đơn của mình | Mọi đơn | Mọi đơn |
 | Hủy đơn | Đơn của mình, Pending | Trừ Completed/Cancelled | Không |
 | Đổi trạng thái đơn/thanh toán | Không | Có | Không |
-| Dashboard cũ, nhật ký toàn hệ thống `/admin/*` | Không | Có | Không |
+| Dashboard vận hành, nhật ký toàn hệ thống `/admin/*` | Không | Có | Không |
 | Báo cáo tài chính/Excel Manager | Chưa có API | Chưa có API | Chưa có API |
 
-Không suy rộng ma trận này thành middleware Customer-only cho toàn bộ backend: các API Cart, Tracking, Health Profile và Upload hiện yêu cầu phiên hợp lệ, chưa giới hạn riêng role Customer. Frontend có thể ẩn các màn hình không phù hợp, nhưng việc ẩn không thay thế kiểm tra quyền ở server.
+Cart, Tracking, Health Profile, gợi ý thực đơn và tạo/sửa review đã được giới hạn Customer ở backend. `/users/me`, đăng xuất và upload dùng chung cho các vai trò có phiên hợp lệ. Danh mục món và danh sách review vẫn công khai. Customer chỉ được sửa review của mình; Admin được xóa review theo API hiện tại.
 
 ### **Form và dữ liệu đã đổi schema**
 
@@ -984,8 +989,8 @@ Không suy rộng ma trận này thành middleware Customer-only cho toàn bộ 
 ## **11) Phần chưa triển khai hoặc cần đồng bộ tiếp**
 
 - Frontend hiện vẫn cần cập nhật các trang/route/API PT cũ, guard vai trò, trang reset email và giao diện Admin tạo/khóa user.
-- Backend chưa có báo cáo tài chính/Excel Manager, tìm kiếm/phân trang danh sách user, API đổi role, API liệt kê/xóa riêng phiên theo ID hay API đọc audit log. Có schema/service nội bộ không có nghĩa đã có endpoint public.
-- Dashboard doanh thu Admin cũ chưa được tách theo yêu cầu mới. Optional auth của `GET /foods` chưa kiểm tra phiên thu hồi; cần sửa backend trước khi coi phần quyền này đã hoàn chỉnh.
+- Backend chưa có báo cáo tài chính/Excel Manager, API liệt kê/xóa riêng phiên theo ID hay API đọc audit log. Có schema/service nội bộ không có nghĩa đã có endpoint public.
+- Frontend quản lý user cần đọc `result.items` và `result.total`, gửi `reason` khi khóa/mở/đổi role. Dashboard Admin phải dùng `orders.byStatus`; response không còn `revenue`. Các trang frontend cũ chưa được chuyển trong đợt backend này.
 - Checkout chưa hoàn thiện giữ/trừ kho bằng transaction, idempotency, xác thực IPN, job hết hạn và hoàn tiền. Không coi việc trả trạng thái Paid thủ công là xác nhận từ cổng thanh toán.
 - Chưa có API hủy/đổi món/hoàn tiền riêng từng ngày của gói tuần. Recommendation/swap hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.
 - Reset email chỉ chạy thực tế sau khi cấu hình SMTP; `PASSWORD_RESET_URL` phải trỏ tới trang frontend đã có. Hướng dẫn DB/seed/email ở [auth-setup.md](auth-setup.md), giải thích 12 collection ở [database_schema.md](../../docs/database_schema.md).

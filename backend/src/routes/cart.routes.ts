@@ -11,7 +11,7 @@ import {
   removeCartItemController,
   updateCartItemQuantityController
 } from '~/controllers/cart.controllers'
-import { accessTokenValidator } from '~/middlewares/users.middlewares'
+import { accessTokenValidator, isCustomerValidator } from '~/middlewares/users.middlewares'
 import {
   addCartItemValidator,
   removeCartItemValidator,
@@ -20,6 +20,7 @@ import {
 import { wrapRequestHandler } from '~/utils/handlers'
 
 const cartRouter = Router()
+cartRouter.use(accessTokenValidator, isCustomerValidator)
 
 /**
  * Description. Get current user's cart summary
@@ -27,9 +28,9 @@ const cartRouter = Router()
  * Method: GET
  * Header: { Authorization: Bearer <access_token> }
  */
-cartRouter.get('/', accessTokenValidator, wrapRequestHandler(getCartController))
-cartRouter.get('/food', accessTokenValidator, wrapRequestHandler(getFoodCartController))
-cartRouter.get('/combo', accessTokenValidator, wrapRequestHandler(getComboCartController))
+cartRouter.get('/', wrapRequestHandler(getCartController))
+cartRouter.get('/food', wrapRequestHandler(getFoodCartController))
+cartRouter.get('/combo', wrapRequestHandler(getComboCartController))
 
 /**
  * Description. Add a food item into current user's cart
@@ -38,7 +39,7 @@ cartRouter.get('/combo', accessTokenValidator, wrapRequestHandler(getComboCartCo
  * Header: { Authorization: Bearer <access_token> }
  * Body: { itemId: string, quantity: number }
  */
-cartRouter.post('/items', accessTokenValidator, addCartItemValidator, wrapRequestHandler(addCartItemController))
+cartRouter.post('/items', addCartItemValidator, wrapRequestHandler(addCartItemController))
 
 /**
  * Description. Update food item quantity in current user's cart
@@ -50,7 +51,6 @@ cartRouter.post('/items', accessTokenValidator, addCartItemValidator, wrapReques
  */
 cartRouter.patch(
   '/items/:itemId',
-  accessTokenValidator,
   updateCartItemQuantityValidator,
   wrapRequestHandler(updateCartItemQuantityController)
 )
@@ -62,12 +62,7 @@ cartRouter.patch(
  * Header: { Authorization: Bearer <access_token> }
  * Params: { itemId: string }
  */
-cartRouter.delete(
-  '/items/:itemId',
-  accessTokenValidator,
-  removeCartItemValidator,
-  wrapRequestHandler(removeCartItemController)
-)
+cartRouter.delete('/items/:itemId', removeCartItemValidator, wrapRequestHandler(removeCartItemController))
 
 /**
  * Description. Clear all food items in current user's cart
@@ -75,9 +70,9 @@ cartRouter.delete(
  * Method: DELETE
  * Header: { Authorization: Bearer <access_token> }
  */
-cartRouter.delete('/', accessTokenValidator, wrapRequestHandler(clearCartController))
-cartRouter.delete('/food', accessTokenValidator, wrapRequestHandler(clearFoodCartController))
-cartRouter.delete('/combo', accessTokenValidator, wrapRequestHandler(clearComboCartController))
+cartRouter.delete('/', wrapRequestHandler(clearCartController))
+cartRouter.delete('/food', wrapRequestHandler(clearFoodCartController))
+cartRouter.delete('/combo', wrapRequestHandler(clearComboCartController))
 
 /**
  * Description. Refresh cart summary by latest food information
@@ -85,6 +80,6 @@ cartRouter.delete('/combo', accessTokenValidator, wrapRequestHandler(clearComboC
  * Method: POST
  * Header: { Authorization: Bearer <access_token> }
  */
-cartRouter.post('/refresh', accessTokenValidator, wrapRequestHandler(refreshCartController))
+cartRouter.post('/refresh', wrapRequestHandler(refreshCartController))
 
 export default cartRouter

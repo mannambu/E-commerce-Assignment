@@ -113,17 +113,24 @@ Backend đã có luồng gửi/reset; **frontend vẫn cần trang `/reset-passw
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /users/register`                    | Công khai, chỉ tạo Customer.                                                                                                                                                    |
 | `POST /users`                             | Admin tạo Customer hoặc Manager; không tạo Admin qua API. Body giống register nhưng `role` bắt buộc.                                                                            |
-| `PATCH /users/:user_id/status`            | Admin khóa/mở Customer/Manager; body `{ "status": "Locked" }` hoặc `Active`. Ghi audit, xóa khóa tạm/reset token, tăng version và thu hồi mọi phiên.                            |
+| `GET /users` | Admin tìm kiếm/phân trang Customer/Manager bằng `search`, `role`, `status`, `page`, `limit`; trả `result: { items, page, limit, total }`. Không trả dữ liệu sức khỏe/xác thực. |
+| `PATCH /users/:user_id/status` | Admin khóa/mở Customer/Manager; body `{ "status": "Locked", "reason": "Lý do" }` hoặc `Active`. Khi thay đổi: ghi audit, xóa khóa tạm/reset token, tăng version và thu hồi mọi phiên. |
+| `PATCH /users/:user_id/role` | Admin đổi Customer ↔ Manager; body `{ "role": "Manager", "reason": "Phân công báo cáo" }`. Ghi audit, tăng version và thu hồi phiên. Không sửa role Admin. |
 | `POST /users/logout`                      | Body có refresh token còn hiệu lực; không cần access token còn hạn. Thu hồi cả access/refresh của phiên đó.                                                                     |
 | `POST /users/logout-all`                  | Bearer access token; thu hồi mọi phiên của chính tài khoản.                                                                                                                     |
 | `POST /users/refresh-token`               | Xoay refresh token, giữ thời hạn phiên. Frontend phải lưu cặp token mới; hai request dùng cùng token chỉ một request thành công. Response là `{ access_token, refresh_token }`. |
 | `GET /orders/all`, `GET /orders/:orderId` | Admin/Manager được đọc mọi đơn; Customer chỉ đọc chi tiết đơn của mình.                                                                                                         |
 | Tạo/quote/retry thanh toán đơn            | Chỉ Customer.                                                                                                                                                                   |
 | Đổi trạng thái đơn/thanh toán, CRUD món   | Chỉ Admin. Manager không được thực hiện.                                                                                                                                        |
+| Giỏ hàng, tracking, sức khỏe/thực đơn, tạo/sửa review | Chỉ Customer; dữ liệu thuộc chính người gọi. |
+| `GET /admin/dashboard-stats` | Admin xem số khách, món đang bán, tổng đơn và `orders.byStatus`; không trả trường doanh thu. |
+| `GET /foods` | Công khai. Chỉ phiên Admin hợp lệ được xem cả món ẩn; token bị thu hồi/hết hạn hoặc tài khoản bị khóa chỉ xem danh mục công khai. |
+
+`reason` bắt buộc cho khóa/mở/đổi role, từ 1–500 ký tự sau khi trim. Gửi cùng trạng thái/role hiện tại trả HTTP 200 với `changed: false`; không tạo audit lặp hoặc thu hồi phiên. Ngoại lệ: Admin gửi `Locked` cho tài khoản đang khóa tạm sẽ bỏ `locked_until`, chuyển thành khóa lâu dài (`changed: true`). Khi thay đổi thành công trả `changed: true`. Mở khóa và đổi role không làm sống lại token cũ; đổi role không tự mở khóa tài khoản đang Locked.
 
 Token cũ thiếu liên kết session sẽ trả 401 sau cập nhật; cần đăng nhập lại. Không cần xóa DB hoặc tạo lại index cho thay đổi này. 401 từ protected API yêu cầu frontend refresh hoặc về đăng nhập; 403 là không có quyền.
 
-Phạm vi chưa làm trong đợt này: báo cáo tài chính/Excel từ Transaction cho Manager, thay dashboard doanh thu Admin cũ bằng dashboard vận hành, tìm kiếm/phân trang quản lý user, API đổi role, giao diện quản lý user/reset mật khẩu và luồng guard phía frontend. `isManagerValidator` đã có để bảo vệ các API báo cáo khi triển khai chúng.
+Phạm vi còn lại: báo cáo tài chính/Excel từ Transaction cho Manager, giao diện quản lý user/reset mật khẩu và guard phía frontend. `isManagerValidator` đã có để bảo vệ các API báo cáo khi triển khai US-29. Frontend cũ cần đổi sang đọc `result.items` ở danh sách user, gửi lý do thao tác và dùng `orders.byStatus` thay cho `revenue` trên dashboard Admin. Hợp đồng chi tiết ở [frontend-api-spec.md](frontend-api-spec.md).
 
 ## 7. Kiểm tra
 

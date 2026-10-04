@@ -124,6 +124,19 @@ export const createUserValidator = validate(
   )
 )
 
+export const getUsersValidator = validate(
+  checkSchema(
+    {
+      search: { optional: true, isString: { bail: true }, trim: true, isLength: { options: { max: 100 } } },
+      role: { optional: true, isIn: { options: [[UserRole.CUSTOMER, UserRole.MANAGER]] } },
+      status: { optional: true, isIn: { options: [[AccountStatus.ACTIVE, AccountStatus.LOCKED]] } },
+      page: { optional: true, isInt: { options: { min: 1, max: 1000000 } } },
+      limit: { optional: true, isInt: { options: { min: 1, max: 100 } } }
+    },
+    ['query']
+  )
+)
+
 export const loginValidator = validate(
   checkSchema(
     {
@@ -307,6 +320,16 @@ export const accessTokenValidator = validate(
     ['headers']
   )
 )
+
+// API công khai vẫn dùng được khi token hết hạn/thu hồi, nhưng không nhận quyền Admin.
+export const optionalAccessTokenValidator = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.headers.authorization) return next()
+  return accessTokenValidator(req, res, (error) => {
+    if (error && error.status !== HTTP_STATUS.UNAUTHORIZED) return next(error)
+    if (error) delete req.decoded_authorization
+    next()
+  })
+}
 
 export const checkEmailExistQueryValidator = validate(
   checkSchema(
@@ -541,18 +564,23 @@ export const swapMealRecommendationValidator = validate(
   )
 )
 
+const accountChangeFields: Schema = {
+  user_id: {
+    in: ['params'],
+    isMongoId: { errorMessage: USERS_MESSAGES.USER_ID_MUST_BE_A_STRING }
+  },
+  reason: {
+    in: ['body'],
+    isString: { bail: true },
+    trim: true,
+    isLength: { options: { min: 1, max: 500 }, errorMessage: 'Lý do phải có từ 1 đến 500 ký tự' }
+  }
+}
+
 export const updateUserStatusValidator = validate(
   checkSchema(
     {
-      user_id: {
-        in: ['params'],
-        notEmpty: {
-          errorMessage: USERS_MESSAGES.USER_ID_IS_REQUIRED
-        },
-        isMongoId: {
-          errorMessage: USERS_MESSAGES.USER_ID_MUST_BE_A_STRING
-        }
-      },
+      ...accountChangeFields,
       status: {
         in: ['body'],
         notEmpty: {
@@ -561,6 +589,22 @@ export const updateUserStatusValidator = validate(
         isIn: {
           options: [['Active', 'Locked']],
           errorMessage: USERS_MESSAGES.VALIDATION_ERROR
+        }
+      }
+    },
+    ['params', 'body']
+  )
+)
+
+export const updateUserRoleValidator = validate(
+  checkSchema(
+    {
+      ...accountChangeFields,
+      role: {
+        in: ['body'],
+        isIn: {
+          options: [[UserRole.CUSTOMER, UserRole.MANAGER]],
+          errorMessage: 'Chỉ được chuyển vai trò giữa Customer và Manager'
         }
       }
     },

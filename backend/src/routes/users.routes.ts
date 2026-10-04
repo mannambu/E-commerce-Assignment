@@ -2,6 +2,7 @@ import { Router } from 'express'
 import {
   accessTokenValidator,
   createUserValidator,
+  getUsersValidator,
   checkEmailExistQueryValidator,
   checkUsernameExistQueryValidator,
   forgotPasswordValidator,
@@ -14,7 +15,9 @@ import {
   swapMealRecommendationValidator,
   updateMeValidator,
   isAdminValidator,
-  updateUserStatusValidator
+  isCustomerValidator,
+  updateUserStatusValidator,
+  updateUserRoleValidator
 } from '~/middlewares/users.middlewares'
 import {
   logoutAllController,
@@ -34,6 +37,7 @@ import {
   swapMealRecommendationController,
   updateMeController,
   updateUserStatusController,
+  updateUserRoleController,
   getAllUsersController
 } from '~/controllers/users.controllers'
 import { wrapRequestHandler } from '~/utils/handlers'
@@ -132,7 +136,7 @@ usersRouter.get('/me', accessTokenValidator, wrapRequestHandler(getMeController)
 usersRouter.patch('/me', accessTokenValidator, updateMeValidator, wrapRequestHandler(updateMeController))
 
 /**
- * Description. Get ALL users (Admin only)
+ * Description. Search and paginate Customer/Manager accounts (Admin only)
  * Path: /
  * Method: GET
  * Header: { Authorization: Bearer <access_token> }
@@ -141,15 +145,16 @@ usersRouter.get(
   '/',
   accessTokenValidator,
   isAdminValidator, // Chỉ Admin mới được xem
+  getUsersValidator,
   wrapRequestHandler(getAllUsersController)
 )
 
 /**
- * Description. Update user account status (Ban / Unban)
+ * Description. Lock / unlock a Customer or Manager account
  * Path: /:user_id/status
  * Method: PATCH
  * Header: { Authorization: Bearer <access_token> }
- * Body: { status: 'Active' | 'Banned' }
+ * Body: { status: 'Active' | 'Locked', reason: string }
  */
 usersRouter.patch(
   '/:user_id/status',
@@ -157,6 +162,15 @@ usersRouter.patch(
   isAdminValidator, // Chỉ Admin mới được khóa tài khoản
   updateUserStatusValidator,
   wrapRequestHandler(updateUserStatusController)
+)
+
+// Admin chỉ chuyển vai trò giữa Customer và Manager; mọi phiên cũ bị thu hồi.
+usersRouter.patch(
+  '/:user_id/role',
+  accessTokenValidator,
+  isAdminValidator,
+  updateUserRoleValidator,
+  wrapRequestHandler(updateUserRoleController)
 )
 
 /**
@@ -169,6 +183,7 @@ usersRouter.patch(
 usersRouter.post(
   '/health-profile',
   accessTokenValidator,
+  isCustomerValidator,
   healthProfileIntakeValidator,
   wrapRequestHandler(healthProfileIntakeController)
 )
@@ -179,7 +194,12 @@ usersRouter.post(
  * Method: GET
  * Header: { Authorization: Bearer <access_token> }
  */
-usersRouter.get('/health-metrics', accessTokenValidator, wrapRequestHandler(healthMetricsController))
+usersRouter.get(
+  '/health-metrics',
+  accessTokenValidator,
+  isCustomerValidator,
+  wrapRequestHandler(healthMetricsController)
+)
 
 /**
  * Description. Recommend meal plan by target calories and restrictions
@@ -191,6 +211,7 @@ usersRouter.get('/health-metrics', accessTokenValidator, wrapRequestHandler(heal
 usersRouter.post(
   '/recommendations/meals',
   accessTokenValidator,
+  isCustomerValidator,
   mealRecommendationValidator,
   wrapRequestHandler(recommendMealsController)
 )
@@ -205,6 +226,7 @@ usersRouter.post(
 usersRouter.post(
   '/recommendations/meals/swap',
   accessTokenValidator,
+  isCustomerValidator,
   swapMealRecommendationValidator,
   wrapRequestHandler(swapMealRecommendationController)
 )

@@ -11,7 +11,7 @@ import {
   reviewIdParamValidator,
   updateReviewValidator
 } from '~/middlewares/reviews.middlewares'
-import { accessTokenValidator } from '~/middlewares/users.middlewares'
+import { accessTokenValidator, isCustomerValidator, isAdminValidator } from '~/middlewares/users.middlewares'
 import { wrapRequestHandler } from '~/utils/handlers'
 
 const reviewsRouter = Router()
@@ -29,7 +29,13 @@ const reviewsRouter = Router()
  *   images?: string[]
  * }
  */
-reviewsRouter.post('/', accessTokenValidator, createReviewValidator, wrapRequestHandler(createReviewController))
+reviewsRouter.post(
+  '/',
+  accessTokenValidator,
+  isCustomerValidator,
+  createReviewValidator,
+  wrapRequestHandler(createReviewController)
+)
 
 /**
  * Description. Get reviews by target type and target id
@@ -52,6 +58,7 @@ reviewsRouter.get('/:targetType/:targetId', getReviewsValidator, wrapRequestHand
 reviewsRouter.patch(
   '/:review_id',
   accessTokenValidator,
+  isCustomerValidator,
   reviewIdParamValidator,
   updateReviewValidator,
   wrapRequestHandler(updateReviewController)
@@ -66,6 +73,7 @@ reviewsRouter.patch(
 reviewsRouter.delete(
   '/:review_id',
   accessTokenValidator,
+  isAdminValidator,
   reviewIdParamValidator,
   wrapRequestHandler(deleteReviewController)
 )

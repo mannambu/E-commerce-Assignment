@@ -3,6 +3,7 @@ import HTTP_STATUS from '~/constants/httpStatus'
 import { ParamsDictionary } from 'express-serve-static-core'
 import {
   ForgotPasswordReqBody,
+  GetUsersQuery,
   HealthProfileIntakeReqBody,
   LoginReqBody,
   MealRecommendationReqBody,
@@ -12,6 +13,8 @@ import {
   ResetPasswordReqBody,
   SwapMealRecommendationReqBody,
   UpdateMeReqBody,
+  UpdateUserRoleReqBody,
+  UpdateUserStatusReqBody,
   TokenPayload
 } from '~/models/requests/User.request'
 import usersService from '~/services/user.services'
@@ -128,8 +131,11 @@ export const getMeController = async (req: Request, res: Response) => {
   })
 }
 
-export const getAllUsersController = async (req: Request, res: Response) => {
-  const result = await usersService.getAllUsers()
+export const getAllUsersController = async (
+  req: Request<ParamsDictionary, unknown, unknown, GetUsersQuery>,
+  res: Response
+) => {
+  const result = await usersService.getAllUsers(req.query)
   return res.status(HTTP_STATUS.OK).json({
     message: 'Lấy danh sách người dùng thành công',
     result
@@ -148,11 +154,22 @@ export const updateMeController = async (
   })
 }
 
-export const updateUserStatusController = async (req: Request, res: Response) => {
-  const { user_id } = req.params as { user_id: string }
-  const { status } = req.body
+export const updateUserStatusController = async (
+  req: Request<{ user_id: string }, unknown, UpdateUserStatusReqBody>,
+  res: Response
+) => {
+  const { user_id } = req.params
+  const { status, reason } = req.body
 
-  const result = await usersService.updateUserStatus(user_id, status, req.decoded_authorization!.user_id)
+  const result = await usersService.updateUserStatus(user_id, status, req.decoded_authorization!.user_id, reason)
+  return res.status(HTTP_STATUS.OK).json(result)
+}
+
+export const updateUserRoleController = async (
+  req: Request<{ user_id: string }, unknown, UpdateUserRoleReqBody>,
+  res: Response
+) => {
+  const result = await usersService.updateUserRole(req.params.user_id, req.body, req.decoded_authorization!.user_id)
   return res.status(HTTP_STATUS.OK).json(result)
 }
 

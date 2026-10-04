@@ -1,7 +1,13 @@
 import { Router } from 'express'
-import { createFoodController, deleteFoodController, getFoodDetailController, getFoodsController, updateFoodController } from '~/controllers/foods.controllers'
+import {
+  createFoodController,
+  deleteFoodController,
+  getFoodDetailController,
+  getFoodsController,
+  updateFoodController
+} from '~/controllers/foods.controllers'
 import { createFoodValidator, getFoodDetailValidator, updateFoodValidator } from '~/middlewares/foods.middlewares'
-import { accessTokenValidator, isAdminValidator } from '~/middlewares/users.middlewares'
+import { accessTokenValidator, isAdminValidator, optionalAccessTokenValidator } from '~/middlewares/users.middlewares'
 import { wrapRequestHandler } from '~/utils/handlers'
 
 const foodsRouter = Router()
@@ -11,7 +17,7 @@ const foodsRouter = Router()
  * Path: /
  * Method: GET
  */
-foodsRouter.get('/', wrapRequestHandler(getFoodsController))
+foodsRouter.get('/', optionalAccessTokenValidator, wrapRequestHandler(getFoodsController))
 
 /**
  * Description. Get detail of one food by id
@@ -28,10 +34,10 @@ foodsRouter.get('/:food_id', getFoodDetailValidator, wrapRequestHandler(getFoodD
  * Header: { Authorization: Bearer <access_token> }
  */
 foodsRouter.post(
-  '/', 
-  accessTokenValidator, 
+  '/',
+  accessTokenValidator,
   isAdminValidator, // Đặt trạm kiểm soát Admin ở đây
-  createFoodValidator, 
+  createFoodValidator,
   wrapRequestHandler(createFoodController)
 )
 

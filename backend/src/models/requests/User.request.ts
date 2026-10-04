@@ -1,6 +1,6 @@
 import { JwtPayload } from 'jsonwebtoken'
 import { TokenType } from '~/constants/enums'
-import { HealthProfile, UserRole } from '~/models/schemas/User.schema'
+import { AccountStatus, HealthProfile, UserRole } from '~/models/schemas/User.schema'
 
 export interface TokenPayload extends JwtPayload {
   user_id: string
@@ -55,6 +55,24 @@ export interface UpdateMeReqBody {
   date_of_birth?: string
   avatar?: string | null
   healthProfile?: HealthProfile
+}
+
+export interface GetUsersQuery {
+  search?: string
+  role?: UserRole.CUSTOMER | UserRole.MANAGER
+  status?: AccountStatus
+  page?: string
+  limit?: string
+}
+
+export interface UpdateUserStatusReqBody {
+  status: AccountStatus
+  reason: string
+}
+
+export interface UpdateUserRoleReqBody {
+  role: UserRole.CUSTOMER | UserRole.MANAGER
+  reason: string
 }
 
 export interface HealthProfileIntakeReqBody {

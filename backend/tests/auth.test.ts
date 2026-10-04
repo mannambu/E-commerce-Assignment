@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import { test, TestContext } from 'node:test'
 import { createHash } from 'node:crypto'
 import { BSON, Collection, ObjectId, ClientSession } from 'mongodb'
-import { Request, RequestHandler, Response } from 'express'
+import express, { Request, RequestHandler, Response } from 'express'
+import { AddressInfo } from 'node:net'
 import jwt from 'jsonwebtoken'
 import User, { AccountStatus, UserRole } from '../src/models/schemas/User.schema'
 import Session from '../src/models/schemas/Session.schema'
@@ -13,6 +14,17 @@ import database from '../src/services/database.services'
 import users from '../src/services/user.services'
 import email from '../src/services/email.services'
 import orders from '../src/services/orders.services'
+import foods from '../src/services/foods.services'
+import carts from '../src/services/cart.services'
+import tracking from '../src/services/tracking.services'
+import usersRouter from '../src/routes/users.routes'
+import foodsRouter from '../src/routes/foods.routes'
+import ordersRouter from '../src/routes/orders.routes'
+import cartRouter from '../src/routes/cart.routes'
+import trackingRouter from '../src/routes/tracking.routes'
+import reviewsRouter from '../src/routes/reviews.routes'
+import adminRouter from '../src/routes/admin.routes'
+import { defaultErrorHandler } from '../src/middlewares/errors.middlewares'
 import {
   accessTokenValidator,
   refreshTokenValidator,
@@ -34,6 +46,7 @@ function matches(doc: Doc, filter: Doc): boolean {
   return Object.entries(filter).every(([key, value]) => {
     if (key === '$or') return value.some((part: Doc) => matches(doc, part))
     const actual = doc[key]
+    if (value instanceof RegExp) return typeof actual === 'string' && value.test(actual)
     if (value === null) return actual == null
     if (value && typeof value === 'object' && !(value instanceof ObjectId) && !(value instanceof Date)) {
       return Object.entries(value).every(([op, expected]) => {
@@ -60,6 +73,43 @@ function collection(docs: Doc[]) {
     return { matchedCount: 1, modifiedCount: 1 }
   }
   return {
+    countDocuments: async (filter: Doc) => docs.filter((doc) => matches(doc, filter)).length,
+    find: (filter: Doc, options: Doc = {}) => {
+      let found = docs.filter((doc) => matches(doc, filter))
+      let skip = 0
+      let limit = found.length
+      const cursor = {
+        sort: (fields: Doc) => {
+          found = [...found].sort((a, b) => {
+            for (const [key, direction] of Object.entries(fields)) {
+              if (!equal(a[key], b[key])) return (a[key] > b[key] ? 1 : -1) * Number(direction)
+            }
+            return 0
+          })
+          return cursor
+        },
+        skip: (value: number) => {
+          skip = value
+          return cursor
+        },
+        limit: (value: number) => {
+          limit = value
+          return cursor
+        },
+        toArray: async () =>
+          found.slice(skip, skip + limit).map((doc) => {
+            if (!options.projection) return copy(doc)
+            return copy(
+              Object.fromEntries(
+                Object.keys(options.projection)
+                  .filter((key) => key in doc)
+                  .map((key) => [key, doc[key]])
+              )
+            )
+          })
+      }
+      return cursor
+    },
     findOne: async (filter: Doc) => {
       const doc = docs.find((item) => matches(item, filter))
       return doc ? copy(doc) : null
@@ -112,6 +162,40 @@ function run(validator: RequestHandler, request: Partial<Request>) {
 }
 const access = (token: string) => run(accessTokenValidator, { headers: { authorization: `Bearer ${token}` } })
 const refresh = (token: string) => run(refreshTokenValidator, { body: { refresh_token: token } })
+
+async function startApi(t: TestContext) {
+  const app = express()
+  app.use(express.json())
+  app.use('/users', usersRouter)
+  app.use('/foods', foodsRouter)
+  app.use('/orders', ordersRouter)
+  app.use('/cart', cartRouter)
+  app.use('/tracking', trackingRouter)
+  app.use('/reviews', reviewsRouter)
+  app.use('/admin', adminRouter)
+  app.use(defaultErrorHandler)
+  const server = app.listen(0, '127.0.0.1')
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', resolve)
+    server.once('error', reject)
+  })
+  t.after(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        server.closeAllConnections()
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+  )
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  return async (path: string, token?: string, method = 'GET', body?: object) => {
+    const response = await fetch(base + path, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: body ? JSON.stringify(body) : undefined
+    })
+    return { status: response.status, body: (await response.json()) as any }
+  }
+}
 
 test('Bcrypt salts independently, verifies passwords and rejects input above 72 bytes', async () => {
   const first = await hashPassword(password)
@@ -297,17 +381,18 @@ test('Admin locks/unlocks with audit, clears temporary lock and cannot revive ol
   })
   accounts.push(admin)
   account.locked_until = new Date(0)
-  await users.updateUserStatus(String(account._id), AccountStatus.LOCKED, String(admin._id))
+  await users.updateUserStatus(String(account._id), AccountStatus.LOCKED, String(admin._id), 'Vi phạm quy định')
   assert.equal(account.locked_until, undefined)
   await assert.rejects(login(), { status: 403 })
-  await users.updateUserStatus(String(account._id), AccountStatus.ACTIVE, String(admin._id))
+  await users.updateUserStatus(String(account._id), AccountStatus.ACTIVE, String(admin._id), 'Đã xác minh lại')
   assert.equal((await access(tokens.access_token)).status, 401)
   assert.equal(await access((await login()).access_token), undefined)
   assert.deepEqual(
     audits.map((audit) => audit.action),
     ['AccountLocked', 'AccountUnlocked']
   )
-  await assert.rejects(users.updateUserStatus(String(admin._id), AccountStatus.LOCKED, String(admin._id)), {
+  assert.equal(audits[0].reason, 'Vi phạm quy định')
+  await assert.rejects(users.updateUserStatus(String(admin._id), AccountStatus.LOCKED, String(admin._id), 'Tự khóa'), {
     status: 403
   })
 })
@@ -346,4 +431,243 @@ test('Manager can read all orders but is denied Admin operations; Admin is denie
   assert.equal((await run(isManagerValidator, request)).status, 403)
   account.role = UserRole.CUSTOMER
   await assert.rejects(orders.getAllOrders(String(account._id)), { status: 403 })
+})
+
+test('user listing filters, paginates and returns only management fields through the real route', async (t) => {
+  const { accounts, login } = setup(t, UserRole.ADMIN)
+  for (const [index, name] of ['a.b', 'axb', 'another'].entries()) {
+    accounts.push(
+      new User({
+        _id: new ObjectId(),
+        email: `${name}@example.com`,
+        username: name,
+        password: legacyHash,
+        role: index === 2 ? UserRole.CUSTOMER : UserRole.MANAGER,
+        account_status: index === 2 ? AccountStatus.LOCKED : AccountStatus.ACTIVE,
+        created_at: new Date(2026, 0, index + 1)
+      })
+    )
+  }
+  const api = await startApi(t)
+  const { access_token } = await login()
+  const page = await api('/users?page=2&limit=1', access_token)
+  assert.equal(page.status, 200)
+  assert.equal(page.body.result.total, 3)
+  assert.equal(page.body.result.page, 2)
+  assert.equal(page.body.result.items[0].username, 'axb')
+  assert.deepEqual(
+    Object.keys(page.body.result.items[0]).sort(),
+    ['_id', 'email', 'username', 'phone', 'role', 'account_status', 'created_at'].sort()
+  )
+  const filtered = await api('/users?search=A.B&role=Manager&status=Active', access_token)
+  assert.equal(filtered.body.result.total, 1)
+  assert.equal(filtered.body.result.items[0].username, 'a.b')
+  const empty = await api('/users?search=missing', access_token)
+  assert.deepEqual(empty.body.result, { items: [], page: 1, limit: 20, total: 0 })
+  for (const query of ['page=0', 'page=1.5', 'limit=101', 'role=Admin', 'status=Banned']) {
+    assert.equal((await api(`/users?${query}`, access_token)).status, 422, query)
+  }
+  // Express dùng simple query parser: key lạ bị bỏ qua, không được biến thành Mongo filter.
+  const injection = await api('/users?role[$ne]=Customer', access_token)
+  assert.equal(injection.status, 200)
+  assert.equal(injection.body.result.total, 3)
+  assert.ok(injection.body.result.items.every((user: User) => user.role !== UserRole.ADMIN))
+})
+
+test('role changes revoke old sessions, record reasons and leave repeated requests and Admin accounts unchanged', async (t) => {
+  const { account: admin, accounts, audits, sessions, login } = setup(t, UserRole.ADMIN)
+  const customer = new User({
+    _id: new ObjectId(),
+    email: 'target@example.com',
+    username: 'target',
+    password: legacyHash
+  })
+  accounts.push(customer)
+  const oldTokens = await users.login({ identifier: customer.email, password })
+  const api = await startApi(t)
+  const { access_token } = await login()
+  const path = `/users/${customer._id}/role`
+  const roleChange = { role: UserRole.MANAGER, reason: '  Phân công phụ trách báo cáo  ' }
+  const changed = await api(path, access_token, 'PATCH', roleChange)
+  assert.equal(changed.status, 200)
+  assert.equal(changed.body.changed, true)
+  assert.equal(customer.role, UserRole.MANAGER)
+  assert.equal(customer.tokenVersion, 1)
+  assert.equal((await access(oldTokens.access_token)).status, 401)
+  assert.equal((await refresh(oldTokens.refresh_token)).status, 401)
+  assert.equal(audits[0].action, 'RoleChanged')
+  assert.equal(audits[0].reason, roleChange.reason.trim())
+  assert.deepEqual(audits[0].before, { role: UserRole.CUSTOMER })
+  assert.deepEqual(audits[0].after, { role: UserRole.MANAGER })
+  const newTokens = await users.login({ identifier: customer.email, password })
+  assert.equal(decode(newTokens.access_token).role, UserRole.MANAGER)
+  assert.equal((await api(path, access_token, 'PATCH', roleChange)).body.changed, false)
+  assert.equal(audits.length, 1)
+  assert.equal(await access(newTokens.access_token), undefined)
+  assert.equal(sessions.length, 2)
+  assert.equal((await api(`/users/${admin._id}/role`, access_token, 'PATCH', roleChange)).status, 403)
+  for (const body of [{ role: 'Admin', reason: 'test' }, { role: 'Manager' }, { role: 'Manager', reason: '   ' }]) {
+    assert.equal((await api(path, access_token, 'PATCH', body)).status, 422)
+  }
+  assert.equal((await api(`/users/${new ObjectId()}/role`, access_token, 'PATCH', roleChange)).status, 404)
+  assert.equal((await api(path, newTokens.access_token, 'PATCH', { role: 'Customer', reason: 'test' })).status, 403)
+
+  // Hạ quyền rồi nâng lại không làm sống lại token cũ.
+  await api(path, access_token, 'PATCH', { role: 'Customer', reason: 'Kết thúc nhiệm vụ' })
+  await api(path, access_token, 'PATCH', roleChange)
+  assert.equal((await access(newTokens.access_token)).status, 401)
+  assert.equal(customer.tokenVersion, 3)
+  customer.account_status = AccountStatus.LOCKED
+  await api(path, access_token, 'PATCH', { role: 'Customer', reason: 'Chuyển quyền khi đang khóa' })
+  assert.equal(customer.account_status, AccountStatus.LOCKED)
+  await assert.rejects(users.login({ identifier: customer.email, password }), { status: 403 })
+})
+
+test('status updates require a reason and repeated status does not revoke a valid session or duplicate audit', async (t) => {
+  const { account, accounts, audits, login } = setup(t)
+  const tokens = await login()
+  const admin = new User({
+    _id: new ObjectId(),
+    email: 'admin@example.com',
+    password: legacyHash,
+    role: UserRole.ADMIN
+  })
+  accounts.push(admin)
+  const api = await startApi(t)
+  const adminTokens = await users.login({ identifier: admin.email, password })
+  const path = `/users/${account._id}/status`
+  const unchanged = await api(path, adminTokens.access_token, 'PATCH', { status: 'Active', reason: 'Kiểm tra' })
+  assert.equal(unchanged.body.changed, false)
+  assert.equal(await access(tokens.access_token), undefined)
+  assert.equal(audits.length, 0)
+  assert.equal((await api(path, adminTokens.access_token, 'PATCH', { status: 'Locked' })).status, 422)
+  const body = { status: 'Locked', reason: 'Đơn giả' }
+  assert.equal((await api(path, adminTokens.access_token, 'PATCH', body)).body.changed, true)
+  assert.equal((await api(path, adminTokens.access_token, 'PATCH', body)).body.changed, false)
+  assert.equal(audits.length, 1)
+  assert.equal(audits[0].reason, body.reason)
+  assert.equal(account.tokenVersion, 1)
+
+  // Cùng trạng thái Locked nhưng đang khóa tạm: yêu cầu Admin phải bỏ thời hạn mở khóa.
+  account.locked_until = new Date(Date.now() + 60000)
+  assert.equal((await api(path, adminTokens.access_token, 'PATCH', body)).body.changed, true)
+  assert.equal(account.locked_until, undefined)
+  assert.equal(account.tokenVersion, 2)
+  assert.equal(audits.length, 2)
+  assert.ok(audits[1].before.locked_until instanceof Date)
+  assert.equal(audits[1].after.locked_until, null)
+  await assert.rejects(login(), { status: 403 })
+})
+
+test('food catalogue never grants Admin view to logged-out, locked, changed or invalid sessions', async (t) => {
+  const { account, login } = setup(t, UserRole.ADMIN)
+  t.mock.method(foods, 'getFoods', async (_query, isAdmin) => ({ adminView: isAdmin }) as any)
+  const api = await startApi(t)
+  const first = await login()
+  assert.equal((await api('/foods', first.access_token)).body.result.adminView, true)
+  await users.logout(first.refresh_token)
+  assert.equal((await api('/foods', first.access_token)).body.result.adminView, false)
+  const second = await login()
+  account.account_status = AccountStatus.LOCKED
+  assert.equal((await api('/foods', second.access_token)).body.result.adminView, false)
+  account.account_status = AccountStatus.ACTIVE
+  account.tokenVersion++
+  assert.equal((await api('/foods', second.access_token)).body.result.adminView, false)
+  account.tokenVersion--
+  account.role = UserRole.MANAGER
+  assert.equal((await api('/foods', second.access_token)).body.result.adminView, false)
+  for (const token of [undefined, 'bad-token', first.access_token + 'changed']) {
+    const response = await api('/foods', token)
+    assert.equal(response.status, 200)
+    assert.equal(response.body.result.adminView, false)
+  }
+  const legacy = jwt.sign(
+    { user_id: account._id, role: UserRole.ADMIN, token_type: 0 },
+    process.env.JWT_SECRET_ACCESS_TOKEN!
+  )
+  assert.equal((await api('/foods', legacy)).body.result.adminView, false)
+})
+
+test('HTTP routes enforce Customer features, staff read-only orders and ownership', async (t) => {
+  const { account, accounts, login } = setup(t)
+  const manager = new User({
+    _id: new ObjectId(),
+    email: 'manager@example.com',
+    password: legacyHash,
+    role: UserRole.MANAGER
+  })
+  const admin = new User({
+    _id: new ObjectId(),
+    email: 'admin@example.com',
+    password: legacyHash,
+    role: UserRole.ADMIN
+  })
+  accounts.push(manager, admin)
+  const order = { _id: new ObjectId(), userId: account._id, status: 'Pending' }
+  const otherOrder = { _id: new ObjectId(), userId: new ObjectId(), status: 'Pending' }
+  t.mock.getter(database, 'orders', () => collection([order, otherOrder]) as any)
+  t.mock.method(carts, 'buildCartSummary', async () => ({}) as any)
+  t.mock.method(tracking, 'getDailyCalories', async () => ({}) as any)
+  t.mock.method(users, 'getHealthMetrics', async () => ({}) as any)
+  const api = await startApi(t)
+  const customerToken = (await login()).access_token
+  const managerToken = (await users.login({ identifier: manager.email, password })).access_token
+  const adminToken = (await users.login({ identifier: admin.email, password })).access_token
+  for (const path of ['/cart', '/tracking/calories', '/users/health-metrics', '/orders']) {
+    assert.equal((await api(path, customerToken)).status, 200, path)
+    for (const token of [managerToken, adminToken]) assert.equal((await api(path, token)).status, 403, path)
+    assert.equal((await api(path)).status, 401, path)
+  }
+  for (const token of [managerToken, adminToken]) {
+    assert.equal((await api('/orders/all', token)).status, 200)
+    assert.equal((await api(`/orders/${otherOrder._id}`, token)).status, 200)
+    assert.equal((await api('/users/health-profile', token, 'POST', {})).status, 403)
+    assert.equal((await api('/users/recommendations/meals', token, 'POST', {})).status, 403)
+    assert.equal((await api('/reviews', token, 'POST', {})).status, 403)
+  }
+  assert.equal((await api(`/orders/${order._id}`, customerToken)).status, 200)
+  assert.equal((await api(`/orders/${otherOrder._id}`, customerToken)).status, 404)
+  assert.equal((await api('/orders/all', customerToken)).status, 403)
+  for (const [method, path] of [
+    ['GET', '/users'],
+    ['POST', '/users'],
+    ['POST', '/foods'],
+    ['PATCH', `/orders/${order._id}/status`],
+    ['PATCH', `/orders/${order._id}/payment-status`],
+    ['PATCH', `/orders/${order._id}/cancel`],
+    ['DELETE', `/reviews/${new ObjectId()}`]
+  ]) {
+    assert.equal((await api(path, managerToken, method, method === 'GET' ? undefined : {})).status, 403, path)
+  }
+})
+
+test('Admin dashboard exposes operational counts only and rejects Customer/Manager', async (t) => {
+  const { account, login } = setup(t, UserRole.ADMIN)
+  t.mock.getter(database, 'foods', () => ({ countDocuments: async () => 5 }) as any)
+  t.mock.getter(
+    database,
+    'orders',
+    () =>
+      ({
+        aggregate: () => ({
+          toArray: async () => [
+            { _id: 'Pending', count: 2 },
+            { _id: 'Confirmed', count: 3 },
+            { _id: 'Completed', count: 4 }
+          ]
+        })
+      }) as any
+  )
+  const api = await startApi(t)
+  const response = await api('/admin/dashboard-stats', (await login()).access_token)
+  assert.equal(response.status, 200)
+  assert.deepEqual(response.body.result, {
+    users: { customers: 0 },
+    products: { foods: 5 },
+    orders: { total: 9, byStatus: { Pending: 2, Confirmed: 3, Cooking: 0, Delivering: 0, Completed: 4, Cancelled: 0 } }
+  })
+  for (const role of [UserRole.MANAGER, UserRole.CUSTOMER]) {
+    account.role = role
+    assert.equal((await api('/admin/dashboard-stats', (await login()).access_token)).status, 403)
+  }
 })

@@ -18,7 +18,13 @@ import {
   updateOrderStatusValidator,
   updatePaymentStatusValidator
 } from '~/middlewares/orders.middlewares'
-import { accessTokenValidator, isAdminValidator, isCustomerValidator } from '~/middlewares/users.middlewares'
+import {
+  accessTokenValidator,
+  isAdminValidator,
+  isCustomerValidator,
+  requireRoles
+} from '~/middlewares/users.middlewares'
+import { UserRole } from '~/models/schemas/User.schema'
 import { wrapRequestHandler } from '~/utils/handlers'
 
 const ordersRouter = Router()
@@ -55,12 +61,17 @@ ordersRouter.post(
 )
 
 /**
- * Description. Get ALL orders in the system (Admin only)
+ * Description. Get ALL orders in the system (Admin/Manager read-only access)
  * Path: /all
  * Method: GET
  * Header: { Authorization: Bearer <access_token> }
  */
-ordersRouter.get('/all', accessTokenValidator, wrapRequestHandler(getAllOrdersController))
+ordersRouter.get(
+  '/all',
+  accessTokenValidator,
+  requireRoles(UserRole.ADMIN, UserRole.MANAGER),
+  wrapRequestHandler(getAllOrdersController)
+)
 
 /**
  * Description. Get all orders of current user
@@ -68,7 +79,7 @@ ordersRouter.get('/all', accessTokenValidator, wrapRequestHandler(getAllOrdersCo
  * Method: GET
  * Header: { Authorization: Bearer <access_token> }
  */
-ordersRouter.get('/', accessTokenValidator, wrapRequestHandler(getMyOrdersController))
+ordersRouter.get('/', accessTokenValidator, isCustomerValidator, wrapRequestHandler(getMyOrdersController))
 
 /**
  * Description. Get detail of one order by id
@@ -94,6 +105,7 @@ ordersRouter.get(
 ordersRouter.patch(
   '/:orderId/cancel',
   accessTokenValidator,
+  requireRoles(UserRole.CUSTOMER, UserRole.ADMIN),
   orderIdParamValidator,
   wrapRequestHandler(cancelOrderController)
 )

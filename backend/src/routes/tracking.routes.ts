@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { accessTokenValidator } from '~/middlewares/users.middlewares'
+import { accessTokenValidator, isCustomerValidator } from '~/middlewares/users.middlewares'
 import { addCaloriesValidator, updateWeightValidator } from '~/middlewares/tracking.middlewares'
 import {
   addCaloriesController,
@@ -11,11 +11,12 @@ import {
 import { wrapRequestHandler } from '~/utils/handlers'
 
 const trackingRouter = Router()
+trackingRouter.use(accessTokenValidator, isCustomerValidator)
 
-trackingRouter.put('/weight', accessTokenValidator, updateWeightValidator, wrapRequestHandler(updateWeightController))
-trackingRouter.get('/weight-history', accessTokenValidator, wrapRequestHandler(getWeightHistoryController))
-trackingRouter.post('/calories', accessTokenValidator, addCaloriesValidator, wrapRequestHandler(addCaloriesController))
-trackingRouter.get('/calories', accessTokenValidator, wrapRequestHandler(getDailyCaloriesController))
-trackingRouter.get('/calories/today', accessTokenValidator, wrapRequestHandler(getTodayCaloriesController))
+trackingRouter.put('/weight', updateWeightValidator, wrapRequestHandler(updateWeightController))
+trackingRouter.get('/weight-history', wrapRequestHandler(getWeightHistoryController))
+trackingRouter.post('/calories', addCaloriesValidator, wrapRequestHandler(addCaloriesController))
+trackingRouter.get('/calories', wrapRequestHandler(getDailyCaloriesController))
+trackingRouter.get('/calories/today', wrapRequestHandler(getTodayCaloriesController))
 
 export default trackingRouter

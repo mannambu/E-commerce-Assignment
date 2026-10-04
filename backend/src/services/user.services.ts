@@ -1,11 +1,18 @@
 import { config } from 'dotenv'
-import { ObjectId } from 'mongodb'
+import { Filter, ObjectId } from 'mongodb'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { TokenType } from '~/constants/enums'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { USERS_MESSAGES } from '~/constants/messages'
 import { ErrorWithStatus } from '~/models/Errors'
-import { LoginReqBody, RegisterReqBody, UpdateMeReqBody, TokenPayload } from '~/models/requests/User.request'
+import {
+  GetUsersQuery,
+  LoginReqBody,
+  RegisterReqBody,
+  UpdateMeReqBody,
+  TokenPayload,
+  UpdateUserRoleReqBody
+} from '~/models/requests/User.request'
 import Food from '~/models/schemas/Food.schema'
 import Session from '~/models/schemas/Session.schema'
 import User, { AccountStatus, ActivityLevel, HealthGoal, HealthProfile, UserRole } from '~/models/schemas/User.schema'
@@ -477,14 +484,32 @@ class UsersService {
     return user
   }
 
-  async getAllUsers() {
-    return databaseService.users
-      .find(
-        { role: { $in: [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER] } },
-        { projection: { password: 0, forgot_password_token: 0 } } // Không trả về mật khẩu
-      )
-      .sort({ created_at: -1 })
-      .toArray()
+  async getAllUsers(query: GetUsersQuery = {}) {
+    const page = Number(query.page || 1)
+    const limit = Number(query.limit || 20)
+    const filter: Filter<User> = { role: { $in: [UserRole.CUSTOMER, UserRole.MANAGER] } }
+    if (query.role) filter.role = query.role
+    if (query.status) filter.account_status = query.status
+
+    const search = query.search?.trim()
+    if (search) {
+      // Tìm chuỗi người dùng nhập, không chạy nó như một biểu thức regex.
+      const keyword = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+      filter.$or = [{ email: keyword }, { username: keyword }, { phone: keyword }]
+    }
+
+    const [items, total] = await Promise.all([
+      databaseService.users
+        .find(filter, {
+          projection: { _id: 1, email: 1, username: 1, phone: 1, role: 1, account_status: 1, created_at: 1 }
+        })
+        .sort({ created_at: -1, _id: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .toArray(),
+      databaseService.users.countDocuments(filter)
+    ])
+    return { items, page, limit, total }
   }
 
   async updateMe(user_id: string, payload: UpdateMeReqBody) {
@@ -591,22 +616,27 @@ class UsersService {
     }
   }
 
-  async updateUserStatus(targetUserId: string, status: AccountStatus, actorId: string) {
+  async updateUserStatus(targetUserId: string, status: AccountStatus, actorId: string, reason: string) {
     if (!ObjectId.isValid(targetUserId) || ![AccountStatus.ACTIVE, AccountStatus.LOCKED].includes(status)) {
       throw new ErrorWithStatus({ status: 400, message: 'Invalid user or status' })
     }
-    const actor = await databaseService.users.findOne({
-      _id: new ObjectId(actorId),
-      role: UserRole.ADMIN,
-      account_status: AccountStatus.ACTIVE
-    })
-    if (!actor) throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
+    if (typeof reason !== 'string' || !reason.trim() || reason.trim().length > 500) {
+      throw new ErrorWithStatus({ status: 400, message: 'Lý do phải có từ 1 đến 500 ký tự' })
+    }
     const userId = new ObjectId(targetUserId)
-    await databaseService.withTransaction(async (session) => {
+    const changed = await databaseService.withTransaction(async (session) => {
+      const actor = await databaseService.users.findOne(
+        { _id: new ObjectId(actorId), role: UserRole.ADMIN, account_status: AccountStatus.ACTIVE },
+        { session }
+      )
+      if (!actor) throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
       const user = await databaseService.users.findOne({ _id: userId }, { session })
       if (!user) throw new ErrorWithStatus({ status: 404, message: USERS_MESSAGES.USER_NOT_FOUND })
-      if (user.role === UserRole.ADMIN)
+      if (![UserRole.CUSTOMER, UserRole.MANAGER].includes(user.role))
         throw new ErrorWithStatus({ status: 403, message: 'Cannot lock or modify an Admin account' })
+      // Khóa tạm do đăng nhập sai vẫn phải chuyển thành khóa lâu dài khi Admin yêu cầu.
+      const isTemporaryLock = status === AccountStatus.LOCKED && user.locked_until != null
+      if (user.account_status === status && !isTemporaryLock) return false
       await databaseService.users.updateOne(
         { _id: userId },
         {
@@ -625,15 +655,62 @@ class UsersService {
           action: status === AccountStatus.LOCKED ? 'AccountLocked' : 'AccountUnlocked',
           entityType: 'User',
           entityId: userId,
-          before: { account_status: user.account_status },
-          after: { account_status: status },
-          reason: 'Admin updated account status',
+          before: { account_status: user.account_status, locked_until: user.locked_until ?? null },
+          after: { account_status: status, locked_until: null },
+          reason: reason.trim(),
           createdAt: new Date()
         },
         { session }
       )
+      return true
     })
-    return { message: 'Account status updated' }
+    return { message: changed ? 'Đã cập nhật trạng thái tài khoản' : 'Trạng thái tài khoản không thay đổi', changed }
+  }
+
+  async updateUserRole(targetUserId: string, payload: UpdateUserRoleReqBody, actorId: string) {
+    if (!ObjectId.isValid(targetUserId) || ![UserRole.CUSTOMER, UserRole.MANAGER].includes(payload.role)) {
+      throw new ErrorWithStatus({ status: 400, message: 'Tài khoản hoặc vai trò không hợp lệ' })
+    }
+    if (typeof payload.reason !== 'string' || !payload.reason.trim() || payload.reason.trim().length > 500) {
+      throw new ErrorWithStatus({ status: 400, message: 'Lý do phải có từ 1 đến 500 ký tự' })
+    }
+    const userId = new ObjectId(targetUserId)
+    const changed = await databaseService.withTransaction(async (session) => {
+      const actor = await databaseService.users.findOne(
+        { _id: new ObjectId(actorId), role: UserRole.ADMIN, account_status: AccountStatus.ACTIVE },
+        { session }
+      )
+      if (!actor) throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
+      const user = await databaseService.users.findOne({ _id: userId }, { session })
+      if (!user) throw new ErrorWithStatus({ status: 404, message: USERS_MESSAGES.USER_NOT_FOUND })
+      if (![UserRole.CUSTOMER, UserRole.MANAGER].includes(user.role)) {
+        throw new ErrorWithStatus({ status: 403, message: 'Không được thay đổi vai trò của tài khoản Admin' })
+      }
+      if (user.role === payload.role) return false
+
+      await databaseService.users.updateOne(
+        { _id: userId },
+        { $set: { role: payload.role }, $inc: { tokenVersion: 1 }, $currentDate: { updated_at: true } },
+        { session }
+      )
+      await databaseService.sessions.deleteMany({ user_id: userId }, { session })
+      await databaseService.auditLogs.insertOne(
+        {
+          actorId: actor._id,
+          actorRole: UserRole.ADMIN,
+          action: 'RoleChanged',
+          entityType: 'User',
+          entityId: userId,
+          before: { role: user.role },
+          after: { role: payload.role },
+          reason: payload.reason.trim(),
+          createdAt: new Date()
+        },
+        { session }
+      )
+      return true
+    })
+    return { message: changed ? 'Đã cập nhật vai trò tài khoản' : 'Vai trò tài khoản không thay đổi', changed }
   }
 
   async changePassword(user_id: string, new_password: string) {
