@@ -2,6 +2,17 @@
 
 Tài liệu này tổng hợp API thực tế từ source code backend hiện tại, bao gồm Admin Dashboard, E-commerce (Food/Combo), Tracking và Upload.
 
+Cập nhật ngày **04/10/2026**, đối chiếu routes, middleware, controller và service. Các mục dưới đây mô tả hành vi đã có; phần chưa triển khai được ghi ở cuối tài liệu.
+
+Các thay đổi frontend cần tiếp nhận:
+
+- Vai trò hiện tại: `Customer`, `Admin`, `Manager`. Backend đã bỏ API/role PT.
+- JWT gắn với phiên trong DB; logout thu hồi phiên phía server, reset mật khẩu thu hồi tất cả phiên.
+- Refresh trả cặp token mới ở root response; đăng nhập/đăng ký trả token trong `result`.
+- Admin tạo Customer/Manager qua `POST /users`; Manager đọc toàn bộ đơn qua `GET /orders/all`.
+- Món của đơn nằm trong `deliveries[].items[]`; giỏ hàng dùng `_id` của dòng để sửa/xóa.
+- Cấu hình backend, seed và tạo index thống nhất `DB_URI` + `DB_NAME`. Frontend chỉ cần URL API; không đưa cấu hình MongoDB hoặc SMTP vào frontend. Xem [hướng dẫn thiết lập](auth-setup.md).
+
 * **Base URL local**: http://localhost:4000  
 * **Content-Type**: application/json (Trừ các API Upload dùng multipart/form-data)  
 * **Auth**: Bearer JWT qua header Authorization: Bearer <access_token>
@@ -38,7 +49,7 @@ Một số endpoint auth trả về trực tiếp object (không có result), v�
 }
 ```
 
-* **Business lỗi**: HTTP 400 | 401 | 403 | 404
+* **Business lỗi**: HTTP 400 | 401 | 403 | 404 | 409; API quên mật khẩu có thể trả 503 khi thiếu cấu hình email.
 ```json
 {  
   "message": "..."  
@@ -53,6 +64,16 @@ Một số endpoint auth trả về trực tiếp object (không có result), v�
 ```
 
 ## **2) Auth + User (/users)**
+
+### **Quy ước xác thực và mật khẩu**
+
+- Endpoint ghi `(Auth)` cần `Authorization: Bearer <access_token>`. Endpoint ghi thêm vai trò còn kiểm tra quyền phía backend.
+- Mật khẩu tạo tài khoản/reset: 8–50 ký tự, tối đa 72 byte UTF-8; `confirm_password` phải trùng. Backend hiện không bắt buộc riêng chữ hoa, chữ thường, số hoặc ký tự đặc biệt.
+- Frontend gửi mật khẩu qua HTTPS khi triển khai. Backend hash bằng Bcrypt cost 12; frontend không tự hash trước khi gửi.
+- Tài khoản SHA-256 đã import được nâng cấp sang Bcrypt khi đăng nhập đúng; cấu hình pepper cũ do backend quản lý.
+- Access/refresh JWT có `user_id`, `role`, `status`, `sessionId`, `tokenVersion`, `iat`, `exp`, `token_type`; refresh có thêm `jti`. Frontend không tự thay đổi các field này.
+- Middleware xác thực kiểm tra chữ ký, loại token, tài khoản Active, role/version hiện tại và phiên chưa thu hồi/chưa hết hạn. Token cũ thiếu liên kết phiên trả 401; yêu cầu đăng nhập lại.
+- `role` giúp frontend chọn giao diện; quyền thực tế được backend kiểm tra. Ngoại lệ còn tồn tại ở optional auth của `GET /foods` được ghi tại mục Foods.
 
 ### **POST /users/register**
 
@@ -71,6 +92,9 @@ Body:
 ```
 
 * role: chỉ nhận Customer hoặc bỏ trống; Admin/Manager không đăng ký qua API này.
+* `email`, `username`, `password`, `confirm_password`, `phone` bắt buộc. Username dài 3–30 ký tự; email/username phải chưa tồn tại. Phone hiện chỉ kiểm tra không rỗng, chưa áp dụng regex số điện thoại Việt Nam.
+* Email được lưu chữ thường, bỏ khoảng trắng hai đầu. Hồ sơ sức khỏe gửi qua API `/users/health-profile` sau đăng nhập.
+* Thành công trả HTTP **200**, tài khoản Active và một phiên đăng nhập mới. Backend hiện vẫn trả token ngay sau đăng ký.
 
 Response (Customer):
 ```json
@@ -87,6 +111,21 @@ Response (Customer):
 ### **POST /users/login**
 
 JWT mới có role/sessionId/tokenVersion; backend kiểm tra phiên trong DB. Token cũ cần đăng nhập lại. Xem [API tạo Manager, khóa tài khoản và reset](auth-setup.md).
+
+- `identifier` nhận email hoặc username; có thể gửi `email` thay thế khi không có `identifier`.
+- `remember_me` tùy chọn; gửi boolean JSON `true`/`false`.
+- Thời hạn mặc định: access 15 phút, refresh 7 ngày (có thể đổi bằng cấu hình backend). `remember_me: true` đặt hạn refresh 30 ngày. Mỗi lần đăng nhập tạo phiên riêng.
+- Response thành công HTTP **200**; `role` có thể là `Customer`, `Admin` hoặc `Manager`.
+
+| Trường hợp | HTTP | Hành vi |
+| --- | --- | --- |
+| Sai email/username hoặc mật khẩu | 401 | Thông báo chung, không cho biết tài khoản có tồn tại hay không. |
+| Sai liên tiếp lần thứ 5 | 400 | Khóa tạm 5 phút, các token cũ mất hiệu lực. |
+| Đăng nhập trong thời gian khóa tạm | 400 | Báo đang khóa tạm; response hiện chưa có field `locked_until` cho đồng hồ đếm ngược. |
+| Admin khóa tài khoản | 403 | Không tự mở khóa khi đăng nhập hoặc reset mật khẩu. |
+| Dữ liệu nhập không hợp lệ | 422 | Hiển thị lỗi theo field. |
+
+Sau khi hết hạn khóa tạm, đăng nhập đúng sẽ mở lại tài khoản. Việc này không khôi phục phiên cũ.
 
 Body:
 ```json
@@ -110,7 +149,7 @@ Response:
 ```
 ### **POST /users/logout**
 
-Body có refresh token là đủ; access token có thể đã hết hạn. Thu hồi cả access và refresh của phiên. `POST /users/logout-all` cần Bearer access token, thu hồi mọi phiên.
+Không cần header access token. Body phải chứa refresh token hiện tại, còn hạn, chưa bị xoay hoặc thu hồi. Backend thu hồi cả access và refresh của phiên đó; các phiên đăng nhập khác vẫn dùng được.
 
 Body:
 ```json
@@ -122,7 +161,23 @@ Response:
 { "message": "Đăng xuất thành công" }
 ```
 
+HTTP **200** khi thành công; refresh token không hợp lệ trả **401**. Gọi lại bằng token của phiên đã logout cũng trả 401. Khi thành công, frontend xóa cặp token và trạng thái user cục bộ; chỉ xóa token ở trình duyệt không thay thế việc gọi API này.
+
+### **POST /users/logout-all (Auth)**
+
+Thu hồi mọi phiên của chính tài khoản đang gọi, bao gồm phiên hiện tại. Không cần body và không nhận `user_id` để đăng xuất người khác.
+
+Response HTTP **200**:
+
+```json
+{ "message": "Đăng xuất thành công" }
+```
+
+Frontend xóa trạng thái đăng nhập và chuyển về trang đăng nhập. Access/refresh của các thiết bị khác sẽ bị từ chối ở lần gọi API tiếp theo.
+
 ### **POST /users/refresh-token**
+
+Không cần header access token. Dùng refresh token hiện tại để lấy cặp token mới.
 
 Body:
 ```json
@@ -133,7 +188,12 @@ Response:
 ```json
 { "access_token": "...", "refresh_token": "..." }
 ```
-Lưu cả hai token mới; refresh token cũ không dùng lại được. Reset mật khẩu thành công thu hồi mọi phiên.
+HTTP **200**; response không có `message` hay `result`.
+
+- Lưu **cả hai token mới**. Refresh token cũ không dùng lại được.
+- Giữ nguyên sessionId và hạn hết phiên, không kéo dài phiên thêm 7/30 ngày mỗi lần refresh.
+- Hai request cùng dùng một refresh token chỉ một request thành công; request còn lại trả 401. Frontend cần dùng chung một tác vụ refresh đang chạy cho các request đồng thời.
+- Token hết hạn, đã xoay, đã thu hồi, tài khoản bị khóa hoặc role/version không khớp trả 401.
 
 ### **POST /users/forgot-password**
 
@@ -143,7 +203,21 @@ Body:
 ```
 Response chỉ có `message`, không trả token. Liên kết được gửi qua email SMTP, hết hạn sau 15 phút và chỉ dùng một lần. Xem [auth-setup.md](auth-setup.md) để cấu hình và test.
 
+Response HTTP **200**:
+
+```json
+{ "message": "Vui lòng kiểm tra email để đặt lại mật khẩu" }
+```
+
+- Với email hợp lệ về định dạng, thông báo giống nhau dù email có tồn tại hay không.
+- Gửi lại trong vòng một phút không tạo email/token mới. Gửi lại sau khoảng này sẽ thay token cũ nếu tạo được token mới. Frontend có thể đếm ngược 60 giây trước khi cho gửi lại.
+- Thiếu cấu hình SMTP hoặc URL reset trả **503** với `message: "Chưa cấu hình dịch vụ email đặt lại mật khẩu"`.
+- Nếu gửi SMTP thất bại, backend hủy token chưa gửi, ghi lỗi chung phía server và vẫn trả thông báo chung. HTTP 200 không bảo đảm email đã được chuyển tới hộp thư.
+- Link sử dụng `PASSWORD_RESET_URL` của backend, kèm query `user_id` và `forgot_password_token`, ví dụ `/reset-password?user_id=<id>&forgot_password_token=<token>`. Frontend cần tạo trang đọc hai query này.
+
 ### **POST /users/reset-password**
+
+API công khai, không cần access/refresh token. `user_id` và `forgot_password_token` lấy từ link email; token reset là chuỗi ngẫu nhiên, không phải JWT để frontend decode.
 
 Body:
 ```json
@@ -159,6 +233,13 @@ Response:
 ```json
 { "message": "Đặt lại mật khẩu thành công" }
 ```
+
+HTTP **200** khi thành công. Mật khẩu được thay bằng Bcrypt; token reset bị xóa, tokenVersion tăng và mọi phiên cũ bị thu hồi. API không cấp token đăng nhập mới: frontend đưa người dùng về đăng nhập.
+
+- Token sai, sai user, hết hạn hoặc đã dùng trả **401**: `Token đặt lại mật khẩu không hợp lệ hoặc đã được sử dụng`. Hiển thị nút yêu cầu link mới; không gọi API refresh để xử lý lỗi này.
+- User ID sai định dạng, thiếu field hoặc mật khẩu/xác nhận không hợp lệ trả **422**.
+- Hai lần gửi cùng token chỉ một lần có thể thành công.
+- Reset không mở khóa tài khoản do Admin khóa. Khóa tạm cũng không được tự xóa bởi endpoint này.
 
 ### **GET /users/check-email?email=...**
 
@@ -200,22 +281,77 @@ Body (optional fields):
 {  
   "username": "new_name",  
   "phone": "0911111111",  
-  "date_of_birth": "2003-01-01"  
+  "date_of_birth": "2003-01-01",
+  "avatar": "https://example.com/avatar.jpg"
 }
 ```
+
+`avatar` nhận URL HTTP/HTTPS; gửi `null` hoặc chuỗi rỗng để xóa. Chỉ các field trên được cập nhật; API này không đổi `role`, `account_status` hay mật khẩu. Response HTTP 200 dạng `{ "message": "Cập nhật hồ sơ thành công", "result": { ... } }` với user sau cập nhật, không có password/reset token.
 
 ### **GET /users (Auth, Admin)**
 
 Lấy danh sách tài khoản Customer, Admin và Manager trên hệ thống.
 
+Response HTTP **200** dạng `{ "message": "Lấy danh sách người dùng thành công", "result": [] }`. Mỗi phần tử là user đã bỏ `password` và `forgot_password_token`; sắp xếp theo `created_at` giảm dần. Hiện chưa có query tìm kiếm, phân trang hoặc lọc role/status ở endpoint này. Customer/Manager gọi sẽ nhận 403.
+
+### **POST /users (Auth, Admin)**
+
+Admin tạo tài khoản Customer hoặc Manager. Khác với `/users/register`, field `role` bắt buộc và không nhận `Admin`.
+
+Body:
+
+```json
+{
+  "email": "manager@example.com",
+  "username": "manager01",
+  "password": "Manager123!",
+  "confirm_password": "Manager123!",
+  "phone": "0901234567",
+  "role": "Manager"
+}
+```
+
+Các field đều bắt buộc; quy tắc email, username, mật khẩu và phone giống đăng ký.
+
+Response HTTP **201**:
+
+```json
+{
+  "message": "Account created",
+  "result": {
+    "_id": "<new_user_id>",
+    "email": "manager@example.com",
+    "username": "manager01",
+    "role": "Manager",
+    "account_status": "Active"
+  }
+}
+```
+
+Không trả password hoặc token đăng nhập cho user mới. Backend ghi audit `UserCreated`; người vừa được tạo cần đăng nhập riêng. Tài khoản Admin được khởi tạo bằng seed, không qua API này.
+
+Lỗi: 401 nếu phiên không hợp lệ; 403 nếu người gọi không phải Admin; 422 nếu validation không đạt (bao gồm role sai hoặc email/username đã tồn tại khi kiểm tra); service có thể trả 409 nếu phát hiện trùng email/username sau bước validation. Chưa có API đổi role của user đã tồn tại.
+
 ### **PATCH /users/:user_id/status (Auth, Admin)**
 
-Admin khóa/mở khóa tài khoản bất kỳ.
+Admin khóa/mở tài khoản Customer/Manager. Backend chặn thay đổi trạng thái mọi tài khoản Admin, kể cả chính người gọi.
 
 Body:
 ```json
-{ "status": "Locked" } // hoặc "Active"
+{ "status": "Locked" }
 ```
+
+`status` chỉ nhận `Locked` hoặc `Active`.
+
+Response HTTP **200**:
+
+```json
+{ "message": "Account status updated" }
+```
+
+Cả khóa và mở khóa đều xóa khóa tạm/bộ đếm đăng nhập sai, hủy token reset đang chờ, tăng tokenVersion và xóa mọi phiên của user. Mở khóa yêu cầu đăng nhập lại; phiên cũ không sống lại. Backend ghi audit `AccountLocked` hoặc `AccountUnlocked`.
+
+User không tồn tại trả 404; sửa tài khoản Admin trả 403; user_id/status không hợp lệ ở validator trả 422. Frontend nên ẩn hoặc khóa nút đổi trạng thái trên các dòng Admin.
 
 ### **POST /users/health-profile (Auth)**
 
@@ -311,7 +447,9 @@ Query optional:
 **Phân quyền (Quan trọng):**
 
 * Nếu Header chứa Token của **Admin**: Trả về TOÀN BỘ thực đơn.  
-* Nếu Không có Token hoặc Token của **Customer**: Chỉ trả về món đang bán (isActive: true). Lọc món còn hàng và cảnh báo dị ứng cá nhân còn cần hoàn thiện theo US-13.
+* Nếu không có token hoặc user là **Customer/Manager**: Chỉ trả về món đang bán (isActive: true). Lọc món còn hàng và cảnh báo dị ứng cá nhân còn cần hoàn thiện theo US-13.
+
+**Giới hạn hiện tại:** `GET /foods` là API public, tự kiểm tra JWT và role trong DB, chưa gọi `validateSession` để kiểm tra phiên/tokenVersion/trạng thái tài khoản. Token sai hoặc hết hạn bị bỏ qua và request dùng quyền khách; token Admin đã logout nhưng JWT còn hạn vẫn có thể được nhận diện là Admin tại riêng endpoint này. Cần đồng bộ optional auth ở backend trong bước tiếp theo. Các API tạo/sửa/xóa món dùng middleware kiểm tra phiên đầy đủ.
 
 Response:
 ```json
@@ -501,7 +639,9 @@ Body:
 * packageType: ONE_DAY | WEEKLY_7D  
 * cartType: FOOD | COMBO
 
-### **POST /orders/quote**
+### **POST /orders/quote (Customer)**
+
+Chỉ Customer được gọi; Admin/Manager nhận 403.
 
 Body:
 ```json
@@ -535,7 +675,7 @@ Response chứa:
 * delivery: address, schedule, daysCount, packageType, cartType
 * payment.method
 
-### **POST /orders**
+### **POST /orders (Customer)**
 
 Body giống /orders/quote.
 
@@ -545,19 +685,27 @@ Body giống /orders/quote.
 
 ### **GET /orders**
 
-**Phân quyền (Quan trọng):**
+Lấy đơn có `userId` bằng ID người đang đăng nhập, sắp xếp mới nhất trước, với mọi vai trò. **Endpoint này không tự chuyển sang danh sách toàn hệ thống khi người gọi là Admin.** Response HTTP 200 dạng `{ "message": "...", "result": [] }`.
 
-* Nếu là Customer: Lấy danh sách order của chính mình.  
-* Nếu là **Admin**: Lấy TOÀN BỘ danh sách order trên hệ thống.
+### **GET /orders/all (Admin, Manager)**
+
+Lấy toàn bộ đơn trên hệ thống, sắp xếp `createdAt` giảm dần. Response HTTP **200** dạng `{ "message": "Lấy danh sách tất cả đơn hàng thành công", "result": [] }`; Customer gọi trả 403. Hiện chưa có query lọc hoặc phân trang cho danh sách này.
+
+Manager dùng endpoint này cho giao diện xem đơn, không được gọi API sửa trạng thái/thanh toán hay hủy đơn.
 
 ### **GET /orders/:orderId**
 
-Lấy chi tiết order.
+Lấy chi tiết order, response HTTP 200 dạng `{ "message": "...", "result": { ... } }`:
+
+- Customer chỉ đọc đơn của mình; đơn không tồn tại hoặc thuộc người khác trả 404.
+- Admin/Manager được đọc chi tiết mọi đơn.
+- Chi tiết món đọc từ `result.deliveries[].items[]`.
 
 ### **PATCH /orders/:orderId/cancel**
 
 * Customer chỉ hủy được khi Pending.  
 * Admin được hủy rộng hơn, nhưng không hủy được Completed hoặc Cancelled.
+* Manager không được hủy (403 khi đơn tồn tại). API hiện hủy toàn đơn/các kỳ giao chưa hoàn thành; chưa có endpoint hủy riêng từng ngày.
 
 ### **PATCH /orders/:orderId/status**
 
@@ -569,7 +717,9 @@ Body:
 * Chỉ Admin.  
 * Luồng hợp lệ: Pending -> Cooking -> Delivering -> Completed.
 
-### **POST /orders/:orderId/payments/retry**
+### **POST /orders/:orderId/payments/retry (Customer)**
+
+Chỉ Customer, với đơn thuộc chính mình. Admin/Manager nhận 403. Endpoint hiện chưa tích hợp cổng thanh toán thực tế.
 
 Body:
 ```json
@@ -592,6 +742,8 @@ Body:
 ### **GET /admin/dashboard-stats (Auth, Admin)**
 
 Lấy các chỉ số thống kê tổng quan cho trang chủ Admin Panel.
+
+Đây là **dashboard cũ đang tồn tại**: vẫn trả thống kê doanh thu cho Admin từ đơn Completed. Chưa tách thành dashboard vận hành Admin và báo cáo tài chính Manager từ Transaction theo yêu cầu mới. Manager gọi endpoint này nhận 403; hiện chưa có API báo cáo/Excel dành cho Manager.
 
 Response:
 ```json
@@ -622,6 +774,32 @@ Response:
   }  
 }
 ```
+
+### **GET /admin/food-diary (Auth, Admin)**
+
+Xem tổng hợp nhật ký ăn của toàn hệ thống từ `daily_health_logs`. Query `days` tùy chọn, mặc định 14; service giới hạn 1–60 ngày. Ngày dùng chuỗi `YYYY-MM-DD` theo múi giờ Việt Nam.
+
+Response HTTP **200** (ví dụ khi chưa có nhật ký):
+
+```json
+{
+  "message": "Lấy nhật ký thực phẩm toàn hệ thống thành công",
+  "result": {
+    "days": 14,
+    "since": "2026-09-21",
+    "summary": {
+      "totalRows": 0,
+      "totalCalories": 0,
+      "orderCalories": 0,
+      "manualCalories": 0,
+      "mealPlanCalories": 0
+    },
+    "items": []
+  }
+}
+```
+
+Mỗi item có `userId`, `date`, `totalCalories`, `sources: { Order, Manual, MealPlan }`, `entriesCount`; có thêm `user: { username, email, role }` nếu tìm được user tương ứng. Đây là API tổng hợp theo ngày, không trả toàn bộ chi tiết từng món trong item.
 
 ## **8) Tracking (/tracking) - Auth bắt buộc**
 
@@ -759,15 +937,55 @@ Response:
 
 ## **10) Gợi ý tích hợp frontend (quan trọng)**
 
-1. **Chuẩn hóa client theo envelope:**  
-   * Ưu tiên đọc response.result, fallback đọc root object cho vài endpoint auth.  
-2. **Interceptor xử lý token:**  
-   * Khi 401, gọi /users/refresh-token, cập nhật access token, retry request.  
-3. **Form validation phía frontend nên bám các rule backend:**  
-   * Password mạnh, days chỉ 1|7, v.v.
-4. **Đơn hàng:**  
-   * Luôn gọi /orders/quote trước để hiển thị chi phí dự kiến.  
-5. **Cart:**  
-   * Sau add/update/remove nên dùng response cart mới trả về để sync UI.  
-6. **Hiển thị Doanh thu Admin**
-   * Cấu trúc revenue.breakdown sinh ra để vẽ trực tiếp biểu đồ tròn (Pie Chart). overall và thisMonth dùng cho thẻ thông kê nhanh (Stat Cards).
+### **Đọc đúng response**
+
+| Endpoint | Vị trí dữ liệu |
+| --- | --- |
+| Register, login | `response.result.access_token`, `response.result.refresh_token`, `response.result.role` |
+| Refresh token | `response.access_token`, `response.refresh_token` |
+| Logout, logout-all, forgot-password, reset-password, đổi trạng thái user | `response.message`, không có `result` |
+| Admin tạo user | `response.result` chứa user mới, HTTP 201; không có token |
+| Danh sách user/đơn | `response.result` là mảng; chưa có pagination |
+
+### **Refresh và kết thúc phiên**
+
+1. Chỉ xử lý refresh cho 401 từ request cần access token; loại trừ login, register, logout, logout-all, forgot-password, reset-password và refresh-token khỏi interceptor tự refresh. Lỗi 401 của reset có nghĩa link reset không hợp lệ.
+2. Nếu nhiều request cùng nhận 401, chờ chung **một** request refresh đang chạy. Gửi boolean thật cho `remember_me` khi đăng nhập.
+3. Khi refresh thành công, lưu đồng thời cặp token mới rồi thử lại request ban đầu tối đa một lần. Không tiếp tục dùng refresh token cũ.
+4. Refresh trả 401 hoặc request đã thử lại vẫn trả 401: xóa trạng thái đăng nhập và chuyển về login. Lỗi mạng/5xx cần được hiển thị riêng, không tạo vòng lặp refresh.
+5. Lỗi 403 là không đủ quyền; không refresh để thử vượt qua. Render trang không có quyền hoặc ẩn thao tác tương ứng.
+6. Với logout, đợi tác vụ refresh đang chạy kết thúc rồi gửi refresh token mới nhất. Sau 200 hoặc 401, xóa trạng thái cục bộ. Nếu lỗi mạng, không báo rằng server đã thu hồi phiên; chỉ xóa cục bộ không bảo đảm thu hồi phía server.
+7. Reset thành công: bỏ token cũ của tài khoản trên client và yêu cầu đăng nhập lại. Logout-all cũng kết thúc phiên đang dùng.
+
+### **Quyền đã có cho màn hình quản trị/đơn hàng**
+
+| Chức năng | Customer | Admin | Manager |
+| --- | --- | --- | --- |
+| Tạo Customer/Manager, xem danh sách user, khóa/mở user | Không | Có; không sửa trạng thái Admin | Không |
+| CRUD món | Không | Có | Không |
+| Quote/tạo đơn, retry thanh toán | Có, đơn của mình | Không | Không |
+| Xem toàn bộ đơn qua `/orders/all` | Không | Có | Có, chỉ đọc |
+| Xem chi tiết đơn | Đơn của mình | Mọi đơn | Mọi đơn |
+| Hủy đơn | Đơn của mình, Pending | Trừ Completed/Cancelled | Không |
+| Đổi trạng thái đơn/thanh toán | Không | Có | Không |
+| Dashboard cũ, nhật ký toàn hệ thống `/admin/*` | Không | Có | Không |
+| Báo cáo tài chính/Excel Manager | Chưa có API | Chưa có API | Chưa có API |
+
+Không suy rộng ma trận này thành middleware Customer-only cho toàn bộ backend: các API Cart, Tracking, Health Profile và Upload hiện yêu cầu phiên hợp lệ, chưa giới hạn riêng role Customer. Frontend có thể ẩn các màn hình không phù hợp, nhưng việc ẩn không thay thế kiểm tra quyền ở server.
+
+### **Form và dữ liệu đã đổi schema**
+
+- Form đăng ký/tạo user/reset dùng chung quy tắc 8–50 ký tự, tối đa 72 byte UTF-8 và xác nhận khớp; không áp thêm quy tắc “password mạnh” chưa có trong backend. `days` gợi ý thực đơn chỉ nhận 1 hoặc 7.
+- Trang reset đọc `user_id`/`forgot_password_token` từ query email, gọi `/users/reset-password`. Với link hết hạn/đã dùng, cho phép gửi link mới; không cần user đăng nhập trước.
+- Gọi `/orders/quote` để hiển thị chi phí dự kiến trước khi tạo đơn. Dùng `deliveries[]` để render từng ngày và `deliveries[].items[]` cho món.
+- Sau thêm/sửa/xóa giỏ, đồng bộ UI bằng response mới; dùng `_id` dòng giỏ khi cập nhật/xóa. Một Food có thể xuất hiện ở nhiều ngày/bữa.
+- Không gửi `Food.details`, `Food.isCombo`, không đọc `order.items`/`order.deliverySchedule`. Tracking dùng ngày Việt Nam `YYYY-MM-DD`, không tự đổi thành ngày UTC.
+
+## **11) Phần chưa triển khai hoặc cần đồng bộ tiếp**
+
+- Frontend hiện vẫn cần cập nhật các trang/route/API PT cũ, guard vai trò, trang reset email và giao diện Admin tạo/khóa user.
+- Backend chưa có báo cáo tài chính/Excel Manager, tìm kiếm/phân trang danh sách user, API đổi role, API liệt kê/xóa riêng phiên theo ID hay API đọc audit log. Có schema/service nội bộ không có nghĩa đã có endpoint public.
+- Dashboard doanh thu Admin cũ chưa được tách theo yêu cầu mới. Optional auth của `GET /foods` chưa kiểm tra phiên thu hồi; cần sửa backend trước khi coi phần quyền này đã hoàn chỉnh.
+- Checkout chưa hoàn thiện giữ/trừ kho bằng transaction, idempotency, xác thực IPN, job hết hạn và hoàn tiền. Không coi việc trả trạng thái Paid thủ công là xác nhận từ cổng thanh toán.
+- Chưa có API hủy/đổi món/hoàn tiền riêng từng ngày của gói tuần. Recommendation/swap hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.
+- Reset email chỉ chạy thực tế sau khi cấu hình SMTP; `PASSWORD_RESET_URL` phải trỏ tới trang frontend đã có. Hướng dẫn DB/seed/email ở [auth-setup.md](auth-setup.md), giải thích 12 collection ở [database_schema.md](../../docs/database_schema.md).
