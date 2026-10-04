@@ -1,8 +1,6 @@
-import { config } from 'dotenv'
 import { MongoClient } from 'mongodb'
 import { createSchemaIndexes, getSchemaIndexPlan } from '../src/models/schema-indexes'
-
-config({ quiet: true })
+import { getDatabaseConfig } from '../src/utils/database-config'
 
 class SchemaSetupError extends Error {}
 
@@ -17,16 +15,13 @@ async function main() {
     return
   }
 
-  // Deliberately separate from the running application's credentials and database name.
-  const uri = process.env.SCHEMA_DATABASE_URI
-  const name = process.env.SCHEMA_DATABASE_NAME
-  if (!uri || !name)
-    throw new SchemaSetupError('--apply requires SCHEMA_DATABASE_URI and SCHEMA_DATABASE_NAME for an empty database')
+  // Dùng cùng database với backend và seed; chỉ kiểm tra cấu hình khi có --apply.
+  const { uri, dbName } = getDatabaseConfig()
 
   const client = new MongoClient(uri)
   try {
     await client.connect()
-    const db = client.db(name)
+    const db = client.db(dbName)
     const collections = await db.listCollections({}, { nameOnly: true }).toArray()
     // Allow a rerun on an empty, partially initialized database; do not migrate existing application data.
     for (const collection of collections) {
@@ -43,7 +38,7 @@ async function main() {
       }
     }
     await createSchemaIndexes(db)
-    console.log(`Created schema indexes in ${name}`)
+    console.log(`Created schema indexes in ${dbName}`)
   } finally {
     await client.close()
   }
@@ -54,7 +49,7 @@ main().catch((error: unknown) => {
   console.error(
     error instanceof SchemaSetupError
       ? error.message
-      : 'Database schema setup failed; check connection, permissions and the migration guide'
+      : 'Database schema setup failed; check DB_URI, DB_NAME, permissions and the migration guide'
   )
   process.exitCode = 1
 })

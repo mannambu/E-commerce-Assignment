@@ -128,7 +128,7 @@ Không tự chuyển hoặc xóa dữ liệu DB đang dùng. Thiết kế mới 
    npm run schema:indexes
    ```
 
-4. Khi chủ động khởi tạo DB rỗng, cấu hình SCHEMA_DATABASE_URI và SCHEMA_DATABASE_NAME rồi chạy:
+4. Khi chủ động khởi tạo DB rỗng, cấu hình `DB_URI` và `DB_NAME` trong `backend/.env` rồi chạy từ thư mục `backend`:
 
    ```sh
    npm run schema:indexes -- --apply
@@ -136,7 +136,7 @@ Không tự chuyển hoặc xóa dữ liệu DB đang dùng. Thiết kế mới 
 
    Script chỉ chấp nhận DB rỗng, không phải công cụ migration. Collection settings được tạo khi lưu cấu hình lần đầu.
 
-5. Backend và seed bắt buộc dùng DB_URI + DB_NAME. Xem [hướng dẫn xác thực](../backend/docs/auth-setup.md).
+5. Backend, seed và script tạo index dùng chung `DB_URI` + `DB_NAME`, không cần biến kết nối riêng cho schema. Xem [hướng dẫn xác thực](../backend/docs/auth-setup.md).
 6. Seed dữ liệu mẫu sau khi đã tạo index.
 
 Biến mới: DB_SESSIONS_COLLECTION, DB_DAILY_HEALTH_LOGS_COLLECTION, DB_SETTINGS_COLLECTION. Các biến DB_REFRESH_TOKENS_COLLECTION, DB_CALORIE_LOGS_COLLECTION, DB_ANALYTICS_COLLECTION không còn được backend sử dụng.

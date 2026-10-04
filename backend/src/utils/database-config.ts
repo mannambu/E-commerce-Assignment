@@ -1,8 +1,8 @@
 import { config } from 'dotenv'
 
-config()
+config({ quiet: true })
 
-// Backend và các script seed dùng chung cấu hình, không cố định cluster trong code.
+// Backend, seed và script tạo index dùng chung cấu hình, không cố định cluster trong code.
 export function getDatabaseConfig() {
   const uri = process.env.DB_URI?.trim()
   const dbName = process.env.DB_NAME?.trim()

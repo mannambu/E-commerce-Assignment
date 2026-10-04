@@ -23,7 +23,7 @@ DB_CARTS_COLLECTION=carts
 DB_AUDIT_LOGS_COLLECTION=audit_logs
 ```
 
-Backend và tất cả seed dùng cùng `DB_URI` + `DB_NAME`. Không còn hostname dự phòng trong code; thiếu cấu hình sẽ báo lỗi. `DB_USERNAME`/`DB_PASSWORD` không còn được dùng để ghép URI. Giữ các biến collection khác, JWT và Cloudinary đang có. Mật khẩu có ký tự đặc biệt trong URI cần percent-encode.
+Backend, tất cả seed và script `schema:indexes -- --apply` dùng cùng `DB_URI` + `DB_NAME`. Không cần biến kết nối riêng cho schema. Không còn hostname dự phòng trong code; thiếu cấu hình sẽ báo lỗi. `DB_USERNAME`/`DB_PASSWORD` không còn được dùng để ghép URI. Giữ các biến collection khác, JWT và Cloudinary đang có. Mật khẩu có ký tự đặc biệt trong URI cần percent-encode.
 
 DB cần Atlas hoặc MongoDB replica set để chạy transaction khi reset mật khẩu, khóa tài khoản và tạo nhân viên. DB mới rỗng cần áp dụng index theo `docs/database_schema.md` **trước khi import/seed**. Nếu đã import users và đã tạo index, không chạy lại script khởi tạo DB rỗng.
 
