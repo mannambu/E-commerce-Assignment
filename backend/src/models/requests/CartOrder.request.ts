@@ -2,18 +2,36 @@ import { PackageType, PaymentMethod, PaymentStatus, OrderStatus } from '~/models
 import { CartTypeValue } from '~/models/schemas/Cart.schema'
 import { MealSlot } from '~/models/schemas/common'
 
-export interface AddCartItemReqBody {
+export interface CartItemInput {
   itemId: string
   quantity: number
-  cartType?: CartTypeValue
   deliveryDate?: string
   mealSlot?: MealSlot
   mealPlanId?: string
   mealPlanItemId?: string
 }
 
+export interface AddCartItemReqBody extends CartItemInput {
+  cartType?: CartTypeValue
+  version?: number
+}
+
+export interface AddCartItemsReqBody {
+  cartType?: CartTypeValue
+  version?: number
+  items: CartItemInput[]
+}
+
 export interface UpdateCartItemReqBody {
-  quantity: number
+  quantity?: number
+  deliveryDate?: string | null
+  mealSlot?: MealSlot | null
+  version?: number
+}
+
+export interface ChangeCartModeReqBody {
+  cartType: CartTypeValue
+  version?: number
 }
 
 export interface QuoteOrderReqBody {

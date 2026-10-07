@@ -109,9 +109,10 @@ Order không còn các mảng lưu song song `items`, `deliverySchedule`, `shipp
 ## API bị ảnh hưởng
 
 - Tạo/xem đơn trả `deliveries[].items[]`; frontend cần đọc cấu trúc này. Đây là thay đổi response Order.
-- `GET /cart` vẫn trả foodCart/comboCart để giảm thay đổi giao diện; chỉ một phần có món, DB không tạo hai giỏ.
+- `GET /cart` trả `currentCart` là giỏ đang dùng; vẫn giữ foodCart/comboCart để giảm thay đổi giao diện. Chỉ một phần có món, DB không tạo hai giỏ.
 - `POST /cart/items` nhận thêm cartType, deliveryDate, mealSlot, mealPlanId, mealPlanItemId. Với COMBO, deliveryDate bắt buộc.
-- PATCH/DELETE dòng giỏ dùng _id dòng ở vị trí tham số itemId cũ. foodId cũ chỉ được chấp nhận nếu xác định đúng một dòng; nhiều ngày/bữa trả lỗi rõ ràng.
+- PATCH/DELETE `/cart/items/:lineId` dùng `_id` dòng. foodId cũ chỉ được chấp nhận nếu xác định đúng một dòng; nhiều ngày/bữa trả lỗi rõ ràng.
+- Cart hỗ trợ đổi chế độ khi rỗng, thêm nhiều dòng trong một lần, sửa ngày/bữa và kiểm tra version để tránh ghi đè từ thiết bị khác. Xem [quy tắc và API cart](../backend/docs/cart.md).
 - Tạo review nhận foodId và orderId. Body targetId/targetType=Food vẫn được nhận ở controller để tương thích; DB chỉ ghi foodId. Nên gửi orderId để chọn đúng lần mua.
 - Tracking trả ngày YYYY-MM-DD; lịch sử calo có target của từng ngày, entries là các món đã ăn.
 - Food không lưu details/isCombo; request cập nhật chỉ nhận các trường thuộc schema.

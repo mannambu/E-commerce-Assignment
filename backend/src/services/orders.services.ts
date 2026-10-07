@@ -228,9 +228,9 @@ class OrdersService {
     const packageType: PackageType = payload.packageType || 'ONE_DAY'
     const cartType: CartTypeValue = payload.cartType || (packageType === 'WEEKLY_7D' ? 'COMBO' : 'FOOD')
 
-    if (packageType === 'WEEKLY_7D' && cartType !== 'COMBO') {
+    if ((packageType === 'WEEKLY_7D') !== (cartType === 'COMBO')) {
       throw new ErrorWithStatus({
-        message: USERS_MESSAGES.WEEKLY_PACKAGE_REQUIRES_COMBO_CART,
+        message: 'Chế độ FOOD dùng ONE_DAY, chế độ COMBO dùng WEEKLY_7D',
         status: HTTP_STATUS.BAD_REQUEST
       })
     }
@@ -248,8 +248,15 @@ class OrdersService {
       })
     }
 
+    if (!cart.canCheckout) {
+      throw new ErrorWithStatus({ message: cart.issues[0].message, status: HTTP_STATUS.BAD_REQUEST })
+    }
+
     const packageType: PackageType = payload.packageType || 'ONE_DAY'
     const deliveryDate = this.toValidDate(payload.deliveryDate, USERS_MESSAGES.DELIVERY_DATE_IS_REQUIRED)
+    if (toLocalDate(deliveryDate) < toLocalDate(new Date())) {
+      throw new ErrorWithStatus({ message: 'Ngày giao đã qua, hãy chọn lại ngày', status: HTTP_STATUS.BAD_REQUEST })
+    }
     const schedule = this.buildDeliverySchedule(deliveryDate, packageType)
     const distanceKm =
       payload.distanceKm !== undefined

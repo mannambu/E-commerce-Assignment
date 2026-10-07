@@ -2,6 +2,7 @@ import { ObjectId } from 'mongodb'
 import { LocalDate, MealSlot } from './common'
 
 export type CartTypeValue = 'FOOD' | 'COMBO'
+export const MAX_CART_LINES = 100
 
 export interface CartItem {
   _id?: ObjectId
@@ -34,7 +35,15 @@ export default class Cart implements CartType {
     this._id = cart._id
     this.userId = cart.userId
     this.cartType = cart.cartType
-    this.items = cart.items.map((item) => ({ ...item, _id: item._id ?? new ObjectId() }))
+    this.items = cart.items.map((item) => ({
+      ...item,
+      _id: item._id ?? new ObjectId(),
+      // MongoDB có thể lưu trường optional thành null; chuẩn hóa trước khi so sánh dòng.
+      deliveryDate: item.deliveryDate ?? undefined,
+      mealSlot: item.mealSlot ?? undefined,
+      mealPlanId: item.mealPlanId ?? undefined,
+      mealPlanItemId: item.mealPlanItemId ?? undefined
+    }))
     this.version = cart.version ?? 0
     const now = new Date()
     this.createdAt = cart.createdAt || now

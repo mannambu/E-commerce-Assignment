@@ -9,11 +9,18 @@ import tracking from '../src/services/tracking.services'
 import User from '../src/models/schemas/User.schema'
 import Order from '../src/models/schemas/Order.schema'
 import DailyHealthLog from '../src/models/schemas/DailyHealthLog.schema'
+import { toLocalDate } from '../src/models/schemas/common'
 
 test('weekly quote uses actual day menus, charges shipping once and saves nested snapshots', async (t) => {
   const foodId = new ObjectId()
-  const start = '2026-10-01T05:00:00.000Z'
-  const dates = Array.from({ length: 7 }, (_, index) => `2026-10-0${index + 1}`)
+  const firstDay = new Date()
+  firstDay.setUTCDate(firstDay.getUTCDate() + 1)
+  const start = `${toLocalDate(firstDay)}T12:00:00+07:00`
+  const dates = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(start)
+    date.setUTCDate(date.getUTCDate() + index)
+    return toLocalDate(date)
+  })
   const items = dates.map((deliveryDate, index) => ({
     _id: new ObjectId(),
     itemId: foodId,
@@ -26,7 +33,7 @@ test('weekly quote uses actual day menus, charges shipping once and saves nested
     nutrition: { protein: 30, carb: 40, fat: 10 },
     lineTotal: 50000 + index * 1000,
     lineCalories: 400,
-    availability: { isActive: true, inStock: true }
+    availability: { isActive: true, inStock: true, availableQuantity: 50 }
   }))
   t.mock.method(carts, 'buildCartSummaryByType', async () => ({
     cartId: new ObjectId(),
@@ -34,7 +41,17 @@ test('weekly quote uses actual day menus, charges shipping once and saves nested
     cartType: 'COMBO',
     version: 0,
     items,
-    summary: { subtotal: 371000, totalCalories: 2800, itemCount: 7 }
+    canCheckout: true,
+    issues: [],
+    summary: {
+      subtotal: 371000,
+      totalCalories: 2800,
+      itemCount: 7,
+      lineCount: 7,
+      deliveryDates: dates,
+      shippingFee: null,
+      shippingPolicy: 'FIRST_DAY_ONLY'
+    }
   }))
   let saved: Order | undefined
   let cleared = false

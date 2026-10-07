@@ -540,104 +540,77 @@ Response:
 
 Xóa/Ẩn món ăn.
 
-## **5) Cart (/cart) - Auth bắt buộc**
+## **5) Cart (/cart) - Customer**
+
+DB chỉ lưu một giỏ/người, chế độ `FOOD` hoặc `COMBO`. [Hướng dẫn đầy đủ, quy tắc và ví dụ](cart.md).
 
 ### **GET /cart**
 
-DB chỉ lưu một giỏ/người. Response vẫn có `foodCart` và `comboCart` để hỗ trợ giao diện cũ; hai phần dùng cùng cartId, chỉ phần tương ứng chế độ đang chọn có món.
+Trả `result.currentCart` là giỏ đang dùng. Vẫn giữ `foodCart`/`comboCart` cho frontend cũ; chỉ một phần có món, cả hai dùng cùng cartId.
 
-Response:
-```json
-{  
-  "message": "Lấy giỏ hàng thành công",  
-  "result": {  
-    "foodCart": {  
-      "cartId": "...",  
-      "userId": "...",  
-      "cartType": "FOOD",  
-      "items": [],  
-      "summary": {  
-        "itemCount": 0,  
-        "subtotal": 0,  
-        "totalCalories": 0  
-      }  
-    },  
-    "comboCart": {  
-      "cartId": "...",  
-      "userId": "...",  
-      "cartType": "COMBO",  
-      "items": [  
-        {  
-          "_id": "<cart_line_id>",
-          "itemId": "...",  
-          "deliveryDate": "2026-10-01",
-          "mealSlot": "Lunch",
-          "quantity": 1,  
-          "itemName": "...",  
-          "image": "...",  
-          "unitPrice": 129000,  
-          "unitCalories": 680,  
-          "lineTotal": 129000,  
-          "lineCalories": 680,  
-          "availability": {  
-            "isActive": true,  
-            "inStock": true  
-          }  
-        }  
-      ],  
-      "summary": {  
-        "itemCount": 1,  
-        "subtotal": 129000,  
-        "totalCalories": 680  
-      }  
-    }  
-  }  
-}
-```
+Một cart summary có dạng:
 
-### **GET /cart/food**
-
-Trả phần FOOD; rỗng nếu giỏ hiện tại đang ở chế độ COMBO.
-
-### **GET /cart/combo**
-
-Trả phần COMBO; rỗng nếu giỏ hiện tại đang ở chế độ FOOD.
-
-### **POST /cart/items**
-
-Body:
 ```json
 {
-  "itemId": "<food_id>",
-  "quantity": 1,
+  "cartId": "<cart_id>",
+  "userId": "<user_id>",
   "cartType": "COMBO",
-  "deliveryDate": "2026-10-01",
-  "mealSlot": "Lunch"
+  "version": 2,
+  "items": [
+    {
+      "_id": "<cart_line_id>",
+      "itemId": "<food_id>",
+      "deliveryDate": "2026-10-08",
+      "mealSlot": "Lunch",
+      "quantity": 1,
+      "itemName": "Cơm gà",
+      "unitPrice": 50000,
+      "lineTotal": 50000,
+      "availability": { "isActive": true, "inStock": true, "availableQuantity": 20 }
+    }
+  ],
+  "canCheckout": false,
+  "issues": [
+    { "code": "INCOMPLETE_WEEK", "message": "Gói tuần cần có món cho đủ 7 ngày liên tiếp trước khi đặt hàng" }
+  ],
+  "summary": {
+    "lineCount": 1,
+    "itemCount": 1,
+    "subtotal": 50000,
+    "totalCalories": 400,
+    "deliveryDates": ["2026-10-08"],
+    "shippingFee": null,
+    "shippingPolicy": "FIRST_DAY_ONLY"
+  }
 }
 ```
-* `cartType`: FOOD hoặc COMBO. Nếu không gửi, dùng chế độ hiện tại; giỏ mới mặc định FOOD.
-* COMBO bắt buộc có `deliveryDate`. Có thể gửi `mealPlanId` và `mealPlanItemId` nếu món lấy từ thực đơn đã lưu.
-* Cùng món nhưng khác ngày/bữa là các dòng khác nhau. Cần xóa giỏ hiện tại trước khi đổi chế độ nếu còn món.
 
-### **PATCH /cart/items/:itemId**
+* `GET /cart/food`, `GET /cart/combo` hoặc query `?cartType=FOOD|COMBO` trả một phần; rỗng nếu khác chế độ đang dùng.
+* `canCheckout=false` khi giỏ rỗng, lịch giao chưa hợp lệ hoặc có món hết hàng/thiếu hàng/ngừng bán. `issues[].lineId` xác định dòng cần hiển thị lỗi.
+* Giá/tồn kho lấy lại từ Food mỗi lần đọc; badge dùng `summary.itemCount`.
+* Chưa có địa chỉ thì shippingFee=null. Gọi `/orders/quote` sau khi chọn địa chỉ/ngày giao để tính ship; tuần chỉ thu ngày đầu.
 
-Body:
-```json
-{ "quantity": 3 }
-```
+### **Thêm, sửa và xóa**
 
-* quantity = 0 => backend xóa item khỏi giỏ.
-* Tham số `itemId` trên URL nên gửi `_id` của **dòng giỏ**. Mã Food cũ chỉ được chấp nhận khi xác định đúng một dòng; nếu món nằm ở nhiều ngày/bữa thì trả lỗi yêu cầu dùng mã dòng.
+| Method | Path | JSON body |
+| --- | --- | --- |
+| PATCH | `/cart/mode` | `{ cartType, version? }` — chỉ đổi khi giỏ rỗng |
+| POST | `/cart/items` | `{ itemId, quantity, cartType?, deliveryDate?, mealSlot?, mealPlanId?, mealPlanItemId?, version? }` |
+| POST | `/cart/items/bulk` | `{ cartType?, version?, items: [{ itemId, quantity, deliveryDate?, mealSlot?, mealPlanId?, mealPlanItemId? }] }` |
+| PATCH | `/cart/items/:lineId` | `{ quantity?, deliveryDate?, mealSlot?, version? }` — phải gửi ít nhất một trường cần sửa |
+| DELETE | `/cart/items/:lineId` | `{ version? }` |
+| DELETE | `/cart` | `{ version? }` |
+| DELETE | `/cart/food` hoặc `/cart/combo` | `{ version? }` — chỉ xóa chế độ tương ứng |
+| POST | `/cart/refresh` | Lấy lại cart summary, không tự xóa món lỗi |
 
-### **DELETE /cart/items/:itemId**
-
-### **DELETE /cart**
-
-### **DELETE /cart/food**
-
-### **DELETE /cart/combo**
-
-### **POST /cart/refresh**
+* API ghi trả summary mới; GET, refresh và DELETE /cart không kèm cartType trả bộ currentCart/foodCart/comboCart.
+* cartType không gửi thì dùng chế độ hiện tại (giỏ mới là FOOD). COMBO bắt buộc ngày giao, FOOD chỉ có một ngày giao. Ngày dạng YYYY-MM-DD, không ở quá khứ theo giờ Việt Nam.
+* Cho soạn gói tuần chưa đủ ngày; checkout cần đủ 7 ngày liên tiếp. Tối đa 100 dòng; bulk chỉ ghi khi toàn bộ các dòng hợp lệ.
+* PATCH quantity=0 xóa dòng; deliveryDate=null bỏ ngày ở FOOD; mealSlot=null bỏ bữa. Nếu sửa trùng dòng khác thì gộp số lượng.
+* URL dùng `items[]._id`, là mã dòng giỏ. Food ID cũ chỉ được chấp nhận khi xác định đúng một dòng.
+* Gửi version vừa đọc để phát hiện thay đổi từ thiết bị khác; nhận 409 thì tải lại. Version là tùy chọn để tương thích client cũ.
+* Món từ MealPlan cần cả hai mã tham chiếu và phải đúng chủ sở hữu/ngày/bữa/món trong thực đơn chưa đặt.
+* Ngừng bán/hết hàng sau khi thêm: dòng vẫn hiển thị, trả lỗi tương ứng và chặn checkout. Backend chưa giữ kho tại bước cart.
 
 ## **6) Orders (/orders) - Auth bắt buộc**
 

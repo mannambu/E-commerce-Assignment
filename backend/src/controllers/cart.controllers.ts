@@ -2,7 +2,12 @@ import { Request, Response } from 'express'
 import { ParamsDictionary } from 'express-serve-static-core'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { USERS_MESSAGES } from '~/constants/messages'
-import { AddCartItemReqBody, UpdateCartItemReqBody } from '~/models/requests/CartOrder.request'
+import {
+  AddCartItemReqBody,
+  AddCartItemsReqBody,
+  ChangeCartModeReqBody,
+  UpdateCartItemReqBody
+} from '~/models/requests/CartOrder.request'
 import { CartTypeValue } from '~/models/schemas/Cart.schema'
 import { TokenPayload } from '~/models/requests/User.request'
 import cartService from '~/services/cart.services'
@@ -60,16 +65,13 @@ export const addCartItemController = async (
   })
 }
 
-export const updateCartItemQuantityController = async (
-  req: Request<{ itemId: string }, Record<string, never>, UpdateCartItemReqBody>,
+export const updateCartItemController = async (
+  req: Request<{ lineId: string }, Record<string, never>, UpdateCartItemReqBody>,
   res: Response
 ) => {
   const decoded = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
 
-  const result = await cartService.updateItemQuantity(decoded.user_id, {
-    itemId: req.params.itemId,
-    quantity: req.body.quantity
-  })
+  const result = await cartService.updateItem(decoded.user_id, req.params.lineId, req.body)
 
   return res.status(HTTP_STATUS.OK).json({
     message: USERS_MESSAGES.CART_ITEM_UPDATED_SUCCESS,
@@ -77,10 +79,10 @@ export const updateCartItemQuantityController = async (
   })
 }
 
-export const removeCartItemController = async (req: Request<{ itemId: string }>, res: Response) => {
+export const removeCartItemController = async (req: Request<{ lineId: string }>, res: Response) => {
   const decoded = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
 
-  const result = await cartService.removeItem(decoded.user_id, req.params.itemId)
+  const result = await cartService.removeItem(decoded.user_id, req.params.lineId, req.body?.version)
 
   return res.status(HTTP_STATUS.OK).json({
     message: USERS_MESSAGES.CART_ITEM_REMOVED_SUCCESS,
@@ -94,8 +96,8 @@ export const clearCartController = async (req: Request, res: Response) => {
 
   const result =
     requestedCartType === 'FOOD' || requestedCartType === 'COMBO'
-      ? await cartService.clearCartByType(decoded.user_id, parseCartType(requestedCartType))
-      : await cartService.clearCart(decoded.user_id)
+      ? await cartService.clearCartByType(decoded.user_id, parseCartType(requestedCartType), req.body?.version)
+      : await cartService.clearCart(decoded.user_id, req.body?.version)
 
   return res.status(HTTP_STATUS.OK).json({
     message: USERS_MESSAGES.CART_CLEARED_SUCCESS,
@@ -105,7 +107,7 @@ export const clearCartController = async (req: Request, res: Response) => {
 
 export const clearFoodCartController = async (req: Request, res: Response) => {
   const decoded = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-  const result = await cartService.clearCartByType(decoded.user_id, 'FOOD')
+  const result = await cartService.clearCartByType(decoded.user_id, 'FOOD', req.body?.version)
 
   return res.status(HTTP_STATUS.OK).json({
     message: USERS_MESSAGES.CART_CLEARED_SUCCESS,
@@ -115,7 +117,7 @@ export const clearFoodCartController = async (req: Request, res: Response) => {
 
 export const clearComboCartController = async (req: Request, res: Response) => {
   const decoded = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-  const result = await cartService.clearCartByType(decoded.user_id, 'COMBO')
+  const result = await cartService.clearCartByType(decoded.user_id, 'COMBO', req.body?.version)
 
   return res.status(HTTP_STATUS.OK).json({
     message: USERS_MESSAGES.CART_CLEARED_SUCCESS,
@@ -131,4 +133,22 @@ export const refreshCartController = async (req: Request, res: Response) => {
     message: USERS_MESSAGES.CART_REFRESHED_SUCCESS,
     result
   })
+}
+
+export const addCartItemsController = async (
+  req: Request<ParamsDictionary, Record<string, never>, AddCartItemsReqBody>,
+  res: Response
+) => {
+  const decoded = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
+  const result = await cartService.addItems(decoded.user_id, req.body)
+  return res.status(HTTP_STATUS.OK).json({ message: USERS_MESSAGES.CART_ITEM_ADDED_SUCCESS, result })
+}
+
+export const changeCartModeController = async (
+  req: Request<ParamsDictionary, Record<string, never>, ChangeCartModeReqBody>,
+  res: Response
+) => {
+  const decoded = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
+  const result = await cartService.changeMode(decoded.user_id, req.body)
+  return res.status(HTTP_STATUS.OK).json({ message: 'Đã cập nhật chế độ mua', result })
 }
