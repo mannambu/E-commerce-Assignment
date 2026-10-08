@@ -18,6 +18,7 @@ import users from '../src/services/user.services'
 import cartRouter from '../src/routes/cart.routes'
 import { defaultErrorHandler } from '../src/middlewares/errors.middlewares'
 import * as validators from '../src/middlewares/cart.middlewares'
+import settings, { DEFAULT_COMMERCE_RULES } from '../src/services/settings.services'
 
 // Bản sao BSON mô phỏng đọc/ghi độc lập, kể cả undefined -> null.
 // Test không kết nối DB thật; unique index vẫn phải được tạo bằng schema:indexes.
@@ -29,6 +30,8 @@ function day(offset = 1) {
 }
 
 function setup(t: TestContext) {
+  t.mock.method(settings, 'getCommerceRules', async () => ({ ...DEFAULT_COMMERCE_RULES }))
+  t.mock.getter(database, 'users', () => ({ findOne: async () => null }) as unknown as Collection<User>)
   const userId = new ObjectId().toHexString()
   const food = new Food({
     _id: new ObjectId(),
@@ -312,7 +315,7 @@ test('weekly quote uses all seven menus and only first-day shipping; invalid car
     items: Array.from({ length: 7 }, (_, index) => ({
       itemId,
       quantity: index + 1,
-      deliveryDate: day(index + 1),
+      deliveryDate: day(index + 2),
       mealSlot: 'Lunch' as const
     }))
   })
@@ -323,7 +326,7 @@ test('weekly quote uses all seven menus and only first-day shipping; invalid car
   const payload = {
     cartType: 'COMBO' as const,
     packageType: 'WEEKLY_7D' as const,
-    deliveryDate: `${day()}T12:00:00+07:00`,
+    deliveryDate: `${day(2)}T12:00:00+07:00`,
     deliveryAddress: 'Địa chỉ test',
     distanceKm: 6,
     paymentMethod: 'COD' as const

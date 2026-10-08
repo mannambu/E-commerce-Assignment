@@ -10,11 +10,14 @@ import User from '../src/models/schemas/User.schema'
 import Order from '../src/models/schemas/Order.schema'
 import DailyHealthLog from '../src/models/schemas/DailyHealthLog.schema'
 import { toLocalDate } from '../src/models/schemas/common'
+import settings, { DEFAULT_COMMERCE_RULES } from '../src/services/settings.services'
 
 test('weekly quote uses actual day menus, charges shipping once and saves nested snapshots', async (t) => {
+  t.mock.method(settings, 'getCommerceRules', async () => ({ ...DEFAULT_COMMERCE_RULES }))
+  t.mock.getter(database, 'users', () => ({ findOne: async () => null }) as unknown as Collection<User>)
   const foodId = new ObjectId()
   const firstDay = new Date()
-  firstDay.setUTCDate(firstDay.getUTCDate() + 1)
+  firstDay.setUTCDate(firstDay.getUTCDate() + 2)
   const start = `${toLocalDate(firstDay)}T12:00:00+07:00`
   const dates = Array.from({ length: 7 }, (_, index) => {
     const date = new Date(start)

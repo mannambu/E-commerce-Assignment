@@ -1,6 +1,7 @@
 import { checkSchema } from 'express-validator'
 import { USERS_MESSAGES } from '~/constants/messages'
 import { validate } from '~/utils/validation'
+import { parseDeliveryStart } from '~/utils/delivery'
 
 const PAYMENT_METHODS = ['COD', 'VNPay', 'MoMo']
 const PACKAGE_TYPES = ['ONE_DAY', 'WEEKLY_7D']
@@ -24,10 +25,15 @@ export const quoteOrderValidator = validate(
         notEmpty: {
           errorMessage: USERS_MESSAGES.DELIVERY_DATE_IS_REQUIRED
         },
-        isISO8601: {
-          errorMessage: USERS_MESSAGES.DELIVERY_DATE_IS_REQUIRED
+        isString: true,
+        custom: {
+          options: (value, { req }) => {
+            parseDeliveryStart(value, req.body.deliveryTime)
+            return true
+          }
         }
       },
+      deliveryTime: { optional: true, isString: true, matches: { options: /^([01]\d|2[0-3]):[0-5]\d$/ } },
       packageType: {
         optional: true,
         isIn: {
@@ -44,10 +50,12 @@ export const quoteOrderValidator = validate(
       },
       distanceKm: {
         optional: true,
+        custom: { options: (value) => !Array.isArray(value) && Number.isFinite(Number(value)) },
         isFloat: {
           options: { min: 0 },
           errorMessage: USERS_MESSAGES.DISTANCE_KM_MUST_BE_A_NON_NEGATIVE_NUMBER
-        }
+        },
+        toFloat: true
       },
       paymentMethod: {
         notEmpty: {

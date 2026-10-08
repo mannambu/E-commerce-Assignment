@@ -77,6 +77,7 @@ orders
   paymentDueAt
   statusHistory[]
   cancellationPolicy
+  targetCaloriesSnapshot
 ```
 
 Order không còn các mảng lưu song song `items`, `deliverySchedule`, `shippingBreakdowns`. Các thông tin đó nằm trong từng delivery. Một ngày có một delivery, gói tuần có bảy delivery; mỗi delivery giữ món của chính ngày đó.
@@ -89,7 +90,10 @@ Order không còn các mảng lưu song song `items`, `deliverySchedule`, `shipp
 - `inventoryHold` thuộc về đơn nên nhúng trong đơn. Stock tổng vẫn thuộc Food: khả dụng = stock - reservedStock.
 - Giữ, chốt hoặc nhả kho phải cập nhật cả Order và Food trong cùng transaction. Không dùng TTL xóa đơn để nhả kho.
 - Hạn giữ 10 phút và hạn thanh toán 15 phút nằm trong common.ts. Chỉ ghi Held khi đã thực sự giữ kho.
-- Các trường cutoffAt/cancellationPolicy đang dành cho luồng cấu hình bếp và checkout hoàn chỉnh, service hiện tại chưa tự điền.
+- Gói tuần lưu `cutoffAt` từng ngày và `cancellationPolicy` lúc đặt; Admin đổi settings chỉ áp dụng cho đơn mới. `targetCaloriesSnapshot` giữ mục tiêu calo tại lúc đặt để kiểm tra đổi món.
+- `deliveries[].cancellation` lưu `creditedAmount` (giá trị được giảm), `refundAmount` (khoản yêu cầu hoàn) và `refundTransactionId`. Hoàn tiền thực tế được ghi riêng ở `refundedAmount`; yêu cầu hoàn Pending không phải đã hoàn.
+- Tổng giá gốc của đơn được giữ nguyên khi hủy ngày; API bổ sung `amounts` để đọc giá trị sau giảm, đã thu, đã hoàn, chờ hoàn và còn phải trả. Không dùng giá gốc để thu lại đơn đã hủy một phần.
+- Xem [gói tuần và phí giao hàng](../backend/docs/weekly-orders.md) cho chính sách MVP, API đổi/hủy ngày, cấu hình giờ chốt và các phần checkout/thanh toán còn phải nối tiếp.
 
 ## Các phần đã bỏ hoặc làm gọn
 

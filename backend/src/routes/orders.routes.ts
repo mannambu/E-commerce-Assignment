@@ -26,8 +26,60 @@ import {
 } from '~/middlewares/users.middlewares'
 import { UserRole } from '~/models/schemas/User.schema'
 import { wrapRequestHandler } from '~/utils/handlers'
+import {
+  getDeliveryAlternativesController,
+  swapDeliveryItemController,
+  previewDeliveryCancellationController,
+  cancelDeliveryController,
+  updateDeliveryStatusController
+} from '~/controllers/weekly-orders.controllers'
+import {
+  deliveryParamsValidator,
+  swapDeliveryValidator,
+  cancelDeliveryValidator,
+  deliveryStatusValidator
+} from '~/middlewares/weekly-orders.middlewares'
 
 const ordersRouter = Router()
+
+ordersRouter.get(
+  '/:orderId/deliveries/:deliveryId/items/:itemId/alternatives',
+  accessTokenValidator,
+  requireRoles(UserRole.CUSTOMER, UserRole.ADMIN),
+  deliveryParamsValidator,
+  wrapRequestHandler(getDeliveryAlternativesController)
+)
+ordersRouter.patch(
+  '/:orderId/deliveries/:deliveryId/items/:itemId',
+  accessTokenValidator,
+  requireRoles(UserRole.CUSTOMER, UserRole.ADMIN),
+  deliveryParamsValidator,
+  swapDeliveryValidator,
+  wrapRequestHandler(swapDeliveryItemController)
+)
+ordersRouter.get(
+  '/:orderId/deliveries/:deliveryId/cancellation',
+  accessTokenValidator,
+  requireRoles(UserRole.CUSTOMER, UserRole.ADMIN),
+  deliveryParamsValidator,
+  wrapRequestHandler(previewDeliveryCancellationController)
+)
+ordersRouter.post(
+  '/:orderId/deliveries/:deliveryId/cancel',
+  accessTokenValidator,
+  requireRoles(UserRole.CUSTOMER, UserRole.ADMIN),
+  deliveryParamsValidator,
+  cancelDeliveryValidator,
+  wrapRequestHandler(cancelDeliveryController)
+)
+ordersRouter.patch(
+  '/:orderId/deliveries/:deliveryId/status',
+  accessTokenValidator,
+  isAdminValidator,
+  deliveryParamsValidator,
+  deliveryStatusValidator,
+  wrapRequestHandler(updateDeliveryStatusController)
+)
 
 /**
  * Description. Quote order pricing before placing order

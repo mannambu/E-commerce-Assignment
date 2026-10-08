@@ -48,7 +48,14 @@ export interface DeliveryPeriod {
   shipping: ShippingBreakdown
   waivedShippingFee: number
   refundedAmount: number
-  cancellation?: { reason: string; cancelledAt: Date; cancelledBy: CancelledBy }
+  cancellation?: {
+    reason: string
+    cancelledAt: Date
+    cancelledBy: CancelledBy
+    creditedAmount?: number // Phần giảm khỏi giá trị phải trả, giữ nguyên giá gốc của đơn.
+    refundAmount?: number // Số tiền đã yêu cầu hoàn, chưa đồng nghĩa đã hoàn thành.
+    refundTransactionId?: ObjectId
+  }
 }
 
 export interface CancellationPolicySnapshot {
@@ -95,6 +102,7 @@ export default interface Order {
   idempotencyKey?: string
   requestHash?: string
   cancellationPolicy?: CancellationPolicySnapshot
+  targetCaloriesSnapshot?: number // Mục tiêu tại lúc đặt, dùng kiểm tra đổi món trong gói tuần.
   cancelledBy?: CancelledBy
   cancelledAt?: Date
   cancellationReason?: string

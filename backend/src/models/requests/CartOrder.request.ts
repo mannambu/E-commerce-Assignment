@@ -37,6 +37,7 @@ export interface ChangeCartModeReqBody {
 export interface QuoteOrderReqBody {
   deliveryAddress: string
   deliveryDate: string
+  deliveryTime?: string // HH:mm tại Việt Nam khi deliveryDate chỉ có YYYY-MM-DD.
   packageType?: PackageType
   cartType?: CartTypeValue
   distanceKm?: number
@@ -57,4 +58,19 @@ export interface RetryPaymentReqBody {
 export interface UpdatePaymentStatusReqBody {
   status: PaymentStatus
   transactionId?: string
+}
+
+export interface SwapDeliveryItemReqBody {
+  foodId: string
+  version: number
+}
+
+export interface CancelDeliveryReqBody {
+  reason: string
+  version: number
+}
+
+export interface UpdateDeliveryStatusReqBody {
+  status: 'Cooking' | 'Delivering' | 'Completed'
+  version: number
 }

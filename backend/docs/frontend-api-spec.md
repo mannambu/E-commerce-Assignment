@@ -617,8 +617,8 @@ Một cart summary có dạng:
 ### **Enum**
 
 * paymentMethod: COD | VNPay | MoMo  
-* orderStatus: Pending | Cooking | Delivering | Completed | Cancelled  
-* paymentStatus: Pending | Paid | Failed  
+* orderStatus: Pending | Confirmed | Cooking | Delivering | Completed | Cancelled
+* paymentStatus: Pending | Paid | Failed | PartiallyRefunded | Refunded
 * packageType: ONE_DAY | WEEKLY_7D  
 * cartType: FOOD | COMBO
 
@@ -631,6 +631,7 @@ Body:
 {  
   "deliveryAddress": "...",  
   "deliveryDate": "2026-04-10",  
+  "deliveryTime": "12:00",
   "packageType": "ONE_DAY",  
   "cartType": "FOOD",  
   "distanceKm": 3,  
@@ -648,13 +649,17 @@ Rules:
 * WEEKLY_7D chỉ cho phép với cartType = COMBO.
 * Giỏ tuần phải có món cho đủ bảy ngày liên tiếp, bắt đầu từ `deliveryDate`. Backend dùng món của từng ngày, không nhân cùng một giỏ lên bảy lần.
 * Ship chỉ thu ngày đầu; các ngày sau có `shipping.totalFee = 0` và `waivedShippingFee` thể hiện phần miễn.
-* Nên gửi `deliveryDate` có giờ và múi giờ, ví dụ `2026-10-01T12:00:00+07:00`, để giữ giờ giao cố định.
+* `deliveryDate: YYYY-MM-DD` đi cùng `deliveryTime: HH:mm` theo giờ Việt Nam (mặc định 12:00). Hoặc gửi timestamp có múi giờ, ví dụ `2026-10-01T12:00:00+07:00`, không kèm `deliveryTime`. Thay ngày ví dụ bằng ngày tương lai thực tế.
+* Gói tuần phải còn trước giờ chốt ngày đầu. Mặc định chốt 20:00 ngày trước; Admin cấu hình qua `/admin/commerce-settings`.
+* `distanceKm` được giữ nguyên: FOOD miễn đến 2 km, phần vượt làm tròn lên từng km × 5.000đ; COMBO dưới 5 km miễn, từ 5 km thu 20.000đ. Không truyền thì dùng bản đồ như trước.
+* Giỏ tuần thiếu món trả 400 kèm `issues[]`, `replacements[]` với dòng/ngày và các món thay thế phù hợp. Khách sửa giỏ rồi quote lại.
 
 Response chứa:
 
 * cart  
-* deliveries[]: date, scheduledAt, items[], status, statusHistory[], subtotal, shipping, waivedShippingFee
-* pricing: subtotal, shippingFee, grandTotal, shippingBreakdowns[], totalCalories  
+* deliveries[]: date, scheduledAt, cutoffAt (gói tuần), items[], status, statusHistory[], subtotal, shipping, waivedShippingFee
+* pricing: subtotal, shippingFee, grandTotal, shippingBreakdowns[], totalCalories, waivedShippingFee
+* cancellationPolicy, targetCaloriesSnapshot (gói tuần)
 * delivery: address, schedule, daysCount, packageType, cartType
 * payment.method
 
@@ -664,11 +669,13 @@ Body giống /orders/quote.
 
 * Tạo order xong backend xóa các món trong giỏ đã checkout.
 * Order trả `deliveries[].items[]`; mỗi item có `foodId`, `foodName`, `quantity`, `price`, `calories`, `nutrition` đã chốt lúc đặt. Không còn `order.items` hoặc `order.deliverySchedule`.
-* `inventoryHold` hiện là `NotReserved`; việc giữ/trừ kho, xác thực IPN và tự hủy chưa được triển khai trong đợt đơn giản hóa schema. Enum schema có `Confirmed` và trạng thái hoàn tiền, nhưng API vận hành hiện vẫn dùng luồng trạng thái cũ bên dưới.
+* `inventoryHold` hiện là `NotReserved`; giữ/trừ kho tại checkout, xác thực IPN và tự hủy hết hạn thuộc phần tiếp theo.
+* Gói tuần COD tạo ở `Confirmed` (payment vẫn Pending); online ở Pending chờ IPN. Gói tuần lưu `cutoffAt` từng ngày, chính sách hủy và target calo tại lúc đặt.
+* Response gói tuần có `amounts` (tiền sau giảm/đã thu/đã hoàn/chờ hoàn/còn phải trả), tổng `waivedShippingFee`; mỗi ngày có thêm `grandTotal`, `nutritionTotals`, `canSwap`, `canCancel`. `grandTotal` gốc không giảm khi hủy ngày; UI dùng `amounts.payableTotal`/`amountDue` để hiển thị số thực tế.
 
 ### **GET /orders**
 
-Lấy đơn có `userId` bằng ID người đang đăng nhập, sắp xếp mới nhất trước, với mọi vai trò. **Endpoint này không tự chuyển sang danh sách toàn hệ thống khi người gọi là Admin.** Response HTTP 200 dạng `{ "message": "...", "result": [] }`.
+Customer lấy đơn của mình, sắp xếp mới nhất trước. Admin/Manager dùng `/orders/all`. Response HTTP 200 dạng `{ "message": "...", "result": [] }`.
 
 ### **GET /orders/all (Admin, Manager)**
 
@@ -688,7 +695,7 @@ Lấy chi tiết order, response HTTP 200 dạng `{ "message": "...", "result": 
 
 * Customer chỉ hủy được khi Pending.  
 * Admin được hủy rộng hơn, nhưng không hủy được Completed hoặc Cancelled.
-* Manager không được hủy (403 ngay tại middleware). API hiện hủy toàn đơn/các kỳ giao chưa hoàn thành; chưa có endpoint hủy riêng từng ngày.
+* Manager không được hủy (403 ngay tại middleware). API này chỉ dùng cho đơn lẻ; gói tuần trả 400 và phải hủy từng ngày qua API mới bên dưới.
 
 ### **PATCH /orders/:orderId/status**
 
@@ -698,11 +705,13 @@ Body:
 ```
 
 * Chỉ Admin.  
-* Luồng hợp lệ: Pending -> Cooking -> Delivering -> Completed.
+* Đơn lẻ giữ luồng cũ: Pending -> Cooking -> Delivering -> Completed. Gói tuần trả 400 tại endpoint này; dùng trạng thái từng ngày.
 
 ### **POST /orders/:orderId/payments/retry (Customer)**
 
 Chỉ Customer, với đơn thuộc chính mình. Admin/Manager nhận 403. Endpoint hiện chưa tích hợp cổng thanh toán thực tế.
+
+Gói tuần chỉ retry khi online, Pending, chưa trả, còn hạn và chưa hủy ngày; không cho đổi COD/online qua retry. Đơn đã giảm tiền do hủy ngày cần đối soát, không dùng lại giá gốc để thu tiền.
 
 Body:
 ```json
@@ -718,7 +727,22 @@ Body:
   "transactionId": "TXN-001"  
 }
 ```
-* Chỉ Admin.
+* Chỉ Admin. Gói tuần bị chặn sửa payment-status thủ công; trạng thái tiền cần cập nhật qua IPN/đối soát thực tế.
+
+### **Gói tuần: thao tác theo ngày và cấu hình bếp**
+
+| Method | Endpoint | Quyền |
+| --- | --- | --- |
+| GET | `/orders/:orderId/deliveries/:deliveryId/items/:itemId/alternatives` | Customer chủ đơn / Admin |
+| PATCH | `/orders/:orderId/deliveries/:deliveryId/items/:itemId` | Customer chủ đơn / Admin |
+| GET | `/orders/:orderId/deliveries/:deliveryId/cancellation` | Customer chủ đơn / Admin |
+| POST | `/orders/:orderId/deliveries/:deliveryId/cancel` | Customer chủ đơn / Admin |
+| PATCH | `/orders/:orderId/deliveries/:deliveryId/status` | Admin |
+| GET, PATCH | `/admin/commerce-settings` | Admin |
+
+Đổi món gửi `{ "foodId": "...", "version": 0 }`; hủy gửi `{ "reason": "...", "version": 0 }`; trạng thái gửi `{ "status": "Cooking", "version": 0 }`. Version cũ trả 409. Manager chỉ đọc Order, không gọi thao tác ngày.
+
+Đổi/hủy chỉ trước cutoff của ngày Pending/Confirmed. Đổi món cùng giá snapshot, kiểm tra calo/dị ứng/kho; hủy xem preview trước xác nhận. Ngày đã trả tạo yêu cầu Refund **Pending**, chưa tự hoàn tiền. Trạng thái ngày theo `Confirmed → Cooking → Delivering → Completed`, chỉ xử lý từ ngày giao, online phải có IPN xác thực. Chính sách hủy, ví dụ và hướng dẫn UI đầy đủ ở [weekly-orders.md](weekly-orders.md).
 
 ## **7) Admin Dashboard (/admin)**
 
