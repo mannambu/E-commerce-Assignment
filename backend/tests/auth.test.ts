@@ -6,6 +6,7 @@ import { BSON, Collection, ObjectId, ClientSession } from 'mongodb'
 import express, { Request, RequestHandler, Response } from 'express'
 import { AddressInfo } from 'node:net'
 import jwt from 'jsonwebtoken'
+import bcrypt from 'bcryptjs'
 import User, { AccountStatus, UserRole } from '../src/models/schemas/User.schema'
 import Session from '../src/models/schemas/Session.schema'
 import AuditLog from '../src/models/schemas/AuditLog.schema'
@@ -52,6 +53,7 @@ function matches(doc: Doc, filter: Doc): boolean {
       return Object.entries(value).every(([op, expected]) => {
         if (op === '$exists') return (actual !== undefined) === expected
         if (op === '$gt') return actual > (expected as any)
+        if (op === '$lt') return actual < (expected as any)
         if (op === '$gte') return actual >= (expected as any)
         if (op === '$lte') return actual <= (expected as any)
         if (op === '$in') return (expected as any[]).some((item) => equal(actual, item))
@@ -304,31 +306,33 @@ test('five failed logins revoke old sessions and temporary lock expiry permits l
   assert.equal((await access(tokens.access_token)).status, 401)
 })
 
-test('forgot-password mails an opaque token, stores only its hash and returns a generic response', async (t) => {
+test('forgot-password mails a six-digit code, stores Bcrypt and returns a generic response', async (t) => {
   const { account } = setup(t)
   let sent = ''
   t.mock.method(email, 'getResetConfig', () => ({}))
-  t.mock.method(email, 'sendPasswordReset', async (recipient: string, userId: string, token: string) => {
+  const send = t.mock.method(email, 'sendPasswordReset', async (recipient: string, code: string) => {
     assert.equal(recipient, account.email)
-    assert.equal(userId, String(account._id))
-    sent = token
+    sent = code
   })
   const known = await users.forgotPasswordByEmail(account.email)
   const unknown = await users.forgotPasswordByEmail('missing@example.com')
   assert.deepEqual(known, unknown)
   assert.equal('forgot_password_token' in known, false)
-  assert.match(sent, /^[a-f0-9]{64}$/)
-  assert.equal(account.forgot_password_token, hashToken(sent))
+  assert.equal('reset_code' in known, false)
+  assert.match(sent, /^\d{6}$/)
+  assert.match(account.forgot_password_token, /^\$2[ab]\$12\$/)
+  assert.equal(await bcrypt.compare(sent, account.forgot_password_token), true)
   assert.ok(Number(account.forgot_password_expires_at) > Date.now())
   const original = sent
   await users.forgotPasswordByEmail(account.email)
   assert.equal(sent, original) // cooldown
+  assert.equal(send.mock.callCount(), 1)
 })
 
 test('SMTP failure clears the pending token without disclosing it', async (t) => {
   const { account } = setup(t)
   t.mock.method(email, 'getResetConfig', () => ({}))
-  t.mock.method(email, 'sendPasswordReset', async () => {
+  const send = t.mock.method(email, 'sendPasswordReset', async () => {
     throw new Error('SMTP unavailable')
   })
   t.mock.method(console, 'error', () => {})
@@ -336,20 +340,22 @@ test('SMTP failure clears the pending token without disclosing it', async (t) =>
   assert.equal('forgot_password_token' in result, false)
   assert.equal(account.forgot_password_token, '')
   assert.equal(account.forgot_password_expires_at, undefined)
+  await users.forgotPasswordByEmail(account.email)
+  assert.equal(send.mock.callCount(), 1) // SMTP failure must not bypass the resend cooldown.
 })
 
-test('reset rejects expired/wrong/used tokens and atomically revokes all sessions on success', async (t) => {
+test('reset rejects expired/wrong/used codes and revokes all sessions on success', async (t) => {
   const { account, login, sessions } = setup(t)
   const first = await login()
   const second = await login()
-  const token = 'a'.repeat(64)
-  account.forgot_password_token = hashToken(token)
+  const code = '012345'
+  account.forgot_password_token = await bcrypt.hash(code, 12)
   account.forgot_password_expires_at = new Date(0)
-  const body = { user_id: String(account._id), password: 'NewPassword123!', forgot_password_token: token }
+  const body = { email: account.email, password: 'NewPassword123!', reset_code: code }
   await assert.rejects(users.resetPassword(body), { status: 401 })
   account.forgot_password_expires_at = new Date(Date.now() + 60000)
-  await assert.rejects(users.resetPassword({ ...body, user_id: String(new ObjectId()) }), { status: 401 })
-  await assert.rejects(users.resetPassword({ ...body, forgot_password_token: 'b'.repeat(64) }), { status: 401 })
+  await assert.rejects(users.resetPassword({ ...body, email: 'missing@example.com' }), { status: 401 })
+  await assert.rejects(users.resetPassword({ ...body, reset_code: '999999' }), { status: 401 })
   const results = await Promise.allSettled([users.resetPassword(body), users.resetPassword(body)])
   assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1)
   assert.equal(sessions.length, 0)
@@ -361,13 +367,123 @@ test('reset rejects expired/wrong/used tokens and atomically revokes all session
   await assert.rejects(users.resetPassword(body), { status: 401 })
 })
 
-test('reset validation rejects malformed IDs and weak/oversized passwords', async () => {
-  for (const badPassword of ['short', 'é'.repeat(40)]) {
-    const error = await run(resetPasswordValidator, {
-      body: { user_id: 'bad-id', password: badPassword, confirm_password: badPassword, forgot_password_token: 'token' }
-    })
+test('reset validation requires email, a six-digit string and a matching valid password', async () => {
+  const valid = { email: 'customer@example.com', reset_code: '012345', password, confirm_password: password }
+  assert.equal(await run(resetPasswordValidator, { body: { ...valid } }), undefined)
+  for (const change of [
+    { email: 'bad-email' },
+    { reset_code: '12345' },
+    { reset_code: '1234567' },
+    { reset_code: 123456 },
+    { reset_code: undefined },
+    { reset_code: 'abcdef' },
+    { password: 'short', confirm_password: 'short' },
+    { password: 'é'.repeat(40), confirm_password: 'é'.repeat(40) },
+    { confirm_password: 'Different123!' }
+  ]) {
+    const error = await run(resetPasswordValidator, { body: { ...valid, ...change } })
     assert.equal(error.status, 422)
   }
+})
+
+test('reset stops after five attempts even for simultaneous requests', async (t) => {
+  const { account } = setup(t)
+  account.forgot_password_token = await bcrypt.hash('012345', 12)
+  account.forgot_password_expires_at = new Date(Date.now() + 60000)
+  const body = { email: account.email, password: 'NewPassword123!', reset_code: '999999' }
+  const attempts = await Promise.allSettled(Array.from({ length: 8 }, () => users.resetPassword(body)))
+  assert.ok(attempts.every((result) => result.status === 'rejected' && result.reason.status === 401))
+  assert.equal(account.forgot_password_attempts, 5)
+  await assert.rejects(users.resetPassword({ ...body, reset_code: '012345' }), { status: 401 })
+  assert.equal(account.password, legacyHash)
+})
+
+test('a correct code still works on the fifth allowed attempt', async (t) => {
+  const { account } = setup(t)
+  account.forgot_password_token = await bcrypt.hash('012345', 12)
+  account.forgot_password_expires_at = new Date(Date.now() + 60000)
+  account.forgot_password_attempts = 4
+  await users.resetPassword({ email: account.email, reset_code: '012345', password: 'NewPassword123!' })
+  assert.equal(await verifyPassword('NewPassword123!', account.password), true)
+  assert.equal(account.forgot_password_token, '')
+})
+
+test('a reset being verified cannot consume a replacement code', async (t) => {
+  const { account } = setup(t)
+  account.forgot_password_token = await bcrypt.hash('012345', 12)
+  account.forgot_password_expires_at = new Date(Date.now() + 60000)
+  const replacement = await bcrypt.hash('654321', 12)
+  const compare = bcrypt.compare.bind(bcrypt)
+  t.mock.method(bcrypt, 'compare', async (code: string, hash: string) => {
+    const valid = await compare(code, hash)
+    // A resend replaces the database hash while the first request verifies its code.
+    account.forgot_password_token = replacement
+    account.forgot_password_attempts = 0
+    return valid
+  })
+  await assert.rejects(
+    users.resetPassword({ email: account.email, reset_code: '012345', password: 'NewPassword123!' }),
+    { status: 401 }
+  )
+  assert.equal(account.forgot_password_token, replacement)
+  assert.equal(account.password, legacyHash)
+})
+
+test('resend replaces the previous code and resets the attempt limit, with only one concurrent email', async (t) => {
+  const { account } = setup(t)
+  const sent: string[] = []
+  t.mock.method(email, 'getResetConfig', () => ({}))
+  t.mock.method(email, 'sendPasswordReset', async (_recipient: string, code: string) => {
+    sent.push(code)
+  })
+  await users.forgotPasswordByEmail(account.email)
+  const oldHash = account.forgot_password_token
+  account.forgot_password_attempts = 5
+  account.forgot_password_requested_at = new Date(Date.now() - 61000)
+  await Promise.all([users.forgotPasswordByEmail(account.email), users.forgotPasswordByEmail(account.email)])
+  assert.equal(sent.length, 2)
+  assert.notEqual(account.forgot_password_token, oldHash)
+  assert.equal(account.forgot_password_attempts, 0)
+  assert.equal(await bcrypt.compare(sent[1], account.forgot_password_token), true)
+  // Six-digit codes can coincide; only assert rejection when the generated values differ.
+  if (sent[0] !== sent[1]) {
+    await assert.rejects(users.resetPassword({ email: account.email, reset_code: sent[0], password }), { status: 401 })
+  }
+  await users.resetPassword({ email: account.email, reset_code: sent[1], password: 'NewPassword123!' })
+})
+
+test('HTTP reset works with email and code, rejects the old link body and preserves an Admin lock', async (t) => {
+  const { account } = setup(t)
+  const api = await startApi(t)
+  let code = ''
+  t.mock.method(email, 'getResetConfig', () => ({}))
+  t.mock.method(email, 'sendPasswordReset', async (_recipient: string, value: string) => {
+    code = value
+  })
+  const request = await api('/users/forgot-password', undefined, 'POST', { email: account.email.toUpperCase() })
+  assert.equal(request.status, 200)
+  assert.deepEqual(Object.keys(request.body), ['message'])
+  assert.match(code, /^\d{6}$/)
+  const newPassword = 'NewPassword123!'
+  const oldBody = await api('/users/reset-password', undefined, 'POST', {
+    user_id: String(account._id),
+    forgot_password_token: 'a'.repeat(64),
+    password: newPassword,
+    confirm_password: newPassword
+  })
+  assert.equal(oldBody.status, 422)
+  account.account_status = AccountStatus.LOCKED
+  const body = {
+    email: account.email.toUpperCase(),
+    reset_code: code,
+    password: newPassword,
+    confirm_password: newPassword
+  }
+  assert.equal((await api('/users/reset-password', undefined, 'POST', body)).status, 200)
+  assert.equal(account.account_status, AccountStatus.LOCKED)
+  assert.equal(account.locked_until, undefined)
+  assert.equal((await api('/users/reset-password', undefined, 'POST', body)).status, 401)
+  await assert.rejects(users.login({ identifier: account.email, password: newPassword }), { status: 403 })
 })
 
 test('Admin locks/unlocks with audit, clears temporary lock and cannot revive old sessions', async (t) => {

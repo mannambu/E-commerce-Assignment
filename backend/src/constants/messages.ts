@@ -33,8 +33,7 @@ export const USERS_MESSAGES = {
   REMEMBER_ME_MUST_BE_BOOLEAN: 'Trường remember_me phải là kiểu boolean',
   USER_ID_IS_REQUIRED: 'user_id là bắt buộc',
   USER_ID_MUST_BE_A_STRING: 'user_id phải là chuỗi',
-  FORGOT_PASSWORD_TOKEN_IS_REQUIRED: 'forgot_password_token là bắt buộc',
-  FORGOT_PASSWORD_TOKEN_MUST_BE_A_STRING: 'forgot_password_token phải là chuỗi',
+  RESET_CODE_IS_INVALID: 'Mã xác nhận phải là chuỗi gồm 6 chữ số',
   REFRESH_TOKEN_IS_REQUIRED: 'refresh_token là bắt buộc',
   REFRESH_TOKEN_MUST_BE_A_STRING: 'refresh_token phải là chuỗi',
   INVALID_REFRESH_TOKEN_TYPE: 'Loại refresh token không hợp lệ',
@@ -46,7 +45,8 @@ export const USERS_MESSAGES = {
   ACCOUNT_IS_LOCKED: 'Tài khoản đã bị khóa, vui lòng liên hệ Admin',
   ACCOUNT_IS_INACTIVE: 'Tài khoản không hoạt động',
   ACCOUNT_IS_TEMPORARILY_LOCKED: 'Bạn đã nhập sai quá nhiều lần. Tài khoản đang bị khóa tạm thời',
-  RESET_PASSWORD_TOKEN_IS_INVALID_OR_USED: 'Token đặt lại mật khẩu không hợp lệ hoặc đã được sử dụng',
+  RESET_CODE_IS_INVALID_OR_EXPIRED:
+    'Mã xác nhận không hợp lệ, hết hạn, đã dùng hoặc vượt quá số lần thử. Vui lòng yêu cầu mã mới',
 
   CHECK_EMAIL_TO_RESET_PASSWORD: 'Vui lòng kiểm tra email để đặt lại mật khẩu',
   RESET_PASSWORD_SUCCESS: 'Đặt lại mật khẩu thành công',

@@ -1,0 +1,3 @@
+export const RESET_CODE_EXPIRES_MINUTES = 15
+export const RESET_CODE_RESEND_SECONDS = 60
+export const RESET_CODE_MAX_ATTEMPTS = 5

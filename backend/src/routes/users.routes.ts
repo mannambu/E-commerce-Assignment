@@ -114,7 +114,7 @@ usersRouter.post('/forgot-password', forgotPasswordValidator, wrapRequestHandler
  * Description. Reset password
  * Path: /reset-password
  * Method: POST
- * Body: { user_id: string, forgot_password_token: string, password: string, confirm_password: string }
+ * Body: { email: string, reset_code: string, password: string, confirm_password: string }
  */
 usersRouter.post('/reset-password', resetPasswordValidator, wrapRequestHandler(resetPasswordController))
 

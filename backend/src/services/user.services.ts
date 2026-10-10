@@ -1,6 +1,12 @@
 import { config } from 'dotenv'
 import { Filter, ObjectId } from 'mongodb'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomInt, randomUUID } from 'node:crypto'
+import bcrypt from 'bcryptjs'
+import {
+  RESET_CODE_EXPIRES_MINUTES,
+  RESET_CODE_RESEND_SECONDS,
+  RESET_CODE_MAX_ATTEMPTS
+} from '~/constants/password-reset'
 import { TokenType } from '~/constants/enums'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { USERS_MESSAGES } from '~/constants/messages'
@@ -382,28 +388,40 @@ class UsersService {
       role: { $in: [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER] }
     })
     if (!user) return response
-    const token = randomBytes(32).toString('hex')
-    const tokenHash = hashToken(token)
+    if (
+      user.forgot_password_requested_at &&
+      user.forgot_password_requested_at.getTime() > Date.now() - RESET_CODE_RESEND_SECONDS * 1000
+    )
+      return response
+    const code = randomInt(0, 1000000).toString().padStart(6, '0')
+    // Bcrypt có salt riêng để không lưu mã 6 số trực tiếp hoặc hash dễ dò trong DB.
+    const codeHash = await bcrypt.hash(code, 12)
+    const now = new Date()
     const result = await databaseService.users.updateOne(
       {
         _id: user._id,
         $or: [
-          { forgot_password_expires_at: { $exists: false } },
-          { forgot_password_expires_at: null },
-          { forgot_password_expires_at: { $lte: new Date(Date.now() + 14 * 60 * 1000) } }
+          { forgot_password_requested_at: { $exists: false } },
+          { forgot_password_requested_at: null },
+          { forgot_password_requested_at: { $lte: new Date(now.getTime() - RESET_CODE_RESEND_SECONDS * 1000) } }
         ]
       },
       {
-        $set: { forgot_password_token: tokenHash, forgot_password_expires_at: new Date(Date.now() + 15 * 60 * 1000) },
+        $set: {
+          forgot_password_token: codeHash,
+          forgot_password_expires_at: new Date(now.getTime() + RESET_CODE_EXPIRES_MINUTES * 60 * 1000),
+          forgot_password_attempts: 0,
+          forgot_password_requested_at: now
+        },
         $currentDate: { updated_at: true }
       }
     )
     if (!result.modifiedCount) return response // At most one email per account per minute.
     try {
-      await emailService.sendPasswordReset(user.email, user._id!.toString(), token)
+      await emailService.sendPasswordReset(user.email, code)
     } catch {
       await databaseService.users.updateOne(
-        { _id: user._id, forgot_password_token: tokenHash },
+        { _id: user._id, forgot_password_token: codeHash },
         {
           $set: { forgot_password_token: '' },
           $unset: { forgot_password_expires_at: '' }
@@ -414,28 +432,36 @@ class UsersService {
     return response
   }
 
-  async resetPassword({
-    user_id,
-    password,
-    forgot_password_token
-  }: {
-    user_id: string
-    password: string
-    forgot_password_token: string
-  }) {
-    const invalid = () =>
-      new ErrorWithStatus({ status: 401, message: USERS_MESSAGES.RESET_PASSWORD_TOKEN_IS_INVALID_OR_USED })
-    if (!ObjectId.isValid(user_id) || !/^[a-f0-9]{64}$/.test(forgot_password_token)) throw invalid()
-    const tokenHash = hashToken(forgot_password_token)
-    const userId = new ObjectId(user_id)
-    const filter = { _id: userId, forgot_password_token: tokenHash, forgot_password_expires_at: { $gt: new Date() } }
-    if (!(await databaseService.users.findOne(filter))) throw invalid()
+  async resetPassword({ email, password, reset_code }: { email: string; password: string; reset_code: string }) {
+    const invalid = () => new ErrorWithStatus({ status: 401, message: USERS_MESSAGES.RESET_CODE_IS_INVALID_OR_EXPIRED })
+    if (typeof email !== 'string' || typeof reset_code !== 'string' || !/^\d{6}$/.test(reset_code)) throw invalid()
+    // Tăng số lần thử trước khi kiểm tra mã; các request đồng thời cũng chỉ được thử tối đa 5 lần.
+    const user = await databaseService.users.findOneAndUpdate(
+      {
+        email: email.toLowerCase().trim(),
+        role: { $in: [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER] },
+        forgot_password_expires_at: { $gt: new Date() },
+        forgot_password_attempts: { $lt: RESET_CODE_MAX_ATTEMPTS }
+      },
+      { $inc: { forgot_password_attempts: 1 } },
+      { returnDocument: 'after' }
+    )
+    if (!user || !(await bcrypt.compare(reset_code, user.forgot_password_token))) throw invalid()
     const passwordHash = await hashPassword(password)
     await databaseService.withTransaction(async (session) => {
       const result = await databaseService.users.updateOne(
-        { ...filter, forgot_password_expires_at: { $gt: new Date() } },
         {
-          $set: { password: passwordHash, forgot_password_token: '', password_changed_at: new Date() },
+          _id: user._id,
+          forgot_password_token: user.forgot_password_token,
+          forgot_password_expires_at: { $gt: new Date() }
+        },
+        {
+          $set: {
+            password: passwordHash,
+            forgot_password_token: '',
+            forgot_password_attempts: 0,
+            password_changed_at: new Date()
+          },
           $unset: { forgot_password_expires_at: '' },
           $inc: { tokenVersion: 1 },
           $currentDate: { updated_at: true }
@@ -443,7 +469,7 @@ class UsersService {
         { session }
       )
       if (result.modifiedCount !== 1) throw invalid()
-      await databaseService.sessions.deleteMany({ user_id: userId }, { session })
+      await databaseService.sessions.deleteMany({ user_id: user._id }, { session })
     })
     return { message: USERS_MESSAGES.RESET_PASSWORD_SUCCESS }
   }

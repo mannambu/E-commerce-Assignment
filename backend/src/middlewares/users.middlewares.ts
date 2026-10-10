@@ -189,18 +189,17 @@ export const forgotPasswordValidator = validate(
 export const resetPasswordValidator = validate(
   checkSchema(
     {
-      user_id: {
+      email: {
+        trim: true,
         notEmpty: {
-          errorMessage: USERS_MESSAGES.USER_ID_IS_REQUIRED
+          errorMessage: USERS_MESSAGES.EMAIL_IS_REQUIRED
         },
-        isMongoId: { errorMessage: USERS_MESSAGES.USER_ID_MUST_BE_A_STRING }
+        isEmail: { errorMessage: USERS_MESSAGES.EMAIL_IS_INVALID }
       },
-      forgot_password_token: {
-        notEmpty: {
-          errorMessage: USERS_MESSAGES.FORGOT_PASSWORD_TOKEN_IS_REQUIRED
-        },
-        isString: {
-          errorMessage: USERS_MESSAGES.FORGOT_PASSWORD_TOKEN_MUST_BE_A_STRING
+      reset_code: {
+        custom: {
+          options: (value) => typeof value === 'string' && /^\d{6}$/.test(value),
+          errorMessage: USERS_MESSAGES.RESET_CODE_IS_INVALID
         }
       },
       password: {

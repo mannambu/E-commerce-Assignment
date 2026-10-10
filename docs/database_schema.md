@@ -150,7 +150,7 @@ Nếu cần giữ dữ liệu cũ, phải chuyển trên bản sao trước: h�
 
 ## Nghiệp vụ còn thiếu
 
-- Xác thực đã có Bcrypt, sessionId/tokenVersion, thu hồi phiên và email reset. Cần cấu hình SMTP và nối giao diện frontend; xem [auth-setup.md](../backend/docs/auth-setup.md).
+- Xác thực đã có Bcrypt, sessionId/tokenVersion, thu hồi phiên và reset bằng mã email 6 chữ số. `users.forgot_password_token` lưu Bcrypt hash của mã, `forgot_password_expires_at` lưu hạn 15 phút, `forgot_password_attempts` giới hạn 5 lần thử và `forgot_password_requested_at` giới hạn gửi lại sau 60 giây. Cần cấu hình SMTP và nối giao diện frontend; có thể test độc lập bằng Postman, xem [auth-setup.md](../backend/docs/auth-setup.md).
 - Checkout hiện lưu cấu trúc mới và kiểm tra giỏ nhưng chưa thực hiện giữ/trừ kho ACID, idempotency đầy đủ, IPN hay job hết hạn. inventoryHold hiện khởi tạo NotReserved. COD/Confirmed, đối soát, hủy/hoàn từng ngày cần hoàn thiện.
 - Công thức tính target hiện được đưa vào utils/health.ts để dùng chung; quy tắc điều chỉnh theo phần trăm và sàn BMR của US-08 chưa được thay trong đợt schema.
 - MealPlan đã có cấu trúc lưu; API recommendation hiện chưa lưu thực đơn/swap vào collection.

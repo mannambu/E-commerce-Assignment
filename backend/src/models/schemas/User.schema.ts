@@ -53,8 +53,10 @@ export interface UserType {
   locked_until?: Date
   created_at?: Date
   updated_at?: Date
-  forgot_password_token?: string // SHA-256 of the random reset token; cleared after use.
+  forgot_password_token?: string // Bcrypt hash của mã reset; giữ tên field cũ để tận dụng schema.
   forgot_password_expires_at?: Date | null
+  forgot_password_attempts?: number
+  forgot_password_requested_at?: Date | null
   password_changed_at?: Date
   tokenVersion?: number // Increment to revoke every session after reset/lock/role changes.
   notificationPreferences?: { newsEnabled: boolean }
@@ -77,6 +79,8 @@ export default class User implements UserType {
   updated_at?: Date
   forgot_password_token: string
   forgot_password_expires_at?: Date | null
+  forgot_password_attempts: number
+  forgot_password_requested_at?: Date | null
   password_changed_at?: Date
   tokenVersion: number
   notificationPreferences: { newsEnabled: boolean }
@@ -96,6 +100,8 @@ export default class User implements UserType {
     this.locked_until = user.locked_until
     this.forgot_password_token = user.forgot_password_token ?? ''
     this.forgot_password_expires_at = user.forgot_password_expires_at
+    this.forgot_password_attempts = user.forgot_password_attempts ?? 0
+    this.forgot_password_requested_at = user.forgot_password_requested_at
     this.password_changed_at = user.password_changed_at
     this.tokenVersion = user.tokenVersion ?? 0
     this.notificationPreferences = user.notificationPreferences ?? { newsEnabled: true }

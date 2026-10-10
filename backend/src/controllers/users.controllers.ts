@@ -72,12 +72,12 @@ export const resetPasswordController = async (
   req: Request<ParamsDictionary, Record<string, never>, ResetPasswordReqBody>,
   res: Response
 ) => {
-  const { user_id, password, forgot_password_token } = req.body
+  const { email, password, reset_code } = req.body
 
   const result = await usersService.resetPassword({
-    user_id,
+    email,
     password,
-    forgot_password_token
+    reset_code
   })
 
   return res.status(HTTP_STATUS.OK).json(result)

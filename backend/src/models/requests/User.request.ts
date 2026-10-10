@@ -43,8 +43,8 @@ export interface ForgotPasswordReqBody {
 }
 
 export interface ResetPasswordReqBody {
-  user_id: string
-  forgot_password_token: string
+  email: string
+  reset_code: string
   password: string
   confirm_password: string
 }

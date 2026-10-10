@@ -201,7 +201,7 @@ Body:
 ```json
 { "email": "a@example.com" }
 ```
-Response chỉ có `message`, không trả token. Liên kết được gửi qua email SMTP, hết hạn sau 15 phút và chỉ dùng một lần. Xem [auth-setup.md](auth-setup.md) để cấu hình và test.
+Response chỉ có `message`, không trả mã. Mã 6 chữ số được gửi qua email SMTP, hết hạn sau 15 phút và chỉ dùng một lần. Xem [auth-setup.md](auth-setup.md) để cấu hình và test.
 
 Response HTTP **200**:
 
@@ -210,20 +210,20 @@ Response HTTP **200**:
 ```
 
 - Với email hợp lệ về định dạng, thông báo giống nhau dù email có tồn tại hay không.
-- Gửi lại trong vòng một phút không tạo email/token mới. Gửi lại sau khoảng này sẽ thay token cũ nếu tạo được token mới. Frontend có thể đếm ngược 60 giây trước khi cho gửi lại.
-- Thiếu cấu hình SMTP hoặc URL reset trả **503** với `message: "Chưa cấu hình dịch vụ email đặt lại mật khẩu"`.
-- Nếu gửi SMTP thất bại, backend hủy token chưa gửi, ghi lỗi chung phía server và vẫn trả thông báo chung. HTTP 200 không bảo đảm email đã được chuyển tới hộp thư.
-- Link sử dụng `PASSWORD_RESET_URL` của backend, kèm query `user_id` và `forgot_password_token`, ví dụ `/reset-password?user_id=<id>&forgot_password_token=<token>`. Frontend cần tạo trang đọc hai query này.
+- Gửi lại trong vòng 60 giây không tạo email/mã mới. Gửi lại sau khoảng này thay mã cũ và đặt lại số lần thử. Frontend có thể đếm ngược 60 giây trước khi cho gửi lại.
+- Cấu hình SMTP thiếu/sai định dạng trả **503** với `message: "Chưa cấu hình dịch vụ email đặt lại mật khẩu"`.
+- Nếu gửi SMTP thất bại, backend hủy mã chưa gửi, giữ thời gian chờ gửi lại, ghi lỗi chung phía server và vẫn trả thông báo chung. HTTP 200 không bảo đảm email đã được chuyển tới hộp thư.
+- Email chứa mã xác nhận, không chứa liên kết hoặc user ID. Không cần `PASSWORD_RESET_URL`.
 
 ### **POST /users/reset-password**
 
-API công khai, không cần access/refresh token. `user_id` và `forgot_password_token` lấy từ link email; token reset là chuỗi ngẫu nhiên, không phải JWT để frontend decode.
+API công khai, không cần access/refresh token. Người dùng nhập email và mã 6 chữ số nhận được. `reset_code` phải là chuỗi để giữ số 0 ở đầu. Body cũ dùng `user_id`/`forgot_password_token` không còn được hỗ trợ.
 
 Body:
 ```json
 {  
-  "user_id": "...",  
-  "forgot_password_token": "...",  
+  "email": "a@example.com",
+  "reset_code": "012345",
   "password": "NewPassword123",  
   "confirm_password": "NewPassword123"  
 }
@@ -234,11 +234,11 @@ Response:
 { "message": "Đặt lại mật khẩu thành công" }
 ```
 
-HTTP **200** khi thành công. Mật khẩu được thay bằng Bcrypt; token reset bị xóa, tokenVersion tăng và mọi phiên cũ bị thu hồi. API không cấp token đăng nhập mới: frontend đưa người dùng về đăng nhập.
+HTTP **200** khi thành công. Mật khẩu được thay bằng Bcrypt; mã reset bị xóa, tokenVersion tăng và mọi phiên cũ bị thu hồi. API không cấp token đăng nhập mới: frontend đưa người dùng về đăng nhập.
 
-- Token sai, sai user, hết hạn hoặc đã dùng trả **401**: `Token đặt lại mật khẩu không hợp lệ hoặc đã được sử dụng`. Hiển thị nút yêu cầu link mới; không gọi API refresh để xử lý lỗi này.
-- User ID sai định dạng, thiếu field hoặc mật khẩu/xác nhận không hợp lệ trả **422**.
-- Hai lần gửi cùng token chỉ một lần có thể thành công.
+- Mã sai, sai email, hết hạn, đã dùng hoặc quá 5 lần thử trả **401**: `Mã xác nhận không hợp lệ, hết hạn, đã dùng hoặc vượt quá số lần thử. Vui lòng yêu cầu mã mới`. Hiển thị nút yêu cầu mã mới; không gọi API refresh để xử lý lỗi này.
+- Email/mã sai định dạng, thiếu field hoặc mật khẩu/xác nhận không hợp lệ trả **422**.
+- Hai lần gửi cùng mã chỉ một lần có thể thành công; giới hạn 5 lần thử được kiểm tra ở DB, kể cả request đồng thời.
 - Reset không mở khóa tài khoản do Admin khóa. Khóa tạm cũng không được tự xóa bởi endpoint này.
 
 ### **GET /users/check-email?email=...**
@@ -978,7 +978,7 @@ Cart, Tracking, Health Profile, gợi ý thực đơn và tạo/sửa review đ�
 ### **Form và dữ liệu đã đổi schema**
 
 - Form đăng ký/tạo user/reset dùng chung quy tắc 8–50 ký tự, tối đa 72 byte UTF-8 và xác nhận khớp; không áp thêm quy tắc “password mạnh” chưa có trong backend. `days` gợi ý thực đơn chỉ nhận 1 hoặc 7.
-- Trang reset đọc `user_id`/`forgot_password_token` từ query email, gọi `/users/reset-password`. Với link hết hạn/đã dùng, cho phép gửi link mới; không cần user đăng nhập trước.
+- Form reset nhận email, mã 6 chữ số và mật khẩu mới, gọi `/users/reset-password`. Với mã hết hạn/đã dùng/hết lượt, cho phép yêu cầu mã mới sau thời gian chờ 60 giây; không cần user đăng nhập trước.
 - Gọi `/orders/quote` để hiển thị chi phí dự kiến trước khi tạo đơn. Dùng `deliveries[]` để render từng ngày và `deliveries[].items[]` cho món.
 - Sau thêm/sửa/xóa giỏ, đồng bộ UI bằng response mới; dùng `_id` dòng giỏ khi cập nhật/xóa. Một Food có thể xuất hiện ở nhiều ngày/bữa.
 - Không gửi `Food.details`, `Food.isCombo`, không đọc `order.items`/`order.deliverySchedule`. Tracking dùng ngày Việt Nam `YYYY-MM-DD`, không tự đổi thành ngày UTC.
@@ -990,4 +990,4 @@ Cart, Tracking, Health Profile, gợi ý thực đơn và tạo/sửa review đ�
 - Frontend quản lý user cần đọc `result.items` và `result.total`, gửi `reason` khi khóa/mở/đổi role. Dashboard Admin phải dùng `orders.byStatus`; response không còn `revenue`. Các trang frontend cũ chưa được chuyển trong đợt backend này.
 - Checkout chưa hoàn thiện giữ/trừ kho bằng transaction, idempotency, xác thực IPN, job hết hạn và hoàn tiền. Không coi việc trả trạng thái Paid thủ công là xác nhận từ cổng thanh toán.
 - Chưa có API hủy/đổi món/hoàn tiền riêng từng ngày của gói tuần. Recommendation/swap hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.
-- Reset email chỉ chạy thực tế sau khi cấu hình SMTP; `PASSWORD_RESET_URL` phải trỏ tới trang frontend đã có. Hướng dẫn DB/seed/email ở [auth-setup.md](auth-setup.md), giải thích 12 collection ở [database_schema.md](../../docs/database_schema.md).
+- Reset qua mã email chỉ chạy thực tế sau khi cấu hình SMTP; không cần URL reset hoặc trang frontend để test bằng Postman. Hướng dẫn DB/seed/email ở [auth-setup.md](auth-setup.md), giải thích 12 collection ở [database_schema.md](../../docs/database_schema.md).

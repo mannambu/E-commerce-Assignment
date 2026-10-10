@@ -90,22 +90,33 @@ SMTP_SECURE=false
 SMTP_USER=<smtp-user>
 SMTP_PASSWORD="<smtp-password>"
 SMTP_FROM="Fitbite <dia-chi-gui-duoc-xac-nhan@example.com>"
-PASSWORD_RESET_URL=http://localhost:3000/reset-password
 ```
 
 `SMTP_SECURE=true` cho kết nối TLS trực tiếp, thường là cổng 465; cổng 587 dùng `false` để nâng cấp STARTTLS. SMTP local không yêu cầu đăng nhập có thể bỏ `SMTP_USER` và `SMTP_PASSWORD`. [Tài liệu Nodemailer SMTP](https://nodemailer.com/smtp).
 
-Khởi động lại backend sau khi sửa `.env`. `JWT_SECRET_FORGOT_PASSWORD_TOKEN` không còn được sử dụng: reset dùng token ngẫu nhiên, không dùng JWT. Giữ hai JWT secret access/refresh riêng biệt.
+Khởi động lại backend sau khi sửa `.env`. Reset gửi mã 6 chữ số qua email, không cần `PASSWORD_RESET_URL` hoặc tên miền frontend. `JWT_SECRET_FORGOT_PASSWORD_TOKEN` và `FORGOT_PASSWORD_TOKEN_EXPIRES_IN` không được sử dụng. Giữ hai JWT secret access/refresh riêng biệt.
 
 1. Dùng một tài khoản có email nhận thư thật; các địa chỉ `.test` không nhận được email Internet. Có thể tạo Customer bằng đăng ký hoặc tạo Manager bằng Admin.
 2. `POST /users/forgot-password` với `{ "email": "..." }`.
-3. API trả thông báo chung, **không trả token**. Thiếu SMTP/reset URL trả 503 cho mọi email. Nếu SMTP gửi lỗi, API vẫn trả thông báo chung để không lộ tài khoản; server ghi thông báo lỗi chung và hủy token chưa gửi.
-4. Lấy `user_id` và `forgot_password_token` từ liên kết trong email, gửi `POST /users/reset-password` với hai field đó, `password` và `confirm_password`.
-5. Mật khẩu được đổi sang Bcrypt, token reset bị xóa, `tokenVersion` tăng và mọi session cũ bị xóa. Đăng nhập lại bằng mật khẩu mới.
+3. API trả thông báo chung, **không trả mã**. Cấu hình SMTP thiếu/sai định dạng trả 503 cho mọi email. Nếu SMTP gửi lỗi, API vẫn trả thông báo chung để không lộ tài khoản; server ghi thông báo lỗi chung và hủy mã chưa gửi.
+4. Đọc mã trong email, gửi `POST /users/reset-password`:
 
-Link có hạn 15 phút, chỉ dùng một lần. Gửi lại sau ít nhất một phút sẽ thay token cũ. DB chỉ lưu hash của token. Reset không tự mở khóa tài khoản bị Admin khóa.
+```json
+{
+  "email": "email-da-dang-ky@example.com",
+  "reset_code": "012345",
+  "password": "NewPassword123!",
+  "confirm_password": "NewPassword123!"
+}
+```
 
-Backend đã có luồng gửi/reset; **frontend vẫn cần trang `/reset-password`** đọc query và gọi API. Trước khi có trang này, thử đầy đủ bằng email + Postman như trên.
+`reset_code` là **chuỗi** 6 chữ số, giữ cả số 0 ở đầu. Không gửi `user_id` hoặc `forgot_password_token` như luồng link cũ.
+
+5. Mật khẩu được đổi sang Bcrypt, mã reset bị xóa, `tokenVersion` tăng và mọi session cũ bị xóa. Đăng nhập lại bằng mật khẩu mới.
+
+Mã có hạn 15 phút, chỉ dùng một lần và cho phép tối đa 5 lần kiểm tra mỗi mã. Sai/hết hạn/đã dùng/hết lượt trả 401; dữ liệu không đúng định dạng trả 422. Gửi lại sau ít nhất 60 giây sẽ tạo mã mới và đặt lại số lần thử. Thời gian chờ vẫn áp dụng khi SMTP thất bại. DB lưu Bcrypt hash trong field cũ `forgot_password_token`, thêm `forgot_password_attempts` và `forgot_password_requested_at` khi yêu cầu mã; không cần chạy migration. Link/token cũ không còn dùng được, hãy yêu cầu mã mới. Reset không tự mở khóa tài khoản bị Admin khóa hoặc khóa tạm.
+
+Import [Password-Reset.postman_collection.json](../postman/Password-Reset.postman_collection.json). Đặt `baseUrl` là địa chỉ backend đang chạy, `resetEmail` là email tài khoản đã đăng ký, `newPassword` là mật khẩu mới. Chạy request 1 để nhận mã, điền `resetCode` từ email rồi chạy request 2 và 3. Request 2 không tự chạy lại bước gửi mã. Khi triển khai public, chỉ đổi `baseUrl` sang địa chỉ HTTPS của backend; nội dung email không chứa URL. Frontend sau này chỉ cần form email, mã và mật khẩu mới gọi cùng hai API.
 
 ## 6. API và quyền
 
