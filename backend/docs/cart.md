@@ -118,4 +118,4 @@ Frontend hiện tại vẫn dùng foodCart. Khi tích hợp giao diện giỏ tu
 
 `npm test` chạy thêm `tests/cart.test.ts`: lưu giỏ, gộp/tách dòng, xung đột, bulk thất bại, tồn kho cộng dồn, món bị ẩn/xóa, lịch giao, quyền sở hữu thực đơn, validation và HTTP routes. Có kiểm thử báo giá tuần với 7 ngày/số lượng khác nhau và phí ship một lần.
 
-Test dùng collection giả và bản sao BSON, không kết nối MongoDB thật. Giữ kho/checkout transaction, IPN, tự hủy/hoàn tiền và việc chỉ xóa phần giỏ đã checkout khi có thao tác đồng thời vẫn thuộc các bước đặt hàng/thanh toán tiếp theo. Phần này không thay đổi database đang chạy hoặc giao diện frontend.
+Test giỏ dùng collection giả và bản sao BSON. [Phần 6 — Checkout và tồn kho](checkout-inventory.md) đã bổ sung transaction, giữ kho, key chống tạo đơn trùng và xóa giỏ theo version; có integration test trên MongoDB replica set tạm. IPN, tự hủy đơn 15 phút và hoàn tiền thuộc phần thanh toán tiếp theo.

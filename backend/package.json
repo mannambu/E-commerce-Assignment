@@ -4,6 +4,7 @@
   "main": "index.js",
   "scripts": {
     "test": "tsx --test tests/*.test.ts",
+    "test:checkout:integration": "tsx --test tests/integration/checkout.test.ts",
     "test:schema": "tsx --test tests/schema.test.ts",
     "schema:indexes": "tsx scripts/schema-indexes.ts",
     "data:users": "tsx scripts/generate-users-import.ts",
@@ -37,6 +38,7 @@
     "eslint-plugin-prettier": "^5.5.5",
     "globals": "^17.4.0",
     "jiti": "^2.6.1",
+    "mongodb-memory-server": "^11.3.0",
     "nodemon": "^3.1.14",
     "prettier": "^3.8.1",
     "rimraf": "^6.1.3",

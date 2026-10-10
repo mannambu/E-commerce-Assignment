@@ -665,12 +665,14 @@ Response chứa:
 
 ### **POST /orders (Customer)**
 
-Body giống /orders/quote.
+Body giống /orders/quote, thêm `cartVersion` lấy từ `result.cart.version` và `idempotencyKey` (8–128 ký tự chữ/số/`_`/`-`). Giữ nguyên key và body khi thử lại sau lỗi mạng.
 
-* Tạo order xong backend xóa các món trong giỏ đã checkout.
+* Tạo Order, giữ/trừ kho, khóa MealPlan nguồn và xóa giỏ theo version trong cùng transaction. Giỏ bị sửa ở tab khác trả 409; không mất món mới thêm.
+* Tạo mới trả 201 với `result.replayed = false`. Gửi lại cùng key/body trả 200 với đơn cũ và `replayed = true`. Cùng key nhưng khác nội dung trả 409.
 * Order trả `deliveries[].items[]`; mỗi item có `foodId`, `foodName`, `quantity`, `price`, `calories`, `nutrition` đã chốt lúc đặt. Không còn `order.items` hoặc `order.deliverySchedule`.
-* `inventoryHold` hiện là `NotReserved`; giữ/trừ kho tại checkout, xác thực IPN và tự hủy hết hạn thuộc phần tiếp theo.
-* Gói tuần COD tạo ở `Confirmed` (payment vẫn Pending); online ở Pending chờ IPN. Gói tuần lưu `cutoffAt` từng ngày, chính sách hủy và target calo tại lúc đặt.
+* Online giữ kho 10 phút: `inventoryHold.status = Held`, dùng `expiresAt` đếm ngược. Job nhả kho chuyển hold Released, Order vẫn Pending. `paymentDueAt` là hạn thanh toán 15 phút riêng biệt.
+* Cả đơn lẻ và tuần COD tạo ở `Confirmed` (payment vẫn Pending), kho Committed. Online ở Pending chờ IPN. Gói tuần lưu `cutoffAt` từng ngày, chính sách hủy và target calo tại lúc đặt.
+* Xem [checkout-inventory.md](checkout-inventory.md) cho lỗi thiếu hàng, transaction, retry và ranh giới với phần IPN/tự hủy đơn.
 * Response gói tuần có `amounts` (tiền sau giảm/đã thu/đã hoàn/chờ hoàn/còn phải trả), tổng `waivedShippingFee`; mỗi ngày có thêm `grandTotal`, `nutritionTotals`, `canSwap`, `canCancel`. `grandTotal` gốc không giảm khi hủy ngày; UI dùng `amounts.payableTotal`/`amountDue` để hiển thị số thực tế.
 
 ### **GET /orders**
@@ -693,7 +695,7 @@ Lấy chi tiết order, response HTTP 200 dạng `{ "message": "...", "result": 
 
 ### **PATCH /orders/:orderId/cancel**
 
-* Customer chỉ hủy được khi Pending.  
+* Customer hủy đơn lẻ Pending hoặc COD Confirmed chưa chế biến. Nhả/trả kho và cập nhật đơn trong cùng transaction.
 * Admin được hủy rộng hơn, nhưng không hủy được Completed hoặc Cancelled.
 * Manager không được hủy (403 ngay tại middleware). API này chỉ dùng cho đơn lẻ; gói tuần trả 400 và phải hủy từng ngày qua API mới bên dưới.
 
@@ -705,13 +707,13 @@ Body:
 ```
 
 * Chỉ Admin.  
-* Đơn lẻ giữ luồng cũ: Pending -> Cooking -> Delivering -> Completed. Gói tuần trả 400 tại endpoint này; dùng trạng thái từng ngày.
+* Đơn lẻ theo Confirmed → Cooking → Delivering → Completed; kho phải Committed, online cần giao dịch VerifiedIPN thành công. Gói tuần trả 400 tại endpoint này; dùng trạng thái từng ngày.
 
 ### **POST /orders/:orderId/payments/retry (Customer)**
 
 Chỉ Customer, với đơn thuộc chính mình. Admin/Manager nhận 403. Endpoint hiện chưa tích hợp cổng thanh toán thực tế.
 
-Gói tuần chỉ retry khi online, Pending, chưa trả, còn hạn và chưa hủy ngày; không cho đổi COD/online qua retry. Đơn đã giảm tiền do hủy ngày cần đối soát, không dùng lại giá gốc để thu tiền.
+Cả đơn lẻ và tuần chỉ retry khi online Pending, chưa trả, còn hạn và chưa hủy ngày/chốt lịch giao; không cho đổi COD/online. Hold hết hạn được nhả và thử giữ lại kho, không gia hạn paymentDueAt. Response có inventoryHold/paymentDueAt mới. Đơn đã giảm tiền do hủy ngày cần đối soát, không dùng lại giá gốc để thu tiền.
 
 Body:
 ```json
@@ -727,7 +729,7 @@ Body:
   "transactionId": "TXN-001"  
 }
 ```
-* Chỉ Admin. Gói tuần bị chặn sửa payment-status thủ công; trạng thái tiền cần cập nhật qua IPN/đối soát thực tế.
+* Chỉ Admin được vào endpoint, nhưng sửa payment-status thủ công trả 400 cho cả đơn lẻ và tuần; trạng thái tiền cần cập nhật qua IPN/đối soát thực tế cùng transaction chốt kho.
 
 ### **Gói tuần: thao tác theo ngày và cấu hình bếp**
 

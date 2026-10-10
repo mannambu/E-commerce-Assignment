@@ -45,7 +45,10 @@ export interface QuoteOrderReqBody {
   paymentMethod: PaymentMethod
 }
 
-export type CreateOrderReqBody = QuoteOrderReqBody
+export interface CreateOrderReqBody extends QuoteOrderReqBody {
+  idempotencyKey: string // Giữ nguyên khi gửi lại cùng một lần đặt hàng.
+  cartVersion: number // version nhận từ giỏ/báo giá mà khách đã xác nhận.
+}
 
 export interface UpdateOrderStatusReqBody {
   status: Exclude<OrderStatus, 'Pending' | 'Cancelled'>

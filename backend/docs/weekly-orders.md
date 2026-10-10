@@ -127,8 +127,8 @@ Preview hủy trả `foodCredit`, `shippingCredit`, `creditedAmount`, `refundAmo
 ## Phần nối tiếp
 
 - Đợt này triển khai backend; frontend cần màn hình lịch, đổi món, preview xác nhận hủy và cấu hình giờ chốt.
-- Checkout hiện chưa tạo giữ kho thực, chưa có idempotency/transaction cho tạo đơn + xóa giỏ. Đây là phần checkout tiếp theo; kiểm tra kho khi quote không bảo đảm giữ được hàng đến lúc thanh toán.
+- Checkout đã có transaction, idempotency, giữ kho online 10 phút và trừ kho COD; xem [phần 6](checkout-inventory.md). Quote vẫn không giữ hàng.
 - Chưa tích hợp IPN, thu COD, worker hết hạn thanh toán hay gọi cổng hoàn tiền. Refund Pending cần được xử lý trong phần thanh toán/đối soát, sau đó ghi tiền thực thu/hoàn và trạng thái tương ứng. Không đánh dấu đã hoàn chỉ vì khách hủy ngày.
-- API sửa payment-status thủ công bị chặn cho gói tuần. Retry chỉ cho gói online Pending, chưa trả, còn hạn và chưa hủy ngày; đơn đã hủy ngày cần đối soát lại số tiền. Phần IPN sắp tới phải xử lý cả callback đến muộn sau khi hủy và lấy số phải thu từ khoản thực tế sau giảm.
+- API sửa payment-status thủ công bị chặn cho cả gói tuần và đơn lẻ. Retry chỉ cho online Pending, chưa trả, còn hạn và chưa hủy ngày; giữ lại hàng nếu hold đã Released. Đơn đã hủy ngày cần đối soát lại số tiền. Phần IPN sắp tới phải xử lý cả callback đến muộn sau khi hủy và lấy số phải thu từ khoản thực tế sau giảm.
 - Gói tuần cũ thiếu `cutoffAt`/`cancellationPolicy` không được tự đổi/hủy theo giả định mới; cần đối soát/migration có chủ đích. Đợt này không chạy migration hay sửa DB đang dùng.
-- Kiểm thử dùng kho/transaction giả lập và HTTP cục bộ; chưa kiểm thử tích hợp MongoDB thực hoặc cổng thanh toán.
+- Test phần 5 dùng kho giả lập/HTTP cục bộ; phần 6 bổ sung MongoDB replica set thật tạm thời để kiểm tra checkout và đổi/hủy ngày cùng kho. Chưa kiểm thử cổng thanh toán.

@@ -6,6 +6,7 @@ import express, { Request, RequestHandler, Response } from 'express'
 import { AddressInfo } from 'node:net'
 import jwt from 'jsonwebtoken'
 import Cart from '../src/models/schemas/Cart.schema'
+import Order from '../src/models/schemas/Order.schema'
 import Food from '../src/models/schemas/Food.schema'
 import MealPlan from '../src/models/schemas/MealPlan.schema'
 import User from '../src/models/schemas/User.schema'
@@ -325,6 +326,8 @@ test('weekly quote uses all seven menus and only first-day shipping; invalid car
   assert.equal(added.summary.shippingPolicy, 'FIRST_DAY_ONLY')
   const payload = {
     cartType: 'COMBO' as const,
+    idempotencyKey: 'cart-shortage-checkout',
+    cartVersion: added.version,
     packageType: 'WEEKLY_7D' as const,
     deliveryDate: `${day(2)}T12:00:00+07:00`,
     deliveryAddress: 'Địa chỉ test',
@@ -344,7 +347,8 @@ test('weekly quote uses all seven menus and only first-day shipping; invalid car
   )
   await assert.rejects(orders.quoteOrder(userId, { ...payload, packageType: 'ONE_DAY' }), { status: 400 })
   food.stock = 27
-  // Không mock orders collection: nếu checkout vẫn tới insert, test sẽ không thể thành công.
+  // Chỉ cho phép tra idempotency; gọi insert ở giỏ thiếu hàng phải làm test thất bại.
+  t.mock.getter(database, 'orders', () => ({ findOne: async () => null }) as unknown as Collection<Order>)
   await assert.rejects(orders.createOrder(userId, payload), { status: 400 })
 })
 

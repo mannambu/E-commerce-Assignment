@@ -24,10 +24,17 @@ class DatabaseService {
     console.log('Connected to MongoDB')
   }
 
+  async close() {
+    await this.client.close()
+  }
+
   async withTransaction<T>(operation: (session: ClientSession) => Promise<T>): Promise<T> {
     const session = this.client.startSession()
     try {
-      return await session.withTransaction(() => operation(session))
+      return await session.withTransaction(() => operation(session), {
+        readConcern: { level: 'snapshot' },
+        writeConcern: { w: 'majority' }
+      })
     } finally {
       await session.endSession()
     }

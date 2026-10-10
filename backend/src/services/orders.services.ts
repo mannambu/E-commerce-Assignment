@@ -1,4 +1,5 @@
-import { ObjectId } from 'mongodb'
+import { ClientSession, ObjectId } from 'mongodb'
+import { createHash } from 'node:crypto'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { USERS_MESSAGES } from '~/constants/messages'
 import { ErrorWithStatus } from '~/models/Errors'
@@ -18,6 +19,7 @@ import databaseService from '~/services/database.services'
 import trackingService from '~/services/tracking.services'
 import settingsService from '~/services/settings.services'
 import weeklyOrders from '~/services/weekly-orders.services'
+import inventory from '~/services/inventory.services'
 import { getKitchenCutoff, parseDeliveryStart } from '~/utils/delivery'
 
 const COMBO_FREE_KM = 5
@@ -202,10 +204,10 @@ class OrdersService {
     return [startDate]
   }
 
-  private async getRequestUser(userId: string) {
+  private async getRequestUser(userId: string, session?: ClientSession) {
     const user = await databaseService.users.findOne(
       { _id: new ObjectId(userId) },
-      { projection: { role: 1, account_status: 1 } }
+      { projection: { role: 1, account_status: 1 }, session }
     )
 
     if (!user) {
@@ -233,8 +235,17 @@ class OrdersService {
   }
 
   async quoteOrder(userId: string, payload: QuoteOrderReqBody) {
+    return this.buildQuote(userId, payload)
+  }
+
+  private async buildQuote(
+    userId: string,
+    payload: QuoteOrderReqBody,
+    session?: ClientSession,
+    quotedShipping?: ShippingBreakdown
+  ) {
     const cartType = this.resolveOrderCartType(payload)
-    const cart = await cartService.buildCartSummaryByType(userId, cartType)
+    const cart = await cartService.buildCartSummaryByType(userId, cartType, session)
     if (!cart.items.length) {
       throw new ErrorWithStatus({
         message: USERS_MESSAGES.CART_IS_EMPTY,
@@ -256,7 +267,7 @@ class OrdersService {
       throw new ErrorWithStatus({ message: 'Ngày giao đã qua, hãy chọn lại ngày', status: HTTP_STATUS.BAD_REQUEST })
     }
     const schedule = this.buildDeliverySchedule(deliveryDate, packageType)
-    const rules = packageType === 'WEEKLY_7D' ? await settingsService.getCommerceRules() : undefined
+    const rules = packageType === 'WEEKLY_7D' ? await settingsService.getCommerceRules(session) : undefined
     const cutoffs = rules ? schedule.map((date) => getKitchenCutoff(date, rules)) : []
     if (cutoffs.some((cutoff) => cutoff <= now)) {
       throw new ErrorWithStatus({
@@ -265,11 +276,12 @@ class OrdersService {
       })
     }
     const distanceKm =
-      payload.distanceKm !== undefined
+      quotedShipping?.distanceKm ??
+      (payload.distanceKm !== undefined
         ? Number(payload.distanceKm)
-        : await this.getDistanceKmFromAddress(payload.deliveryAddress)
+        : await this.getDistanceKmFromAddress(payload.deliveryAddress))
 
-    const shippingBreakdown = this.calculateShippingForDistance(distanceKm, cartType)
+    const shippingBreakdown = quotedShipping ?? this.calculateShippingForDistance(distanceKm, cartType)
     if (cart.items.some((item) => !item.availability.isActive || !item.availability.inStock)) {
       throw new ErrorWithStatus({
         message: 'Giỏ có món ngừng bán hoặc không đủ tồn kho',
@@ -285,8 +297,7 @@ class OrdersService {
         status: HTTP_STATUS.BAD_REQUEST
       })
     }
-    const initialStatus: OrderStatus =
-      packageType === 'WEEKLY_7D' && payload.paymentMethod === 'COD' ? 'Confirmed' : 'Pending'
+    const initialStatus: OrderStatus = payload.paymentMethod === 'COD' ? 'Confirmed' : 'Pending'
     const deliveries: DeliveryPeriod[] = schedule.map((scheduledAt, index) => {
       const date = dates[index]
       const lines = cart.items.filter(
@@ -314,7 +325,13 @@ class OrdersService {
           mealPlanItemId: item.mealPlanItemId
         })),
         status: initialStatus,
-        statusHistory: [{ status: initialStatus, changedAt: now }],
+        statusHistory:
+          initialStatus === 'Confirmed'
+            ? [
+                { status: 'Pending', changedAt: now },
+                { status: 'Confirmed', changedAt: now }
+              ]
+            : [{ status: 'Pending', changedAt: now }],
         subtotal: lines.reduce((sum, item) => sum + item.lineTotal, 0),
         shipping:
           index === 0 ? { ...shippingBreakdown } : { ...shippingBreakdown, baseFee: 0, extraFee: 0, totalFee: 0 },
@@ -327,7 +344,10 @@ class OrdersService {
     const subtotal = deliveries.reduce((sum, delivery) => sum + delivery.subtotal, 0)
     const totalCalories = cart.summary.totalCalories
     const customer = rules
-      ? await databaseService.users.findOne({ _id: new ObjectId(userId) }, { projection: { healthProfile: 1 } })
+      ? await databaseService.users.findOne(
+          { _id: new ObjectId(userId) },
+          { projection: { healthProfile: 1 }, session }
+        )
       : null
 
     return {
@@ -358,36 +378,95 @@ class OrdersService {
   }
 
   async createOrder(userId: string, payload: CreateOrderReqBody) {
-    const quote = await this.quoteOrder(userId, payload)
-    const now = new Date()
-    const orderId = new ObjectId()
-    const order: Order = {
-      _id: orderId,
-      userId: new ObjectId(userId),
-      orderCode: orderId.toHexString().toUpperCase(),
-      packageType: quote.delivery.packageType,
-      deliveries: quote.deliveries,
-      subtotal: quote.pricing.subtotal,
-      shippingFee: quote.pricing.shippingFee,
-      grandTotal: quote.pricing.grandTotal,
-      status: quote.deliveries[0].status,
-      statusHistory: [{ status: quote.deliveries[0].status, changedAt: now }],
-      deliveryAddress: payload.deliveryAddress,
-      note: payload.note || '',
-      payment: { method: payload.paymentMethod, status: 'Pending' },
-      cancellationPolicy: quote.cancellationPolicy,
-      targetCaloriesSnapshot: quote.targetCaloriesSnapshot,
-      // Chỉ chuyển Held khi service thực sự giữ kho trong transaction.
-      inventoryHold: { status: 'NotReserved', items: [] },
-      paymentDueAt:
-        payload.paymentMethod === 'COD' ? undefined : new Date(now.getTime() + PAYMENT_TIMEOUT_MINUTES * 60000),
-      version: 0,
-      createdAt: now,
-      updatedAt: now
+    if (
+      !/^[A-Za-z0-9_-]{8,128}$/.test(payload.idempotencyKey || '') ||
+      !Number.isSafeInteger(payload.cartVersion) ||
+      payload.cartVersion < 0
+    ) {
+      throw new ErrorWithStatus({ message: 'Cần idempotencyKey hợp lệ và cartVersion đã xác nhận', status: 400 })
     }
-    await databaseService.orders.insertOne(order)
-    await cartService.clearCartByType(userId, quote.delivery.cartType)
-    return { ...weeklyOrders.describeOrder(order), orderId }
+    const userObjectId = new ObjectId(userId)
+    // Không hash toàn bộ req.body: thứ tự thuộc tính và các trường thừa không đổi ý nghĩa yêu cầu.
+    const requestHash = createHash('sha256')
+      .update(
+        JSON.stringify({
+          cartVersion: payload.cartVersion,
+          deliveryAddress: payload.deliveryAddress.trim(),
+          deliveryDate: parseDeliveryStart(payload.deliveryDate, payload.deliveryTime).toISOString(),
+          packageType: payload.packageType || 'ONE_DAY',
+          cartType: this.resolveOrderCartType(payload),
+          distanceKm: payload.distanceKm ?? null,
+          paymentMethod: payload.paymentMethod,
+          note: payload.note || ''
+        })
+      )
+      .digest('hex')
+    const keyFilter = { userId: userObjectId, idempotencyKey: payload.idempotencyKey }
+    const replay = (order: Order) => {
+      if (order.requestHash !== requestHash)
+        throw new ErrorWithStatus({ message: 'idempotencyKey đã dùng cho nội dung đặt hàng khác', status: 409 })
+      return { ...weeklyOrders.describeOrder(order), orderId: order._id!, replayed: true }
+    }
+    // Đọc đơn trước giỏ: gửi lại request sau khi giỏ đã xóa vẫn trả đúng đơn cũ.
+    const existing = await databaseService.orders.findOne(keyFilter)
+    if (existing) return replay(existing)
+    try {
+      // Geocoding/OSRM chỉ chạy trước transaction; không giữ khóa DB trong lúc gọi mạng.
+      const preview = await this.quoteOrder(userId, payload)
+      if (preview.cart.version !== payload.cartVersion)
+        throw new ErrorWithStatus({ message: 'Giỏ đã thay đổi, vui lòng tải lại báo giá', status: 409 })
+      return await databaseService.withTransaction(async (session) => {
+        const duplicate = await databaseService.orders.findOne(keyFilter, { session })
+        if (duplicate) return replay(duplicate)
+        // Đọc lại món, giá, giỏ trong cùng snapshot với thao tác giữ kho.
+        const quote = await this.buildQuote(userId, payload, session, preview.pricing.shippingBreakdowns[0])
+        if (quote.cart.version !== payload.cartVersion)
+          throw new ErrorWithStatus({ message: 'Giỏ đã thay đổi, vui lòng tải lại báo giá', status: 409 })
+        const now = new Date()
+        const orderId = new ObjectId()
+        const order: Order = {
+          _id: orderId,
+          userId: new ObjectId(userId),
+          orderCode: orderId.toHexString().toUpperCase(),
+          packageType: quote.delivery.packageType,
+          deliveries: quote.deliveries,
+          subtotal: quote.pricing.subtotal,
+          shippingFee: quote.pricing.shippingFee,
+          grandTotal: quote.pricing.grandTotal,
+          status: quote.deliveries[0].status,
+          statusHistory: [...quote.deliveries[0].statusHistory],
+          deliveryAddress: payload.deliveryAddress,
+          note: payload.note || '',
+          payment: { method: payload.paymentMethod, status: 'Pending' },
+          cancellationPolicy: quote.cancellationPolicy,
+          targetCaloriesSnapshot: quote.targetCaloriesSnapshot,
+          inventoryHold: { status: 'NotReserved', items: [] },
+          idempotencyKey: payload.idempotencyKey,
+          requestHash,
+          paymentDueAt:
+            payload.paymentMethod === 'COD' ? undefined : new Date(now.getTime() + PAYMENT_TIMEOUT_MINUTES * 60000),
+          version: 0,
+          createdAt: now,
+          updatedAt: now
+        }
+        await inventory.reserve(order, session, now)
+        await databaseService.orders.insertOne(order, { session })
+        await cartService.finishCheckout(
+          userId,
+          quote.cart.cartId!,
+          quote.cart.version,
+          quote.cart.items,
+          orderId,
+          session
+        )
+        return { ...weeklyOrders.describeOrder(order), orderId, replayed: false }
+      })
+    } catch (error) {
+      // Request song song có thể thua ở unique index hoặc giỏ đã được request kia xóa.
+      const winner = await databaseService.orders.findOne(keyFilter)
+      if (winner) return replay(winner)
+      throw error
+    }
   }
 
   async getMyOrders(userId: string) {
@@ -415,90 +494,114 @@ class OrdersService {
   }
 
   async cancelOrder(userId: string, orderId: string) {
-    const user = await this.getRequestUser(userId)
+    return databaseService.withTransaction(async (session) => {
+      const user = await this.getRequestUser(userId, session)
 
-    const order = await databaseService.orders.findOne({ _id: new ObjectId(orderId) })
-    if (!order) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.ORDER_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
-      })
-    }
-
-    const isOwner = String(order.userId) === userId
-
-    if (order.packageType === 'WEEKLY_7D') {
-      if (user.role !== UserRole.ADMIN && !isOwner) {
-        throw new ErrorWithStatus({ message: USERS_MESSAGES.ORDER_NOT_FOUND, status: 404 })
-      }
-      throw new ErrorWithStatus({
-        message: 'Gói tuần cần hủy theo từng ngày để tính đúng tiền hoàn và tồn kho',
-        status: 400
-      })
-    }
-
-    if (user.role === UserRole.CUSTOMER) {
-      if (!isOwner) {
+      const order = await databaseService.orders.findOne({ _id: new ObjectId(orderId) }, { session })
+      if (!order) {
         throw new ErrorWithStatus({
           message: USERS_MESSAGES.ORDER_NOT_FOUND,
           status: HTTP_STATUS.NOT_FOUND
         })
       }
 
-      if (order.status !== 'Pending') {
+      const isOwner = String(order.userId) === userId
+
+      if (order.packageType === 'WEEKLY_7D') {
+        if (user.role !== UserRole.ADMIN && !isOwner) {
+          throw new ErrorWithStatus({ message: USERS_MESSAGES.ORDER_NOT_FOUND, status: 404 })
+        }
         throw new ErrorWithStatus({
-          message: USERS_MESSAGES.CUSTOMER_CAN_ONLY_CANCEL_PENDING_ORDER,
-          status: HTTP_STATUS.BAD_REQUEST
+          message: 'Gói tuần cần hủy theo từng ngày để tính đúng tiền hoàn và tồn kho',
+          status: 400
         })
       }
-    }
 
-    if (user.role === UserRole.ADMIN) {
-      if (order.status === 'Completed' || order.status === 'Cancelled') {
+      if (user.role === UserRole.CUSTOMER) {
+        if (!isOwner) {
+          throw new ErrorWithStatus({
+            message: USERS_MESSAGES.ORDER_NOT_FOUND,
+            status: HTTP_STATUS.NOT_FOUND
+          })
+        }
+
+        if (order.status !== 'Pending' && !(order.status === 'Confirmed' && order.payment.method === 'COD')) {
+          throw new ErrorWithStatus({
+            message: 'Chỉ được hủy đơn chờ thanh toán hoặc COD chưa chế biến',
+            status: HTTP_STATUS.BAD_REQUEST
+          })
+        }
+      }
+
+      if (user.role === UserRole.ADMIN) {
+        if (order.status === 'Completed' || order.status === 'Cancelled') {
+          throw new ErrorWithStatus({
+            message: USERS_MESSAGES.ORDER_CAN_NOT_BE_CANCELLED,
+            status: HTTP_STATUS.BAD_REQUEST
+          })
+        }
+      }
+
+      if (user.role !== UserRole.ADMIN && user.role !== UserRole.CUSTOMER) {
         throw new ErrorWithStatus({
-          message: USERS_MESSAGES.ORDER_CAN_NOT_BE_CANCELLED,
-          status: HTTP_STATUS.BAD_REQUEST
+          message: USERS_MESSAGES.NOT_AUTHORIZED,
+          status: HTTP_STATUS.FORBIDDEN
         })
       }
-    }
 
-    if (user.role !== UserRole.ADMIN && user.role !== UserRole.CUSTOMER) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.NOT_AUTHORIZED,
-        status: HTTP_STATUS.FORBIDDEN
+      if (!['Pending', 'Failed'].includes(order.payment.status) || (order.payment.paidAmount || 0) > 0) {
+        throw new ErrorWithStatus({ message: 'Đơn đã thu tiền cần hủy qua luồng hoàn tiền/đối soát', status: 400 })
+      }
+
+      const cancelledAt = new Date()
+      const cancelledBy = user.role === UserRole.ADMIN ? ('Admin' as const) : ('Customer' as const)
+      const deliveries = order.deliveries.map((delivery) => {
+        if (delivery.status === 'Completed' || delivery.status === 'Cancelled') return delivery
+        return {
+          ...delivery,
+          status: 'Cancelled' as const,
+          statusHistory: [
+            ...delivery.statusHistory,
+            { status: 'Cancelled' as const, changedAt: cancelledAt, actorId: user._id }
+          ],
+          cancellation: { cancelledAt, cancelledBy, reason: 'Order cancelled' }
+        }
       })
-    }
+      if (order.inventoryHold.status === 'Held') {
+        await inventory.releaseHold(order, session, cancelledAt)
+      } else if (order.inventoryHold.status === 'Committed' && ['Pending', 'Confirmed'].includes(order.status)) {
+        await inventory.changeItems(order, [...order.inventoryHold.items], [], session)
+      }
+      const result = await databaseService.orders.updateOne(
+        { _id: order._id, status: order.status, version: order.version },
+        {
+          $set: { status: 'Cancelled', cancelledBy, cancelledAt, deliveries, inventoryHold: order.inventoryHold },
+          $push: { statusHistory: { status: 'Cancelled', changedAt: cancelledAt, actorId: user._id } },
+          $inc: { version: 1 },
+          $currentDate: { updatedAt: true }
+        },
+        { session }
+      )
+      if (!result.matchedCount) {
+        throw new ErrorWithStatus({ message: 'Order changed; please reload', status: HTTP_STATUS.CONFLICT })
+      }
+      await databaseService.auditLogs.insertOne(
+        {
+          actorId: user._id,
+          actorRole: user.role,
+          action: 'OrderCancelled',
+          entityType: 'Order',
+          entityId: order._id!,
+          reason: 'Hủy đơn chưa thu tiền',
+          createdAt: cancelledAt
+        },
+        { session }
+      )
 
-    const cancelledAt = new Date()
-    const cancelledBy = user.role === UserRole.ADMIN ? ('Admin' as const) : ('Customer' as const)
-    const deliveries = order.deliveries.map((delivery) => {
-      if (delivery.status === 'Completed' || delivery.status === 'Cancelled') return delivery
       return {
-        ...delivery,
-        status: 'Cancelled' as const,
-        statusHistory: [
-          ...delivery.statusHistory,
-          { status: 'Cancelled' as const, changedAt: cancelledAt, actorId: user._id }
-        ],
-        cancellation: { cancelledAt, cancelledBy, reason: 'Order cancelled' }
+        message: USERS_MESSAGES.CANCEL_ORDER_SUCCESS
       }
     })
-    const result = await databaseService.orders.updateOne(
-      { _id: order._id, status: order.status, version: order.version },
-      {
-        $set: { status: 'Cancelled', cancelledBy, cancelledAt, deliveries },
-        $push: { statusHistory: { status: 'Cancelled', changedAt: cancelledAt, actorId: user._id } },
-        $inc: { version: 1 },
-        $currentDate: { updatedAt: true }
-      }
-    )
-    if (!result.matchedCount) {
-      throw new ErrorWithStatus({ message: 'Order changed; please reload', status: HTTP_STATUS.CONFLICT })
-    }
-
-    return {
-      message: USERS_MESSAGES.CANCEL_ORDER_SUCCESS
-    }
   }
 
   private assertAdmin(userRole: UserRole) {
@@ -524,7 +627,7 @@ class OrdersService {
   }
 
   private canTransition(current: OrderStatus, next: Exclude<OrderStatus, 'Pending' | 'Cancelled'>) {
-    if (current === 'Pending' && next === 'Cooking') return true
+    if (current === 'Confirmed' && next === 'Cooking') return true
     if (current === 'Cooking' && next === 'Delivering') return true
     if (current === 'Delivering' && next === 'Completed') return true
     return false
@@ -560,6 +663,19 @@ class OrdersService {
       })
     }
 
+    if (order.inventoryHold.status !== 'Committed')
+      throw new ErrorWithStatus({ message: 'Đơn chưa chốt kho, không thể chuyển sang chế biến/giao hàng', status: 409 })
+    if (payload.status === 'Cooking' && order.payment.method !== 'COD') {
+      const payment = await databaseService.transactions.findOne({
+        orderId: order._id,
+        kind: 'Payment',
+        status: 'Succeeded',
+        source: 'VerifiedIPN'
+      })
+      if (!payment || !['Paid', 'PartiallyRefunded'].includes(order.payment.status))
+        throw new ErrorWithStatus({ message: 'Đơn online chưa có IPN thanh toán được xác thực', status: 400 })
+    }
+
     const changedAt = new Date()
     const deliveries = order.deliveries.map((delivery) => {
       if (delivery.status === 'Cancelled' || delivery.status === 'Completed') return delivery
@@ -591,97 +707,64 @@ class OrdersService {
   }
 
   async retryPayment(userId: string, orderId: string, payload: RetryPaymentReqBody) {
-    const order = await databaseService.orders.findOne({ _id: new ObjectId(orderId), userId: new ObjectId(userId) })
-    if (!order) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.ORDER_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
-      })
-    }
-
-    if (order.status === 'Cancelled' || order.status === 'Completed') {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.ORDER_STATUS_UPDATE_NOT_ALLOWED,
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    if (
-      order.packageType === 'WEEKLY_7D' &&
-      (order.status !== 'Pending' ||
+    return databaseService.withTransaction(async (session) => {
+      const order = await databaseService.orders.findOne(
+        { _id: new ObjectId(orderId), userId: new ObjectId(userId) },
+        { session }
+      )
+      if (!order) throw new ErrorWithStatus({ message: USERS_MESSAGES.ORDER_NOT_FOUND, status: 404 })
+      const now = new Date()
+      if (
+        order.status !== 'Pending' ||
         !['Pending', 'Failed'].includes(order.payment.status) ||
+        (order.payment.paidAmount || 0) > 0 ||
         order.payment.method === 'COD' ||
         payload.paymentMethod === 'COD' ||
-        order.deliveries.some((day) => day.status === 'Cancelled') ||
+        order.deliveries.some(
+          (day) => day.status !== 'Pending' || day.scheduledAt <= now || (day.cutoffAt && day.cutoffAt <= now)
+        ) ||
         !order.paymentDueAt ||
-        order.paymentDueAt <= new Date())
-    ) {
-      throw new ErrorWithStatus({
-        message: 'Gói tuần không đủ điều kiện thanh toán lại; đơn đã hủy ngày cần đối soát số tiền trước',
-        status: 400
-      })
-    }
-
-    const result = await databaseService.orders.updateOne(
-      { _id: order._id, version: order.version },
-      {
-        $set: {
-          payment: {
-            ...order.payment,
-            method: payload.paymentMethod || order.payment.method,
-            status: 'Pending'
-          }
-        },
-        $inc: { version: 1 },
-        $currentDate: { updatedAt: true }
+        order.paymentDueAt <= now ||
+        order.inventoryHold.status === 'Committed'
+      ) {
+        throw new ErrorWithStatus({
+          message: 'Đơn không đủ điều kiện thanh toán lại hoặc đã quá hạn/chốt bếp',
+          status: 400
+        })
       }
-    )
-
-    if (!result.matchedCount) throw new ErrorWithStatus({ message: 'Đơn đã thay đổi, vui lòng tải lại', status: 409 })
-
-    return {
-      message: USERS_MESSAGES.RETRY_PAYMENT_SUCCESS
-    }
+      if (
+        order.inventoryHold.status === 'Held' &&
+        (!order.inventoryHold.expiresAt || order.inventoryHold.expiresAt <= now)
+      ) {
+        await inventory.releaseHold(order, session, now)
+      }
+      // Giữ lại hàng nếu đã nhả; không gia hạn lần giữ còn hiệu lực và không đổi hạn 15 phút.
+      if (order.inventoryHold.status !== 'Held') await inventory.reserve(order, session, now)
+      order.payment.method = payload.paymentMethod || order.payment.method
+      order.payment.status = 'Pending'
+      const result = await databaseService.orders.updateOne(
+        { _id: order._id, version: order.version },
+        { $set: { payment: order.payment, inventoryHold: order.inventoryHold, updatedAt: now }, $inc: { version: 1 } },
+        { session }
+      )
+      if (!result.matchedCount) throw new ErrorWithStatus({ message: 'Đơn đã thay đổi, vui lòng tải lại', status: 409 })
+      return {
+        message: USERS_MESSAGES.RETRY_PAYMENT_SUCCESS,
+        inventoryHold: order.inventoryHold,
+        paymentDueAt: order.paymentDueAt
+      }
+    })
   }
 
-  async updatePaymentStatus(adminUserId: string, orderId: string, payload: UpdatePaymentStatusReqBody) {
+  async updatePaymentStatus(adminUserId: string, _orderId: string, _payload: UpdatePaymentStatusReqBody) {
     const admin = await this.getRequestUser(adminUserId)
     this.assertAdmin(admin.role)
-
-    const order = await databaseService.orders.findOne({ _id: new ObjectId(orderId) })
-    if (!order) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.ORDER_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
-      })
-    }
-
-    if (order.packageType === 'WEEKLY_7D') {
-      throw new ErrorWithStatus({
-        message:
-          'Gói tuần cần cập nhật tiền qua IPN hoặc đối soát COD/hoàn tiền, không sửa trạng thái thanh toán thủ công',
-        status: 400
-      })
-    }
-
-    await databaseService.orders.updateOne(
-      { _id: order._id },
-      {
-        $set: {
-          payment: {
-            method: order.payment.method,
-            status: payload.status,
-            transactionId: payload.transactionId || order.payment.transactionId
-          }
-        },
-        $currentDate: { updatedAt: true }
-      }
-    )
-
-    return {
-      message: USERS_MESSAGES.PAYMENT_STATUS_UPDATED_SUCCESS,
-      statusKept: order.status
-    }
+    void _orderId
+    void _payload
+    throw new ErrorWithStatus({
+      message: 'Thanh toán phải cập nhật qua IPN đã xác thực hoặc đối soát COD/hoàn tiền; không sửa thủ công',
+      status: 400
+    })
   }
 }
 

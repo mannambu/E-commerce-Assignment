@@ -78,6 +78,7 @@ npm run start
 
 - `npm run dev`: chạy server với nodemon + tsx
 - `npm test`: kiểm tra schema, đăng ký, xác thực và đánh giá món ăn bằng dữ liệu giả; không kết nối MongoDB
+- `npm run test:checkout:integration`: kiểm thử checkout/tồn kho với MongoDB replica set tạm, không dùng DB dự án
 - `npm run build`: build TypeScript ra `dist`
 - `npm run start`: chạy bản build
 - `npm run lint`: kiểm tra lint
@@ -86,6 +87,8 @@ npm run start
 - `npm run prettier:fix`: format code
 
 [Hướng dẫn DB, seed Admin/Manager, Bcrypt và email reset](docs/auth-setup.md).
+
+[Checkout và tồn kho: API, quy tắc kho, transaction và điểm nối thanh toán](docs/checkout-inventory.md).
 
 ## Seed dữ liệu
 

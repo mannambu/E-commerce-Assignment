@@ -194,7 +194,11 @@ class FoodService {
       if (payload[key] !== undefined) Object.assign(update, { [key]: payload[key] })
     }
     const updatedFood = await databaseService.foods.findOneAndUpdate(
-      { _id: new ObjectId(food_id) },
+      {
+        _id: new ObjectId(food_id),
+        // Admin không được hạ tồn kho xuống dưới số phần đang giữ cho checkout.
+        ...(update.stock !== undefined ? { $expr: { $lte: [{ $ifNull: ['$reservedStock', 0] }, update.stock] } } : {})
+      },
       {
         $set: update,
         $currentDate: { updatedAt: true }
@@ -203,6 +207,12 @@ class FoodService {
     )
 
     if (!updatedFood) {
+      if (update.stock !== undefined && (await databaseService.foods.findOne({ _id: new ObjectId(food_id) }))) {
+        throw new ErrorWithStatus({
+          message: 'Tồn kho mới thấp hơn số phần đang được giữ cho đơn hàng',
+          status: HTTP_STATUS.CONFLICT
+        })
+      }
       throw new ErrorWithStatus({
         message: 'Không tìm thấy món ăn',
         status: HTTP_STATUS.NOT_FOUND

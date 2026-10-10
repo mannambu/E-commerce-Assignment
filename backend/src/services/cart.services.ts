@@ -1,8 +1,9 @@
-import { ObjectId } from 'mongodb'
+import { ClientSession, ObjectId } from 'mongodb'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { USERS_MESSAGES } from '~/constants/messages'
 import { ErrorWithStatus } from '~/models/Errors'
 import Cart, { CartItem, CartTypeValue, MAX_CART_LINES } from '~/models/schemas/Cart.schema'
+import MealPlan from '~/models/schemas/MealPlan.schema'
 import { NutritionSnapshot, toLocalDate } from '~/models/schemas/common'
 import {
   AddCartItemReqBody,
@@ -108,9 +109,11 @@ class CartService {
     return issues
   }
 
-  private async summarize(cart: Cart, cartType: CartTypeValue) {
+  private async summarize(cart: Cart, cartType: CartTypeValue, session?: ClientSession) {
     const items = cart.cartType === cartType ? cart.items : []
-    const foods = await databaseService.foods.find({ _id: { $in: items.map((item) => item.itemId) } }).toArray()
+    const foods = await databaseService.foods
+      .find({ _id: { $in: items.map((item) => item.itemId) } }, { session })
+      .toArray()
     const foodMap = new Map(foods.map((food) => [String(food._id), food]))
     const quantities = new Map<string, number>()
     for (const item of items) {
@@ -177,7 +180,13 @@ class CartService {
     }
   }
 
-  async buildCartSummaryByType(userId: string, cartType: CartTypeValue) {
+  async buildCartSummaryByType(userId: string, cartType: CartTypeValue, session?: ClientSession) {
+    if (session) {
+      // Checkout chỉ đọc giỏ có sẵn trong transaction; không tạo giỏ rỗng mới.
+      const cart = await databaseService.carts.findOne({ userId: new ObjectId(userId) }, { session })
+      if (!cart) throw new ErrorWithStatus({ message: USERS_MESSAGES.CART_IS_EMPTY, status: 400 })
+      return this.summarize(new Cart(cart), cartType, session)
+    }
     return this.summarize(await this.getOrCreateCart(userId), cartType)
   }
 
@@ -202,7 +211,7 @@ class CartService {
     return this.addItems(userId, { cartType: payload.cartType, version: payload.version, items: [payload] })
   }
 
-  private async checkMealPlan(userId: ObjectId, item: CartItem) {
+  private async checkMealPlan(userId: ObjectId, item: CartItem, session?: ClientSession) {
     if (!item.mealPlanId && !item.mealPlanItemId) return
     if (!item.mealPlanId || !item.mealPlanItemId) {
       throw new ErrorWithStatus({
@@ -210,7 +219,7 @@ class CartService {
         status: HTTP_STATUS.BAD_REQUEST
       })
     }
-    const plan = await databaseService.mealPlans.findOne({ _id: item.mealPlanId, userId })
+    const plan = await databaseService.mealPlans.findOne({ _id: item.mealPlanId, userId }, { session })
     const day = plan?.days.find((day) => day.date === item.deliveryDate)
     const meal = day?.meals.find((meal) => meal._id.equals(item.mealPlanItemId!))
     if (
@@ -225,6 +234,39 @@ class CartService {
         status: HTTP_STATUS.BAD_REQUEST
       })
     }
+    return plan
+  }
+
+  async finishCheckout(
+    userId: string,
+    cartId: ObjectId,
+    version: number,
+    items: CartItem[],
+    orderId: ObjectId,
+    session: ClientSession
+  ) {
+    // Kiểm tra lại nguồn thực đơn vì người dùng có thể đổi món ở tab khác.
+    const plans = new Map<string, MealPlan>()
+    for (const item of items) {
+      const plan = await this.checkMealPlan(new ObjectId(userId), item, session)
+      if (plan) plans.set(String(plan._id), plan)
+    }
+    for (const plan of plans.values()) {
+      const result = await databaseService.mealPlans.updateOne(
+        // Đã đọc và kiểm tra Draft trong session; MongoDB sẽ retry nếu có ghi đồng thời vào plan.
+        { _id: plan._id, userId: new ObjectId(userId) },
+        { $set: { status: 'Ordered', orderId, updatedAt: new Date(), version: (plan.version ?? 0) + 1 } },
+        { session }
+      )
+      if (!result.matchedCount)
+        throw new ErrorWithStatus({ message: 'Thực đơn đã thay đổi, vui lòng tải lại', status: 409 })
+    }
+    const result = await databaseService.carts.updateOne(
+      { _id: cartId, userId: new ObjectId(userId), version },
+      { $set: { items: [], updatedAt: new Date() }, $inc: { version: 1 } },
+      { session }
+    )
+    if (!result.matchedCount) throw new ErrorWithStatus({ message: 'Giỏ đã thay đổi, vui lòng tải lại', status: 409 })
   }
 
   async addItems(userId: string, payload: AddCartItemsReqBody) {

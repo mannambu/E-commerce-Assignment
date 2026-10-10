@@ -12,6 +12,7 @@ import {
 } from '~/controllers/orders.controllers'
 import {
   createOrderValidator,
+  checkoutIdentityValidator,
   orderIdParamValidator,
   quoteOrderValidator,
   retryPaymentValidator,
@@ -102,13 +103,14 @@ ordersRouter.post(
  * Path: /
  * Method: POST
  * Header: { Authorization: Bearer <access_token> }
- * Body: Same as quote payload (cartType giúp chọn checkout từ giỏ FOOD/COMBO)
+ * Body: Quote payload + idempotencyKey + cartVersion.
  */
 ordersRouter.post(
   '/',
   accessTokenValidator,
   isCustomerValidator,
   createOrderValidator,
+  checkoutIdentityValidator,
   wrapRequestHandler(createOrderController)
 )
 

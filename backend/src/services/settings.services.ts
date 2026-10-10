@@ -1,4 +1,4 @@
-import { ObjectId } from 'mongodb'
+import { ClientSession, ObjectId } from 'mongodb'
 import { ErrorWithStatus } from '~/models/Errors'
 import Settings from '~/models/schemas/Settings.schema'
 import { UserRole } from '~/models/schemas/User.schema'
@@ -19,8 +19,8 @@ export const DEFAULT_COMMERCE_RULES: CommerceRules = {
 }
 
 class SettingsService {
-  async getCommerceRules(): Promise<CommerceRules> {
-    const settings = await database.settings.findOne({ _id: 'commerce' })
+  async getCommerceRules(session?: ClientSession): Promise<CommerceRules> {
+    const settings = await database.settings.findOne({ _id: 'commerce' }, { session })
     const rules = settings || DEFAULT_COMMERCE_RULES
     return {
       kitchenCutoffTime: rules.kitchenCutoffTime,

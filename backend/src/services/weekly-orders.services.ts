@@ -11,6 +11,7 @@ import {
 } from '~/models/requests/CartOrder.request'
 import database from './database.services'
 import tracking from './tracking.services'
+import inventory from './inventory.services'
 import { CartSummaryItem } from './cart.services'
 
 class WeeklyOrdersService {
@@ -264,56 +265,6 @@ class WeeklyOrdersService {
     }
   }
 
-  // Chỉ điều chỉnh kho đã thực sự được giữ/trừ. NotReserved không được cộng trả hàng ảo.
-  private async changeInventory(order: Order, removed: OrderItem[], added: OrderItem[], session: ClientSession) {
-    const hold = order.inventoryHold
-    if (hold.status === 'NotReserved' || hold.status === 'Released') return
-    const changes = new Map<string, { foodId: ObjectId; quantity: number }>()
-    for (const [items, sign] of [
-      [removed, -1],
-      [added, 1]
-    ] as const) {
-      for (const item of items) {
-        const key = String(item.foodId)
-        const current = changes.get(key) || { foodId: item.foodId, quantity: 0 }
-        current.quantity += sign * item.quantity
-        changes.set(key, current)
-      }
-    }
-    for (const change of changes.values()) {
-      if (!change.quantity) continue
-      const held = hold.items.find((item) => item.foodId.equals(change.foodId))
-      if (change.quantity < 0 && (!held || held.quantity < -change.quantity)) {
-        throw new ErrorWithStatus({ message: 'Số lượng kho của đơn không khớp, cần kiểm tra lại', status: 409 })
-      }
-      const condition =
-        change.quantity > 0
-          ? {
-              isActive: true,
-              $expr: { $gte: [{ $subtract: ['$stock', { $ifNull: ['$reservedStock', 0] }] }, change.quantity] }
-            }
-          : hold.status === 'Held'
-            ? { reservedStock: { $gte: -change.quantity } }
-            : {}
-      const result = await database.foods.updateOne(
-        { _id: change.foodId, ...condition },
-        {
-          $inc: hold.status === 'Held' ? { reservedStock: change.quantity } : { stock: -change.quantity }
-        },
-        { session }
-      )
-      if (!result.matchedCount)
-        throw new ErrorWithStatus({ message: 'Tồn kho đã thay đổi, vui lòng chọn lại món', status: 409 })
-      if (held) held.quantity += change.quantity
-      else hold.items.push({ ...change })
-    }
-    hold.items = hold.items.filter((item) => item.quantity > 0)
-    if (!hold.items.length) {
-      hold.status = 'Released'
-      hold.releasedAt = new Date()
-    }
-  }
-
   private aggregateStatus(deliveries: DeliveryPeriod[]): OrderStatus {
     const active = deliveries.filter((day) => day.status !== 'Cancelled')
     if (!active.length) return 'Cancelled'
@@ -384,7 +335,7 @@ class WeeklyOrdersService {
         mealSlot: item.mealSlot
       }
       delivery.items = delivery.items.map((line) => (line._id.equals(item._id) ? replacement : line))
-      await this.changeInventory(order, [item], [replacement], session)
+      await inventory.changeItems(order, [item], [replacement], session)
       await this.saveOrder(order, actor, session)
       await database.auditLogs.insertOne(
         {
@@ -471,7 +422,7 @@ class WeeklyOrdersService {
         refundAmount: quote.refundAmount,
         refundTransactionId
       }
-      await this.changeInventory(order, delivery.items, [], session)
+      await inventory.changeItems(order, delivery.items, [], session)
       if (refundTransactionId) {
         const foodAmount = Math.min(quote.foodCredit, quote.refundAmount)
         await database.transactions.insertOne(
@@ -549,6 +500,12 @@ class WeeklyOrdersService {
         if (!payment || !['Paid', 'PartiallyRefunded'].includes(order.payment.status)) {
           throw new ErrorWithStatus({ message: 'Đơn online chưa có IPN thanh toán được xác thực', status: 400 })
         }
+      }
+      if (order.inventoryHold.status !== 'Committed') {
+        throw new ErrorWithStatus({
+          message: 'Đơn chưa chốt kho, không thể chuyển sang chế biến/giao hàng',
+          status: 409
+        })
       }
       delivery.status = payload.status
       delivery.statusHistory.push({ status: payload.status, changedAt: new Date(), actorId: actor._id })

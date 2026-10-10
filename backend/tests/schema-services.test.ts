@@ -8,6 +8,7 @@ import orders from '../src/services/orders.services'
 import tracking from '../src/services/tracking.services'
 import User from '../src/models/schemas/User.schema'
 import Order from '../src/models/schemas/Order.schema'
+import Food from '../src/models/schemas/Food.schema'
 import DailyHealthLog from '../src/models/schemas/DailyHealthLog.schema'
 import { toLocalDate } from '../src/models/schemas/common'
 import settings, { DEFAULT_COMMERCE_RULES } from '../src/services/settings.services'
@@ -63,17 +64,26 @@ test('weekly quote uses actual day menus, charges shipping once and saves nested
     'orders',
     () =>
       ({
+        findOne: async () => null,
         insertOne: async (order: Order) => {
           saved = order
           return { insertedId: order._id }
         }
       }) as unknown as Collection<Order>
   )
-  t.mock.method(carts, 'clearCartByType', async () => {
+  t.mock.method(database, 'withTransaction', async (operation) => operation({} as ClientSession))
+  t.mock.getter(
+    database,
+    'foods',
+    () => ({ updateOne: async () => ({ matchedCount: 1 }) }) as unknown as Collection<Food>
+  )
+  t.mock.method(carts, 'finishCheckout', async () => {
     cleared = true
     return {} as never
   })
   const input = {
+    idempotencyKey: 'schema-checkout-test',
+    cartVersion: 0,
     deliveryAddress: 'Test address',
     deliveryDate: start,
     distanceKm: 6,
@@ -95,7 +105,7 @@ test('weekly quote uses actual day menus, charges shipping once and saves nested
   assert.ok(saved!.deliveries.every((day) => day.items[0].nutrition.protein === 30))
   assert.equal('items' in saved!, false)
   assert.equal('deliverySchedule' in saved!, false)
-  assert.equal(saved!.inventoryHold.status, 'NotReserved')
+  assert.equal(saved!.inventoryHold.status, 'Held')
   assert.equal(saved!.paymentDueAt!.getTime() - saved!.createdAt.getTime(), 15 * 60000)
   assert.equal(cleared, true)
 

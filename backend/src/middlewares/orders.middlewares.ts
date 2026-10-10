@@ -77,6 +77,25 @@ export const quoteOrderValidator = validate(
   )
 )
 
+export const checkoutIdentityValidator = validate(
+  checkSchema(
+    {
+      idempotencyKey: {
+        isString: true,
+        matches: { options: /^[A-Za-z0-9_-]{8,128}$/, errorMessage: 'idempotencyKey cần 8–128 ký tự chữ, số, _ hoặc -' }
+      },
+      cartVersion: {
+        isInt: {
+          options: { min: 0, max: Number.MAX_SAFE_INTEGER },
+          errorMessage: 'cartVersion phải là phiên bản giỏ đã xác nhận'
+        },
+        toInt: true
+      }
+    },
+    ['body']
+  )
+)
+
 export const createOrderValidator = quoteOrderValidator
 
 export const orderIdParamValidator = validate(

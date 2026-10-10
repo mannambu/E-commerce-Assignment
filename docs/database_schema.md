@@ -151,8 +151,8 @@ Nếu cần giữ dữ liệu cũ, phải chuyển trên bản sao trước: h�
 ## Nghiệp vụ còn thiếu
 
 - Xác thực đã có Bcrypt, sessionId/tokenVersion, thu hồi phiên và reset bằng mã email 6 chữ số. `users.forgot_password_token` lưu Bcrypt hash của mã, `forgot_password_expires_at` lưu hạn 15 phút, `forgot_password_attempts` giới hạn 5 lần thử và `forgot_password_requested_at` giới hạn gửi lại sau 60 giây. Cần cấu hình SMTP và nối giao diện frontend; có thể test độc lập bằng Postman, xem [auth-setup.md](../backend/docs/auth-setup.md).
-- Checkout hiện lưu cấu trúc mới và kiểm tra giỏ nhưng chưa thực hiện giữ/trừ kho ACID, idempotency đầy đủ, IPN hay job hết hạn. inventoryHold hiện khởi tạo NotReserved. COD/Confirmed, đối soát, hủy/hoàn từng ngày cần hoàn thiện.
+- Checkout đã có transaction ACID, idempotency, giữ kho online 10 phút, COD Confirmed/trừ kho, job nhả hold và kết nối đổi/hủy ngày. Xem [checkout-inventory.md](../backend/docs/checkout-inventory.md). IPN, thu COD/hoàn tiền và job tự hủy đơn 15 phút thuộc phần thanh toán tiếp theo.
 - Công thức tính target hiện được đưa vào utils/health.ts để dùng chung; quy tắc điều chỉnh theo phần trăm và sàn BMR của US-08 chưa được thay trong đợt schema.
 - MealPlan đã có cấu trúc lưu; API recommendation hiện chưa lưu thực đơn/swap vào collection.
 - Manager đã có quyền đọc đơn; AuditLog đã ghi việc tạo và khóa/mở user. Báo cáo Manager, sổ Transaction, audit nghiệp vụ khác, API Settings, WebSocket, ẩn review kèm thông báo và Excel còn cần triển khai. Dashboard tài chính Admin cũ chưa tách khỏi vận hành và chưa đọc sổ Transaction.
-- Test hiện dùng mock, không chứng minh transaction hoặc index trên một MongoDB thật.
+- Ngoài test mock, `npm run test:checkout:integration` kiểm tra transaction và unique index trên MongoDB replica set tạm, không dùng DB dự án.

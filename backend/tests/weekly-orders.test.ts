@@ -228,12 +228,14 @@ function setup(t: TestContext) {
       }
     }
   })
-  t.mock.method(carts, 'clearCartByType', async () => ({}) as never)
+  t.mock.method(carts, 'finishCheckout', async () => undefined)
   const userId = String(customer._id)
   const orderId = String(order._id)
   const deliveryId = String(order.deliveries[0]._id)
   const itemId = String(order.deliveries[0].items[0]._id)
   const payload = {
+    idempotencyKey: `weekly-${new ObjectId()}`,
+    cartVersion: 0,
     deliveryDate: `${order.deliveries[0].date}T12:00:00+07:00`,
     deliveryAddress: 'Test address',
     distanceKm: 6,
@@ -602,6 +604,11 @@ test('daily status affects only that day; future dates and unverified online pay
     { status: 400 }
   )
   f.data.transactions.push({ orderId: f.order._id, kind: 'Payment', status: 'Succeeded', source: 'VerifiedIPN' })
+  await assert.rejects(
+    weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, { version: 0, status: 'Cooking' }),
+    { status: 409 }
+  )
+  f.order.inventoryHold = { status: 'Committed', items: [{ foodId: f.food._id!, quantity: 7 }] }
   await weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, { version: 0, status: 'Cooking' })
   await assert.rejects(
     weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, { version: 1, status: 'Completed' }),
