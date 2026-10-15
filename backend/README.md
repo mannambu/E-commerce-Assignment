@@ -79,6 +79,7 @@ npm run start
 - `npm run dev`: chạy server với nodemon + tsx
 - `npm test`: kiểm tra schema, đăng ký, xác thực và đánh giá món ăn bằng dữ liệu giả; không kết nối MongoDB
 - `npm run test:checkout:integration`: kiểm thử checkout/tồn kho với MongoDB replica set tạm, không dùng DB dự án
+- `npm run test:foods:integration`: kiểm thử FR-CAT-002 trên MongoDB tạm (tìm có/không dấu, dữ liệu cũ, ký tự đặc biệt, bộ lọc/phân trang và API); không dùng DB dự án, lần đầu có thể cần tải MongoDB binary
 - `npm run build`: build TypeScript ra `dist`
 - `npm run start`: chạy bản build
 - `npm run lint`: kiểm tra lint

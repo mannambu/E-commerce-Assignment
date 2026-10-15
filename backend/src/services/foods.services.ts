@@ -1,4 +1,5 @@
 import { Filter, ObjectId } from 'mongodb'
+import { escapeRegExp } from 'lodash'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { ErrorWithStatus } from '~/models/Errors'
 import Food, { FoodType } from '~/models/schemas/Food.schema'
@@ -18,8 +19,34 @@ type GetFoodsQuery = {
   order?: 'asc' | 'desc'
 }
 
+// Legacy documents have no normalizedName. Match their Vietnamese names in MongoDB
+// before counting/pagination, without loading the catalogue or rewriting old records.
+const VIETNAMESE_LETTERS: Record<string, string> = {
+  a: 'aàáảãạăằắẳẵặâầấẩẫậ',
+  e: 'eèéẻẽẹêềếểễệ',
+  i: 'iìíỉĩị',
+  o: 'oòóỏõọôồốổỗộơờớởỡợ',
+  u: 'uùúủũụưừứửữự',
+  y: 'yỳýỷỹỵ',
+  d: 'dđ'
+}
+
+function legacyNamePattern(normalizedSearch: string) {
+  return Array.from(normalizedSearch)
+    .map((character) => {
+      if (character === ' ') return '\\s+'
+      const letters = VIETNAMESE_LETTERS[character]
+      // Accept both precomposed vowels and decomposed Unicode combining marks.
+      return letters ? `[${letters}][\u0300-\u036f]*` : escapeRegExp(character)
+    })
+    .join('')
+}
+
 class FoodService {
   async getFoods(query: GetFoodsQuery, isAdmin: boolean = false) {
+    if (query.search !== undefined && typeof query.search !== 'string') {
+      throw new ErrorWithStatus({ status: HTTP_STATUS.UNPROCESSABLE_ENTITY, message: 'Từ khóa tìm kiếm phải là chuỗi' })
+    }
     const page = Math.max(1, Number(query.page) || 1)
     const limit = Math.max(1, Number(query.limit) || 10)
     const skip = (page - 1) * limit
@@ -33,12 +60,17 @@ class FoodService {
       match.isActive = true
     }
 
-    // Search theo tên món, không phân biệt hoa thường
-    if (query.search?.trim()) {
-      match.name = {
-        $regex: query.search.trim(),
-        $options: 'i'
-      }
+    const search = normalizeSearchText(query.search || '')
+    if (search) {
+      match.$or = [
+        { normalizedName: { $regex: escapeRegExp(search), $options: 'i' } },
+        {
+          $and: [
+            { $or: [{ normalizedName: { $exists: false } }, { normalizedName: '' }] },
+            { name: { $regex: legacyNamePattern(search), $options: 'i' } }
+          ]
+        }
+      ]
     }
 
     // Filter theo tags: ?tags=Vegan,GlutenFree

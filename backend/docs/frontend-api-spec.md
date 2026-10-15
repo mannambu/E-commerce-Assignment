@@ -454,6 +454,14 @@ Query optional:
 * sortBy: createdAt | price | calories | name  
 * order: asc | desc
 
+**Tìm kiếm tên món — FR-CAT-002:**
+
+* `search` tìm chuỗi con trong tên món, không phân biệt hoa/thường hoặc dấu tiếng Việt; `đ` tương đương `d`. Ví dụ `com ga`, `CƠM GÀ` và `cơm gà` tìm cùng nhóm tên món.
+* Bỏ khoảng trắng đầu/cuối, gộp khoảng trắng liên tiếp trong từ khóa; hỗ trợ chữ tiếng Việt dạng Unicode dựng sẵn và tổ hợp. Từ khóa rỗng hoặc chỉ có khoảng trắng không thêm điều kiện tìm kiếm.
+* Ký tự như `+`, `.`, `(`, `[`, `*`, `?` được tìm như văn bản thông thường, không được thực thi như biểu thức chính quy. `search` phải là một chuỗi; gửi lặp tham số tạo mảng trả HTTP 422.
+* Dùng `normalizedName` đã lưu; món cũ thiếu trường này hoặc có giá trị rỗng được tìm trên `name` với các biến thể dấu tiếng Việt. Không chạy migration hoặc ghi lại món khi tìm kiếm.
+* Điều kiện tìm kiếm được kết hợp với bộ lọc và quyền hiện tại trước khi đếm, sắp xếp, phân trang. Response không đổi; `filters.search` vẫn trả từ khóa gốc. Nhánh dữ liệu cũ có thể phải quét tên món, nên không xem đây là tìm kiếm có bảo đảm hiệu năng cho danh mục lớn.
+
 **Phân quyền (Quan trọng):**
 
 * Nếu Header chứa Token của **Admin**: Trả về TOÀN BỘ thực đơn.  
