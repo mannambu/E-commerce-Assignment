@@ -9,7 +9,7 @@ import User, { AccountStatus, UserRole } from '../../src/models/schemas/User.sch
 import bcrypt from 'bcryptjs'
 
 // Real regex/count/pagination queries against an isolated temporary database, never the project DB.
-test('FR-CAT-001/002/003/006 catalogue on an isolated MongoDB', { timeout: 180000 }, async (t) => {
+test('FR-CAT-001/002/003/004/006/007 catalogue on an isolated MongoDB', { timeout: 180000 }, async (t) => {
   const mongo = await MongoMemoryServer.create()
   t.after(() => mongo.stop())
   process.env.DB_URI = mongo.getUri()
@@ -44,6 +44,82 @@ test('FR-CAT-001/002/003/006 catalogue on an isolated MongoDB', { timeout: 18000
       await database.foods.updateMany({ _id: { $in: legacyIds } }, { $unset: { normalizedName: '' } })
   }
   const ids = (rows: Food[]) => rows.map((row) => String(row._id)).sort()
+
+  await t.test(
+    'personal warnings agree with allergen exclusions and remain independent of stock and filter toggles',
+    async () => {
+      const customer = new User({
+        _id: new ObjectId(),
+        email: 'warnings@example.test',
+        password: 'unused',
+        healthProfile: {
+          gender: 'Female',
+          age: 25,
+          heightCm: 165,
+          weightKg: 60,
+          activityLevel: 'Moderate',
+          goal: 'MaintainWeight',
+          allergies: [' TÔM / dau ', 'shellfish', 'tôm', '[Nut]', '.*', 'Vegan', 'Milk']
+        }
+      })
+      await database.users.insertOne(customer)
+      const shrimp = food('Món tôm', { ingredients: [{ name: 'TÔM tươi', allergyTags: ['SHELLFISH'] }] })
+      const soy = food('Món đậu', { ingredients: [{ name: 'Đậu'.normalize('NFD'), allergyTags: [] }] })
+      const tagged = food('Món gắn nhãn', { tags: ['[Nut]'] })
+      const literal = food('Món ký tự', { ingredients: [{ name: 'Sốt .*', allergyTags: [] }] })
+      const safe = food('Món chay', { tags: ['Vegan'] })
+      await seed([shrimp, soy, tagged, literal, safe])
+      const beforeFoods = await database.foods.find({}).sort({ _id: 1 }).toArray()
+      const beforeUser = await database.users.findOne({ _id: customer._id })
+      const customerId = String(customer._id)
+      const listed = await foods.getFoods({ excludeMyAllergens: 'false' }, false, customerId)
+      assert.equal(listed.filters.personalAllergyFilterApplied, false)
+      assert.equal(listed.pagination.total, 5)
+      for (const item of listed.foods) {
+        const detail = await foods.getFoodById(String(item._id), customerId)
+        assert.deepEqual(item.allergyWarning, detail.allergyWarning)
+        assert.equal(item.allergyWarning.evaluated, true)
+        assert.equal(item.availability.canAddToCart, true, 'A warning must not block adding available food')
+        assert.equal(
+          item.allergyWarning.matchedAllergens.includes('milk'),
+          false,
+          'Do not expose unrelated profile rules'
+        )
+        assert.equal(
+          item.allergyWarning.matchedAllergens.includes('vegan'),
+          false,
+          'Dietary restrictions are not allergens'
+        )
+        // The default filter removes precisely the allergenic items here; the remaining item is Vegan.
+        assert.equal(item.allergyWarning.hasMatch, !item._id!.equals(safe._id!))
+      }
+      const warning = listed.foods.find((item) => item._id!.equals(shrimp._id!))!.allergyWarning
+      assert.deepEqual(warning.matchedAllergens, ['tom', 'shellfish'])
+      assert.deepEqual(warning.matchedIngredients, ['TÔM tươi'])
+      assert.ok(warning.message?.includes('tom, shellfish'))
+      const tagWarning = listed.foods.find((item) => item._id!.equals(tagged._id!))!.allergyWarning
+      assert.deepEqual(tagWarning.matchedAllergens, ['[nut]'])
+      assert.deepEqual(tagWarning.matchedIngredients, [])
+      assert.equal(listed.foods.find((item) => item._id!.equals(safe._id!))!.allergyWarning.message, null)
+      assert.deepEqual(ids((await foods.getFoods({}, false, customerId)).foods), ids([safe]))
+      assert.deepEqual(await database.foods.find({}).sort({ _id: 1 }).toArray(), beforeFoods)
+      assert.deepEqual(await database.users.findOne({ _id: customer._id }), beforeUser)
+      await database.foods.updateOne({ _id: shrimp._id }, { $set: { reservedStock: shrimp.stock } })
+      const soldOut = await foods.getFoodById(String(shrimp._id), customerId)
+      assert.equal(soldOut.allergyWarning.hasMatch, true)
+      assert.equal(soldOut.availability.canAddToCart, false)
+      await database.users.updateOne({ _id: customer._id }, { $set: { 'healthProfile.allergies': ['Vegan'] } })
+      assert.equal((await foods.getFoodById(String(shrimp._id), customerId)).allergyWarning.hasMatch, false)
+      await database.users.updateOne({ _id: customer._id }, { $set: { 'healthProfile.allergies': [] } })
+      assert.deepEqual((await foods.getFoodById(String(shrimp._id), customerId)).allergyWarning, {
+        evaluated: true,
+        hasMatch: false,
+        matchedAllergens: [],
+        matchedIngredients: [],
+        message: null
+      })
+    }
+  )
 
   await t.test('goal and allergen filters compose with search, calories, stock and stable pagination', async () => {
     const options = { goalTags: ['GainMuscle'] as Food['goalTags'], tags: ['LowCarb'], calories: 350 }
@@ -406,13 +482,41 @@ test('FR-CAT-001/002/003/006 catalogue on an isolated MongoDB', { timeout: 18000
     const catalogue = async (token?: string, query = '') => {
       const response = await fetch(`${base}?${query}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       assert.equal(response.status, 200)
+      assert.equal(response.headers.get('cache-control'), 'private, no-store')
       return (await response.json()).result
     }
+    const detail = async (token?: string, query = '', item = shrimp) => {
+      const response = await fetch(`${base}/${item._id}?${query}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      })
+      assert.equal(response.status, 200)
+      assert.equal(response.headers.get('cache-control'), 'private, no-store')
+      return (await response.json()).result
+    }
+    const notEvaluated = {
+      evaluated: false,
+      hasMatch: false,
+      matchedAllergens: [],
+      matchedIngredients: [],
+      message: null
+    }
+    const personalDetail = await detail(tokens.access_token, 'excludeMyAllergens=false')
+    assert.equal(personalDetail.allergyWarning.evaluated, true)
+    assert.equal(personalDetail.allergyWarning.hasMatch, true)
+    assert.deepEqual(personalDetail.allergyWarning.matchedAllergens, ['shellfish'])
+    assert.deepEqual(personalDetail.allergyWarning.matchedIngredients, ['Tôm'])
     const automatic = await catalogue(tokens.access_token)
     assert.deepEqual(ids(automatic.foods), ids([chicken]))
     assert.equal(automatic.filters.excludeMyAllergens, true)
     assert.equal(automatic.filters.personalAllergyFilterApplied, true)
     assert.equal(automatic.pagination.total, 1)
+    assert.equal(automatic.foods[0].allergyWarning.evaluated, true)
+    assert.equal(automatic.foods[0].allergyWarning.hasMatch, false)
+    const unfiltered = await catalogue(tokens.access_token, 'excludeMyAllergens=false')
+    assert.deepEqual(
+      unfiltered.foods.find((item: Food) => String(item._id) === String(shrimp._id)).allergyWarning,
+      personalDetail.allergyWarning
+    )
     assert.deepEqual(
       ids((await catalogue(tokens.access_token, 'excludeMyAllergens=false')).foods),
       ids([shrimp, chicken])
@@ -425,28 +529,48 @@ test('FR-CAT-001/002/003/006 catalogue on an isolated MongoDB', { timeout: 18000
     const anonymous = await catalogue(undefined, `user_id=${customer._id}&customerId=${customer._id}`)
     assert.deepEqual(ids(anonymous.foods), ids([shrimp, chicken]))
     assert.equal(anonymous.filters.personalAllergyFilterApplied, false)
+    assert.deepEqual(anonymous.foods[0].allergyWarning, notEvaluated)
+    assert.deepEqual(
+      (await detail(undefined, `user_id=${customer._id}&customerId=${customer._id}`)).allergyWarning,
+      notEvaluated
+    )
     const otherTokens = await users.login({ identifier: other.email, password })
     assert.equal((await catalogue(otherTokens.access_token)).filters.personalAllergyFilterApplied, false)
     assert.equal((await catalogue(otherTokens.access_token, `user_id=${customer._id}`)).pagination.total, 2)
+    assert.deepEqual((await detail(otherTokens.access_token, `user_id=${customer._id}`)).allergyWarning, notEvaluated)
     const adminTokens = await users.login({ identifier: admin.email, password })
     const adminList = await catalogue(adminTokens.access_token)
     assert.deepEqual(ids(adminList.foods), ids([shrimp, chicken, hidden]))
     assert.equal(adminList.filters.personalAllergyFilterApplied, false)
+    assert.deepEqual(adminList.foods[0].allergyWarning, notEvaluated)
+    assert.deepEqual((await detail(adminTokens.access_token)).allergyWarning, notEvaluated)
+    assert.equal(
+      (await fetch(`${base}/${hidden._id}`, { headers: { Authorization: `Bearer ${adminTokens.access_token}` } }))
+        .status,
+      404
+    )
     const managerTokens = await users.login({ identifier: manager.email, password })
     assert.equal((await catalogue(managerTokens.access_token)).pagination.total, 2)
+    assert.deepEqual((await detail(managerTokens.access_token)).allergyWarning, notEvaluated)
     // Read the current profile each request, with no token refresh or persistent preference needed.
     await database.users.updateOne({ _id: customer._id }, { $set: { 'healthProfile.allergies': [] } })
     assert.equal((await catalogue(tokens.access_token)).pagination.total, 2)
+    assert.equal((await detail(tokens.access_token)).allergyWarning.evaluated, true)
+    assert.equal((await detail(tokens.access_token)).allergyWarning.hasMatch, false)
     await database.users.updateOne({ _id: customer._id }, { $set: { 'healthProfile.allergies': ['Tôm'] } })
     assert.equal((await catalogue(tokens.access_token)).pagination.total, 1)
+    assert.deepEqual((await detail(tokens.access_token)).allergyWarning.matchedAllergens, ['tom'])
     await database.users.updateOne({ _id: customer._id }, { $set: { account_status: AccountStatus.LOCKED } })
     assert.equal((await catalogue(tokens.access_token)).filters.personalAllergyFilterApplied, false)
+    assert.deepEqual((await detail(tokens.access_token)).allergyWarning, notEvaluated)
     await database.users.updateOne({ _id: customer._id }, { $set: { account_status: AccountStatus.ACTIVE } })
     await users.logout(tokens.refresh_token)
     for (const token of [tokens.access_token, 'invalid-token']) {
       const result = await catalogue(token)
       assert.equal(result.pagination.total, 2)
       assert.equal(result.filters.personalAllergyFilterApplied, false)
+      assert.deepEqual(result.foods[0].allergyWarning, notEvaluated)
+      assert.deepEqual((await detail(token)).allergyWarning, notEvaluated)
     }
   })
 })

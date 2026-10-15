@@ -2,7 +2,7 @@
 
 Tài liệu này tổng hợp API thực tế từ source code backend hiện tại, bao gồm Admin Dashboard, E-commerce (Food/Combo), Tracking và Upload.
 
-Cập nhật ngày **04/10/2026**, đối chiếu routes, middleware, controller và service. Các mục dưới đây mô tả hành vi đã có; phần chưa triển khai được ghi ở cuối tài liệu.
+Cập nhật nhóm Foods đến **15/10/2026** (FR-CAT-001/002/003/004/006/007). Các mục dưới đây mô tả hành vi đã có; phần chưa triển khai được ghi ở cuối tài liệu. Các điểm lệch tài liệu của nhóm khác trong đợt rà soát vẫn cần đồng bộ riêng.
 
 Các thay đổi frontend cần tiếp nhận:
 
@@ -468,11 +468,11 @@ Query optional:
 **Phân quyền (Quan trọng):**
 
 * Nếu Header chứa Token của **Admin** còn hiệu lực: Được xem cả món ẩn và hết hàng để quản trị; vẫn áp dụng bộ lọc và phân trang đã yêu cầu.
-* Nếu không có token, token đã hết hạn/thu hồi, tài khoản bị khóa hoặc user là **Customer/Manager**: Chỉ trả về món đang bán (`isActive: true`) và còn tồn kho khả dụng (`stock - reservedStock > 0`). Dữ liệu cũ thiếu `reservedStock` được coi là chưa giữ hàng (`0`). Quyền Admin chỉ được cấp sau khi kiểm tra JWT + phiên + role/tokenVersion hiện tại trong DB. Cảnh báo dị ứng cá nhân còn cần hoàn thiện theo US-13.
+* Nếu không có token, token đã hết hạn/thu hồi, tài khoản bị khóa hoặc user là **Customer/Manager**: Chỉ trả về món đang bán (`isActive: true`) và còn tồn kho khả dụng (`stock - reservedStock > 0`). Dữ liệu cũ thiếu `reservedStock` được coi là chưa giữ hàng (`0`). Quyền Admin chỉ được cấp sau khi kiểm tra JWT + phiên + role/tokenVersion hiện tại trong DB. Cảnh báo dị ứng cá nhân được mô tả bên dưới.
 
 **Bộ lọc — FR-CAT-003:**
 
-* Theo xác nhận nghiệp vụ, `excludeMyAllergens` **bật mặc định**. Với phiên **Customer** hợp lệ, BE đọc `healthProfile.allergies` mới nhất và loại trừ món phù hợp với bất kỳ dị ứng nào trước khi đếm/phân trang. Không nhận danh tính khách từ query; không trả hồ sơ dị ứng trong response.
+* Theo xác nhận nghiệp vụ, `excludeMyAllergens` **bật mặc định**. Với phiên **Customer** hợp lệ, BE đọc `healthProfile.allergies` mới nhất và loại trừ món phù hợp với bất kỳ dị ứng nào trước khi đếm/phân trang. Không nhận danh tính khách từ query; không trả toàn bộ hồ sơ dị ứng trong response, chỉ trả các giá trị trùng món trong `allergyWarning`.
 * Gửi `excludeMyAllergens=false` để bỏ bộ lọc cá nhân cho request đó. Không lưu lựa chọn vào hồ sơ; request kế tiếp thiếu tham số lại dùng mặc định `true`. `excludeAllergens` là bộ lọc nhập trực tiếp, vẫn có hiệu lực khi tắt bộ lọc cá nhân; khi cả hai bật thì loại trừ theo hợp của hai danh sách.
 * Khách vãng lai, token không hợp lệ, Customer chưa có hồ sơ/danh sách dị ứng rỗng, Admin và Manager không áp dụng dị ứng cá nhân. Bộ lọc nhập trực tiếp vẫn dùng được cho các trường hợp này. Giữ cách xử lý optional auth hiện có: token không hợp lệ được xem như khách vãng lai.
 * `filters.excludeMyAllergens` cho biết trạng thái bật/tắt được yêu cầu; `filters.personalAllergyFilterApplied` chỉ là `true` khi thực sự có quy tắc dị ứng từ hồ sơ Customer được áp dụng. FE không được suy ra đã áp dụng hồ sơ chỉ từ giá trị mặc định `true`.
@@ -481,7 +481,32 @@ Query optional:
 * Khoảng giá/calo gồm cả hai đầu mút, phải là số hữu hạn không âm và min không lớn hơn max. Chuỗi rỗng ở bốn tham số khoảng vẫn được xem là không đặt cận để tương thích API cũ.
 * Sắp xếp thêm `_id` cùng chiều làm tiêu chí phụ khi giá/calo/tên/ngày tạo bằng nhau, giúp phân trang ổn định khi dữ liệu không đổi. Trang vượt tổng số trang trả danh sách rỗng và giữ tổng số kết quả đúng.
 * Tham số đã liệt kê phải là chuỗi đơn; gửi lặp thành mảng, page/limit sai, khoảng sai, goalTags/sortBy/order không hợp lệ hoặc excludeMyAllergens khác `true`/`false` trả **422**. Bộ lọc tìm kiếm, mục tiêu, dị ứng, calo, giá và tồn kho đều áp dụng trong MongoDB trước count/skip/limit.
-* Phạm vi đợt này chỉ BE: lọc danh mục không thay API chi tiết, không tự chặn thêm giỏ theo dị ứng; dữ liệu cảnh báo cá nhân cho FR-CAT-004/007 sẽ xử lý ở phần riêng.
+* Lọc danh mục không tự chặn xem chi tiết hoặc thêm giỏ theo dị ứng. API chi tiết bổ sung cảnh báo theo FR-CAT-007 nhưng vẫn cho đọc món đang bán kể cả khi trùng dị ứng.
+
+**Cảnh báo dị ứng — FR-CAT-004/007 (BE):**
+
+Mỗi món trong `result.foods[]` và `result` của GET chi tiết đều có cùng cấu trúc:
+
+```json
+{
+  "allergyWarning": {
+    "evaluated": true,
+    "hasMatch": true,
+    "matchedAllergens": ["shellfish"],
+    "matchedIngredients": ["Tôm"],
+    "message": "Món có thành phần trùng dị ứng của bạn: shellfish"
+  }
+}
+```
+
+* `evaluated=true` khi có phiên Customer hợp lệ và hồ sơ có danh sách `allergies` (kể cả mảng rỗng). Khách vãng lai, token không hợp lệ, Admin/Manager hoặc chưa khai hồ sơ trả `evaluated=false`, `hasMatch=false`, hai mảng rỗng và `message=null`. Không diễn giải trường hợp chưa đối chiếu thành kết luận không có dị ứng.
+* `hasMatch=true` khi ít nhất một dị ứng trong hồ sơ trùng `ingredients.allergyTags`, tên nguyên liệu hoặc `tags` của món. Dùng cùng cách so khớp literal, chuỗi con, có/không dấu và Unicode như FR-CAT-003. `matchedAllergens` là các giá trị đã chuẩn hóa, loại trùng; chỉ trả dị ứng khớp món, không trả phần hồ sơ không liên quan. `matchedIngredients` là tên nguyên liệu khớp (không lặp); có thể rỗng nếu chỉ khớp tag cấp món.
+* `Vegan`/`ăn chay` lưu trong hồ sơ cũ vẫn áp dụng quy tắc loại trừ của FR-CAT-003, nhưng không được mô tả thành dị ứng trong `allergyWarning`. Không thêm `dietaryRestrictions` hoặc từ đồng nghĩa vào cảnh báo.
+* `excludeMyAllergens=false` chỉ tắt loại trừ danh mục; cảnh báo vẫn được tính. Tham số `excludeAllergens` nhập trực tiếp chỉ dùng lọc, không thay hồ sơ dùng để cảnh báo. GET chi tiết không dùng các query lọc của danh mục; mở thẳng món vẫn nhận cảnh báo nếu có phiên Customer hợp lệ.
+* `hasMatch=false` khi không tìm thấy khớp thì `matchedAllergens=[]`, `matchedIngredients=[]`, `message=null`. `allergyWarning` độc lập với `availability`: món hết hàng vẫn có thể có cảnh báo; có cảnh báo không tự làm `canAddToCart=false` và không bổ sung quy tắc chặn giỏ/checkout.
+* Hồ sơ được đọc lại mỗi request, cảnh báo chỉ tính khi trả response; không lưu thêm vào Food, không migration. Hai GET trả `Cache-Control: private, no-store` vì response có thể chứa thông tin cá nhân. FE cần bỏ dữ liệu cá nhân cũ khi đổi tài khoản/đăng xuất hoặc tải lại sau khi sửa dị ứng.
+* Optional auth có thể trả **200** nhưng `evaluated=false` khi access token hết hạn/thu hồi. FE cần duy trì phiên hợp lệ để nhận cảnh báo cá nhân; không dựa riêng vào interceptor đợi 401 từ hai GET này.
+* FE sử dụng `hasMatch` và `message` để hiển thị nhãn/icon/chữ màu đỏ ở danh mục và banner đầu trang chi tiết. Đợt này chỉ hoàn thiện BE; chưa chỉnh sửa giao diện.
 
 **Tồn kho danh mục — FR-CAT-001/006:** Điều kiện còn hàng được lọc trong MongoDB trước khi đếm và phân trang; không lọc bỏ món sau khi đã lấy một trang. Món đã được giữ hết cũng được coi là hết hàng đối với khách. Các trường `images`, `name`, `calories`, `price`, `goalTags` được giữ nguyên để hiển thị thẻ món. Mỗi phần tử trong `result.foods` bổ sung `availability` như API chi tiết bên dưới; dữ liệu này được tính khi đọc, không lưu thêm vào DB. Không tự đổi `isActive` vì hết hàng: khi nhả giữ kho hoặc bổ sung hàng, món đang bán sẽ xuất hiện lại ở lần đọc tiếp theo.
 
@@ -512,7 +537,9 @@ Response:
 
 ### **GET /foods/:food_id**
 
-Response: `{ message, result: food }`. Giữ nguyên các trường hiện có, bổ sung:
+API công khai với optional auth: có token Customer hợp lệ thì đối chiếu dị ứng cá nhân, thiếu/sai token vẫn đọc được món đang bán. Admin vẫn không xem được món ẩn qua endpoint này. ID sai định dạng trả 422; món không tồn tại hoặc bị ẩn trả 404.
+
+Response: `{ message, result: food }`. Giữ nguyên các trường hiện có, bổ sung `allergyWarning` theo cấu trúc bên trên và `availability`:
 
 ```json
 {

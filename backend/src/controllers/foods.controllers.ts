@@ -16,6 +16,7 @@ export const getFoodsController = async (req: Request, res: Response) => {
     req.decoded_authorization?.role === UserRole.CUSTOMER ? req.decoded_authorization.user_id : undefined
   const result = await foodService.getFoods(req.query, isAdmin, customerId)
 
+  res.set('Cache-Control', 'private, no-store')
   return res.status(HTTP_STATUS.OK).json({
     message: 'Lấy danh sách món ăn thành công',
     result
@@ -23,8 +24,11 @@ export const getFoodsController = async (req: Request, res: Response) => {
 }
 
 export const getFoodDetailController = async (req: Request<FoodParams>, res: Response) => {
-  const result = await foodService.getFoodById(req.params.food_id)
+  const customerId =
+    req.decoded_authorization?.role === UserRole.CUSTOMER ? req.decoded_authorization.user_id : undefined
+  const result = await foodService.getFoodById(req.params.food_id, customerId)
 
+  res.set('Cache-Control', 'private, no-store')
   return res.status(HTTP_STATUS.OK).json({
     message: 'Lấy chi tiết món ăn thành công',
     result

@@ -25,7 +25,12 @@ foodsRouter.get('/', optionalAccessTokenValidator, wrapRequestHandler(getFoodsCo
  * Method: GET
  * Params: { food_id: string }
  */
-foodsRouter.get('/:food_id', getFoodDetailValidator, wrapRequestHandler(getFoodDetailController))
+foodsRouter.get(
+  '/:food_id',
+  getFoodDetailValidator,
+  optionalAccessTokenValidator,
+  wrapRequestHandler(getFoodDetailController)
+)
 
 /**
  * Description. Create a new food item (CHỈ ADMIN MỚI ĐƯỢC TẠO)

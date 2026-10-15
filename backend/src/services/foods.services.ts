@@ -59,7 +59,66 @@ function withAvailability(food: Food) {
   }
 }
 
+type AllergyContext = { evaluated: boolean; rules: string[] }
+
+const isVeganRule = (rule: string) => ['vegan', 'an chay'].includes(rule)
+
+// Use the same literal, accent-insensitive pattern for MongoDB filtering and response warnings.
+function allergenPatterns(rules: string[]) {
+  return rules
+    .filter((rule) => !isVeganRule(rule))
+    .map((allergen) => ({
+      allergen,
+      pattern: new RegExp(legacyNamePattern(allergen), 'i')
+    }))
+}
+
+function allergyWarning(food: Food, context: AllergyContext) {
+  const matchedIngredients = new Set<string>()
+  const matchedAllergens: string[] = []
+  for (const { allergen, pattern } of allergenPatterns(context.rules)) {
+    let matched = (food.tags ?? []).some((tag) => pattern.test(tag))
+    for (const ingredient of food.ingredients ?? []) {
+      if ([ingredient.name, ...(ingredient.allergyTags ?? [])].some((value) => pattern.test(value))) {
+        matched = true
+        matchedIngredients.add(ingredient.name)
+      }
+    }
+    if (matched) matchedAllergens.push(allergen)
+  }
+  return {
+    evaluated: context.evaluated,
+    hasMatch: matchedAllergens.length > 0,
+    matchedAllergens,
+    matchedIngredients: [...matchedIngredients],
+    message:
+      matchedAllergens.length > 0 ? `Món có thành phần trùng dị ứng của bạn: ${matchedAllergens.join(', ')}` : null
+  }
+}
+
 class FoodService {
+  private async getAllergyContext(customerId?: string): Promise<AllergyContext> {
+    // Identity comes from a validated Customer session, never a query/body field.
+    const customer = customerId
+      ? await databaseService.users.findOne(
+          { _id: new ObjectId(customerId), role: UserRole.CUSTOMER },
+          { projection: { 'healthProfile.allergies': 1 } }
+        )
+      : null
+    const allergies = customer?.healthProfile?.allergies
+    return {
+      evaluated: Array.isArray(allergies),
+      rules: [
+        ...new Set(
+          (allergies ?? [])
+            .flatMap((rule) => rule.split(/[,/]/))
+            .map(normalizeSearchText)
+            .filter(Boolean)
+        )
+      ]
+    }
+  }
+
   async getFoods(query: GetFoodsQuery, isAdmin: boolean = false, customerId?: string) {
     const invalid = (message: string): never => {
       throw new ErrorWithStatus({ status: HTTP_STATUS.UNPROCESSABLE_ENTITY, message })
@@ -125,18 +184,9 @@ class FoodService {
       invalid('excludeMyAllergens phải là true hoặc false')
     }
     const excludeMyAllergens = query.excludeMyAllergens !== 'false'
-    // Identity is supplied only by the controller after session validation, never from query parameters.
-    const customer =
-      excludeMyAllergens && customerId && !isAdmin
-        ? await databaseService.users.findOne(
-            { _id: new ObjectId(customerId), role: UserRole.CUSTOMER },
-            { projection: { 'healthProfile.allergies': 1 } }
-          )
-        : null
-    const personalRules = (customer?.healthProfile?.allergies || [])
-      .flatMap((rule) => rule.split(/[,/]/))
-      .map(normalizeSearchText)
-      .filter(Boolean)
+    // Turning off exclusion must not turn off personal warnings.
+    const allergyContext = await this.getAllergyContext(isAdmin ? undefined : customerId)
+    const personalRules = excludeMyAllergens ? allergyContext.rules : []
     const excludedRules = [
       ...new Set([...csv(query.excludeAllergens).map(normalizeSearchText), ...personalRules])
     ].filter(Boolean)
@@ -153,11 +203,10 @@ class FoodService {
     if (excludedRules.length) {
       // Keep legacy free-text ingredient matching, with literal Vietnamese-aware patterns.
       // Old profiles may store the vegan restriction in allergies.
-      const vegan = excludedRules.some((rule) => ['vegan', 'an chay'].includes(rule))
-      const allergens = excludedRules.filter((rule) => !['vegan', 'an chay'].includes(rule))
+      const vegan = excludedRules.some(isVeganRule)
+      const patterns = allergenPatterns(excludedRules).map(({ pattern }) => pattern)
       if (vegan) match.$and = [{ tags: { $in: [/^vegan$/i] } }]
-      if (allergens.length) {
-        const patterns = allergens.map((rule) => new RegExp(legacyNamePattern(rule), 'i'))
+      if (patterns.length) {
         match.$nor = [
           { 'ingredients.allergyTags': { $in: patterns } },
           { 'ingredients.name': { $in: patterns } },
@@ -236,7 +285,7 @@ class FoodService {
     ])
 
     return {
-      foods: foods.map(withAvailability),
+      foods: foods.map((food) => ({ ...withAvailability(food), allergyWarning: allergyWarning(food, allergyContext) })),
       pagination: {
         page,
         limit,
@@ -260,7 +309,7 @@ class FoodService {
     }
   }
 
-  async getFoodById(food_id: string) {
+  async getFoodById(food_id: string, customerId?: string) {
     if (!ObjectId.isValid(food_id)) {
       throw new ErrorWithStatus({
         message: 'Food ID không hợp lệ',
@@ -281,7 +330,8 @@ class FoodService {
     }
 
     // An active but sold-out item remains readable by direct URL.
-    return withAvailability(food)
+    const allergyContext = await this.getAllergyContext(customerId)
+    return { ...withAvailability(food), allergyWarning: allergyWarning(food, allergyContext) }
   }
 
   async createFood(payload: FoodType) {
