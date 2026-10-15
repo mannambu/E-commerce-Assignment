@@ -73,7 +73,7 @@ Một số endpoint auth trả về trực tiếp object (không có result), v�
 - Tài khoản SHA-256 đã import được nâng cấp sang Bcrypt khi đăng nhập đúng; cấu hình pepper cũ do backend quản lý.
 - Access/refresh JWT có `user_id`, `role`, `status`, `sessionId`, `tokenVersion`, `iat`, `exp`, `token_type`; refresh có thêm `jti`. Frontend không tự thay đổi các field này.
 - Middleware xác thực kiểm tra chữ ký, loại token, tài khoản Active, role/version hiện tại và phiên chưa thu hồi/chưa hết hạn. Token cũ thiếu liên kết phiên trả 401; yêu cầu đăng nhập lại.
-- `role` giúp frontend chọn giao diện; quyền thực tế được backend kiểm tra. Ngoại lệ còn tồn tại ở optional auth của `GET /foods` được ghi tại mục Foods.
+- `role` giúp frontend chọn giao diện; quyền thực tế được backend kiểm tra. `GET /foods` cũng xác thực phiên trước khi cấp quyền Admin hoặc áp dụng hồ sơ cá nhân.
 
 ### **POST /users/register**
 
@@ -446,9 +446,12 @@ Upload một file ảnh lên hệ thống (được lưu trữ trực tiếp tr�
 
 Query optional:
 
-* page, limit  
+* page, limit (mặc định 1 và 10; số nguyên dương, limit tối đa 100)
 * search  
 * tags (CSV, ví dụ Vegan,LowCarb)  
+* goalTags (CSV: LoseFat,GainMuscle,MaintainWeight)
+* excludeAllergens (CSV các dị ứng cần loại trừ, ví dụ Shellfish,Milk)
+* excludeMyAllergens: true | false (mặc định true)
 * minPrice, maxPrice  
 * minCalories, maxCalories  
 * sortBy: createdAt | price | calories | name  
@@ -467,6 +470,19 @@ Query optional:
 * Nếu Header chứa Token của **Admin** còn hiệu lực: Được xem cả món ẩn và hết hàng để quản trị; vẫn áp dụng bộ lọc và phân trang đã yêu cầu.
 * Nếu không có token, token đã hết hạn/thu hồi, tài khoản bị khóa hoặc user là **Customer/Manager**: Chỉ trả về món đang bán (`isActive: true`) và còn tồn kho khả dụng (`stock - reservedStock > 0`). Dữ liệu cũ thiếu `reservedStock` được coi là chưa giữ hàng (`0`). Quyền Admin chỉ được cấp sau khi kiểm tra JWT + phiên + role/tokenVersion hiện tại trong DB. Cảnh báo dị ứng cá nhân còn cần hoàn thiện theo US-13.
 
+**Bộ lọc — FR-CAT-003:**
+
+* Theo xác nhận nghiệp vụ, `excludeMyAllergens` **bật mặc định**. Với phiên **Customer** hợp lệ, BE đọc `healthProfile.allergies` mới nhất và loại trừ món phù hợp với bất kỳ dị ứng nào trước khi đếm/phân trang. Không nhận danh tính khách từ query; không trả hồ sơ dị ứng trong response.
+* Gửi `excludeMyAllergens=false` để bỏ bộ lọc cá nhân cho request đó. Không lưu lựa chọn vào hồ sơ; request kế tiếp thiếu tham số lại dùng mặc định `true`. `excludeAllergens` là bộ lọc nhập trực tiếp, vẫn có hiệu lực khi tắt bộ lọc cá nhân; khi cả hai bật thì loại trừ theo hợp của hai danh sách.
+* Khách vãng lai, token không hợp lệ, Customer chưa có hồ sơ/danh sách dị ứng rỗng, Admin và Manager không áp dụng dị ứng cá nhân. Bộ lọc nhập trực tiếp vẫn dùng được cho các trường hợp này. Giữ cách xử lý optional auth hiện có: token không hợp lệ được xem như khách vãng lai.
+* `filters.excludeMyAllergens` cho biết trạng thái bật/tắt được yêu cầu; `filters.personalAllergyFilterApplied` chỉ là `true` khi thực sự có quy tắc dị ứng từ hồ sơ Customer được áp dụng. FE không được suy ra đã áp dụng hồ sơ chỉ từ giá trị mặc định `true`.
+* Đối chiếu văn bản dị ứng với `ingredients.allergyTags`, tên nguyên liệu và `tags`, không phân biệt hoa/thường hoặc dấu tiếng Việt; so khớp chuỗi con và coi ký tự regex là văn bản thường. Giữ tương thích hồ sơ cũ dùng dấu phẩy/dấu `/` để tách quy tắc và lưu `Vegan`/`ăn chay` trong allergies: quy tắc này chỉ giữ món có tag `Vegan`. Không tự dịch tên dị ứng hay bổ sung từ đồng nghĩa. Không tự thêm `dietaryRestrictions` vào bộ lọc dị ứng.
+* `goalTags` lọc theo trường mục tiêu của món, khớp ít nhất một giá trị trong CSV. Không tự dùng mục tiêu hồ sơ để giới hạn danh mục. `tags` giữ hành vi cũ, khớp ít nhất một tag; các nhóm bộ lọc kết hợp bằng AND.
+* Khoảng giá/calo gồm cả hai đầu mút, phải là số hữu hạn không âm và min không lớn hơn max. Chuỗi rỗng ở bốn tham số khoảng vẫn được xem là không đặt cận để tương thích API cũ.
+* Sắp xếp thêm `_id` cùng chiều làm tiêu chí phụ khi giá/calo/tên/ngày tạo bằng nhau, giúp phân trang ổn định khi dữ liệu không đổi. Trang vượt tổng số trang trả danh sách rỗng và giữ tổng số kết quả đúng.
+* Tham số đã liệt kê phải là chuỗi đơn; gửi lặp thành mảng, page/limit sai, khoảng sai, goalTags/sortBy/order không hợp lệ hoặc excludeMyAllergens khác `true`/`false` trả **422**. Bộ lọc tìm kiếm, mục tiêu, dị ứng, calo, giá và tồn kho đều áp dụng trong MongoDB trước count/skip/limit.
+* Phạm vi đợt này chỉ BE: lọc danh mục không thay API chi tiết, không tự chặn thêm giỏ theo dị ứng; dữ liệu cảnh báo cá nhân cho FR-CAT-004/007 sẽ xử lý ở phần riêng.
+
 **Tồn kho danh mục — FR-CAT-001/006:** Điều kiện còn hàng được lọc trong MongoDB trước khi đếm và phân trang; không lọc bỏ món sau khi đã lấy một trang. Món đã được giữ hết cũng được coi là hết hàng đối với khách. Các trường `images`, `name`, `calories`, `price`, `goalTags` được giữ nguyên để hiển thị thẻ món. Mỗi phần tử trong `result.foods` bổ sung `availability` như API chi tiết bên dưới; dữ liệu này được tính khi đọc, không lưu thêm vào DB. Không tự đổi `isActive` vì hết hàng: khi nhả giữ kho hoặc bổ sung hàng, món đang bán sẽ xuất hiện lại ở lần đọc tiếp theo.
 
 Response:
@@ -479,6 +495,10 @@ Response:
     "filters": {  
       "search": "",  
       "tags": "",  
+      "goalTags": "",
+      "excludeAllergens": "",
+      "excludeMyAllergens": true,
+      "personalAllergyFilterApplied": false,
       "minPrice": "",  
       "maxPrice": "",  
       "minCalories": "",  

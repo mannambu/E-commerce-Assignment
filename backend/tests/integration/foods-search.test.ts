@@ -5,13 +5,17 @@ import { MongoMemoryServer } from 'mongodb-memory-server'
 import express from 'express'
 import type { AddressInfo } from 'node:net'
 import Food from '../../src/models/schemas/Food.schema'
+import User, { AccountStatus, UserRole } from '../../src/models/schemas/User.schema'
+import bcrypt from 'bcryptjs'
 
 // Real regex/count/pagination queries against an isolated temporary database, never the project DB.
-test('FR-CAT-001/002/006 catalogue and food availability on an isolated MongoDB', { timeout: 180000 }, async (t) => {
+test('FR-CAT-001/002/003/006 catalogue on an isolated MongoDB', { timeout: 180000 }, async (t) => {
   const mongo = await MongoMemoryServer.create()
   t.after(() => mongo.stop())
   process.env.DB_URI = mongo.getUri()
   process.env.DB_NAME = `food_search_test_${new ObjectId()}`
+  process.env.JWT_SECRET_ACCESS_TOKEN = 'isolated-catalogue-access-test-secret'
+  process.env.JWT_SECRET_REFRESH_TOKEN = 'isolated-catalogue-refresh-test-secret'
   const database = (await import('../../src/services/database.services')).default
   t.after(() => database.close())
   const foods = (await import('../../src/services/foods.services')).default
@@ -40,6 +44,66 @@ test('FR-CAT-001/002/006 catalogue and food availability on an isolated MongoDB'
       await database.foods.updateMany({ _id: { $in: legacyIds } }, { $unset: { normalizedName: '' } })
   }
   const ids = (rows: Food[]) => rows.map((row) => String(row._id)).sort()
+
+  await t.test('goal and allergen filters compose with search, calories, stock and stable pagination', async () => {
+    const options = { goalTags: ['GainMuscle'] as Food['goalTags'], tags: ['LowCarb'], calories: 350 }
+    const first = food('Cơm gà A', options)
+    const second = food('Cơm gà B', options)
+    const allergenic = food('Cơm gà tôm', {
+      ...options,
+      ingredients: [{ name: 'Sốt', allergyTags: ['Shellfish'] }]
+    })
+    await seed([
+      second,
+      first,
+      allergenic,
+      food('Cơm gà chỉ có tag thường', { tags: ['GainMuscle', 'LowCarb'] }),
+      food('Cơm gà nhiều calo', { ...options, calories: 600 }),
+      food('Cơm gà hết', { ...options, stock: 0 }),
+      food('Cơm gà ẩn', { ...options, isActive: false })
+    ])
+    const query = {
+      search: 'com ga',
+      goalTags: 'GainMuscle,GainMuscle',
+      tags: 'LowCarb',
+      excludeAllergens: 'Shellfish',
+      minCalories: '350',
+      maxCalories: '350',
+      sortBy: 'calories',
+      limit: '1'
+    }
+    const page1 = await foods.getFoods(query)
+    const page2 = await foods.getFoods({ ...query, page: '2' })
+    assert.deepEqual(ids(page1.foods), ids([first]))
+    assert.deepEqual(ids(page2.foods), ids([second]))
+    assert.deepEqual(page1.pagination, { page: 1, limit: 1, total: 2, total_pages: 2 })
+    assert.equal(page1.filters.goalTags, 'GainMuscle')
+    assert.deepEqual(ids((await foods.getFoods({ ...query, order: 'desc' })).foods), ids([second]))
+    assert.equal((await foods.getFoods({ ...query, page: '3' })).foods.length, 0)
+    assert.equal((await foods.getFoods({ goalTags: 'LoseFat,GainMuscle' })).pagination.total, 4)
+  })
+
+  await t.test(
+    'allergen text is literal, handles Vietnamese names and tags, and preserves legacy vegan rules',
+    async () => {
+      const shrimp = food('Món tôm', { ingredients: [{ name: 'TÔM', allergyTags: [] }] })
+      const decomposed = food('Món đậu', { ingredients: [{ name: 'Đậu'.normalize('NFD'), allergyTags: [] }] })
+      const tagged = food('Món gắn nhãn', { tags: ['Shellfish'] })
+      const safe = food('Món chay', { tags: ['Vegan'] })
+      const literal = food('Món ký tự', { ingredients: [{ name: 'A+B', allergyTags: ['[Nut]'] }] })
+      await seed([shrimp, decomposed, tagged, safe, literal])
+      assert.deepEqual(
+        ids((await foods.getFoods({ excludeAllergens: 'tom,dau,shellfish' })).foods),
+        ids([safe, literal])
+      )
+      assert.deepEqual(
+        ids((await foods.getFoods({ excludeAllergens: '[Nut]' })).foods),
+        ids([shrimp, decomposed, tagged, safe])
+      )
+      assert.equal((await foods.getFoods({ excludeAllergens: '.*' })).pagination.total, 5)
+      assert.deepEqual(ids((await foods.getFoods({ excludeAllergens: 'ăn chay' })).foods), ids([safe]))
+    }
+  )
 
   await t.test(
     'accented, unaccented, uppercase, whitespace and decomposed queries find modern and legacy names',
@@ -274,5 +338,115 @@ test('FR-CAT-001/002/006 catalogue and food availability on an isolated MongoDB'
     }
     assert.equal((await fetch(`${base}/${hidden._id}`)).status, 404)
     assert.equal((await fetch(`${base}?search=com&search=ga`)).status, 422)
+
+    for (const query of [
+      'page=0',
+      'page=-1',
+      'page=1.5',
+      'page=Infinity',
+      'page=9007199254740992',
+      'page=9007199254740991&limit=100',
+      'limit=0',
+      'limit=101',
+      'limit=abc',
+      'minPrice=-1',
+      'maxPrice=NaN',
+      'minCalories=Infinity',
+      'maxCalories=0xFF',
+      'minCalories=500&maxCalories=400',
+      'minPrice=2&maxPrice=1',
+      'goalTags=Unknown',
+      'sortBy=password',
+      'order=up',
+      'excludeMyAllergens=0',
+      'tags=A&tags=B',
+      'goalTags=LoseFat&goalTags=GainMuscle',
+      'excludeAllergens=Milk&excludeAllergens=Egg',
+      'excludeMyAllergens=true&excludeMyAllergens=false'
+    ]) {
+      assert.equal((await fetch(`${base}?${query}`)).status, 422, query)
+    }
+
+    const shrimp = food('Tôm hấp', { ingredients: [{ name: 'Tôm', allergyTags: ['Shellfish'] }] })
+    const chicken = food('Cơm gà')
+    await seed([shrimp, chicken, hidden])
+    const password = 'Catalogue123!'
+    const customer = new User({
+      _id: new ObjectId(),
+      email: 'catalogue@example.test',
+      password: await bcrypt.hash(password, 4),
+      healthProfile: {
+        gender: 'Male',
+        age: 25,
+        heightCm: 170,
+        weightKg: 65,
+        activityLevel: 'Moderate',
+        goal: 'GainMuscle',
+        allergies: ['Shellfish']
+      }
+    })
+    const other = new User({ _id: new ObjectId(), email: 'other@example.test', password: customer.password })
+    const admin = new User({
+      _id: new ObjectId(),
+      email: 'admin@example.test',
+      password: customer.password,
+      role: UserRole.ADMIN,
+      healthProfile: customer.healthProfile
+    })
+    const manager = new User({
+      _id: new ObjectId(),
+      email: 'manager@example.test',
+      password: customer.password,
+      role: UserRole.MANAGER,
+      healthProfile: customer.healthProfile
+    })
+    await database.users.insertMany([customer, other, admin, manager])
+    const users = (await import('../../src/services/user.services')).default
+    const tokens = await users.login({ identifier: customer.email, password })
+    const catalogue = async (token?: string, query = '') => {
+      const response = await fetch(`${base}?${query}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      assert.equal(response.status, 200)
+      return (await response.json()).result
+    }
+    const automatic = await catalogue(tokens.access_token)
+    assert.deepEqual(ids(automatic.foods), ids([chicken]))
+    assert.equal(automatic.filters.excludeMyAllergens, true)
+    assert.equal(automatic.filters.personalAllergyFilterApplied, true)
+    assert.equal(automatic.pagination.total, 1)
+    assert.deepEqual(
+      ids((await catalogue(tokens.access_token, 'excludeMyAllergens=false')).foods),
+      ids([shrimp, chicken])
+    )
+    // The switch disables only profile rules, not an explicitly requested allergen filter.
+    assert.deepEqual(
+      ids((await catalogue(tokens.access_token, 'excludeMyAllergens=false&excludeAllergens=tom')).foods),
+      ids([chicken])
+    )
+    const anonymous = await catalogue(undefined, `user_id=${customer._id}&customerId=${customer._id}`)
+    assert.deepEqual(ids(anonymous.foods), ids([shrimp, chicken]))
+    assert.equal(anonymous.filters.personalAllergyFilterApplied, false)
+    const otherTokens = await users.login({ identifier: other.email, password })
+    assert.equal((await catalogue(otherTokens.access_token)).filters.personalAllergyFilterApplied, false)
+    assert.equal((await catalogue(otherTokens.access_token, `user_id=${customer._id}`)).pagination.total, 2)
+    const adminTokens = await users.login({ identifier: admin.email, password })
+    const adminList = await catalogue(adminTokens.access_token)
+    assert.deepEqual(ids(adminList.foods), ids([shrimp, chicken, hidden]))
+    assert.equal(adminList.filters.personalAllergyFilterApplied, false)
+    const managerTokens = await users.login({ identifier: manager.email, password })
+    assert.equal((await catalogue(managerTokens.access_token)).pagination.total, 2)
+    // Read the current profile each request, with no token refresh or persistent preference needed.
+    await database.users.updateOne({ _id: customer._id }, { $set: { 'healthProfile.allergies': [] } })
+    assert.equal((await catalogue(tokens.access_token)).pagination.total, 2)
+    await database.users.updateOne({ _id: customer._id }, { $set: { 'healthProfile.allergies': ['Tôm'] } })
+    assert.equal((await catalogue(tokens.access_token)).pagination.total, 1)
+    await database.users.updateOne({ _id: customer._id }, { $set: { account_status: AccountStatus.LOCKED } })
+    assert.equal((await catalogue(tokens.access_token)).filters.personalAllergyFilterApplied, false)
+    await database.users.updateOne({ _id: customer._id }, { $set: { account_status: AccountStatus.ACTIVE } })
+    await users.logout(tokens.refresh_token)
+    for (const token of [tokens.access_token, 'invalid-token']) {
+      const result = await catalogue(token)
+      assert.equal(result.pagination.total, 2)
+      assert.equal(result.filters.personalAllergyFilterApplied, false)
+    }
   })
 })

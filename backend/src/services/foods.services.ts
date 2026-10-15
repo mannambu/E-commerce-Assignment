@@ -4,6 +4,7 @@ import HTTP_STATUS from '~/constants/httpStatus'
 import { ErrorWithStatus } from '~/models/Errors'
 import Food, { FoodType } from '~/models/schemas/Food.schema'
 import { normalizeSearchText } from '~/models/schemas/common'
+import { HealthGoal, UserRole } from '~/models/schemas/User.schema'
 import databaseService from './database.services'
 
 type GetFoodsQuery = {
@@ -11,6 +12,9 @@ type GetFoodsQuery = {
   limit?: string
   search?: string
   tags?: string
+  goalTags?: string
+  excludeAllergens?: string
+  excludeMyAllergens?: string
   minPrice?: string
   maxPrice?: string
   minCalories?: string
@@ -56,13 +60,86 @@ function withAvailability(food: Food) {
 }
 
 class FoodService {
-  async getFoods(query: GetFoodsQuery, isAdmin: boolean = false) {
-    if (query.search !== undefined && typeof query.search !== 'string') {
-      throw new ErrorWithStatus({ status: HTTP_STATUS.UNPROCESSABLE_ENTITY, message: 'Từ khóa tìm kiếm phải là chuỗi' })
+  async getFoods(query: GetFoodsQuery, isAdmin: boolean = false, customerId?: string) {
+    const invalid = (message: string): never => {
+      throw new ErrorWithStatus({ status: HTTP_STATUS.UNPROCESSABLE_ENTITY, message })
     }
-    const page = Math.max(1, Number(query.page) || 1)
-    const limit = Math.max(1, Number(query.limit) || 10)
+    for (const key of [
+      'page',
+      'limit',
+      'search',
+      'tags',
+      'goalTags',
+      'excludeAllergens',
+      'excludeMyAllergens',
+      'minPrice',
+      'maxPrice',
+      'minCalories',
+      'maxCalories',
+      'sortBy',
+      'order'
+    ] as const) {
+      if (query[key] !== undefined && typeof query[key] !== 'string') invalid(`${key} phải là một chuỗi duy nhất`)
+    }
+    const positiveInteger = (value: string | undefined, fallback: number, field: string) => {
+      if (value === undefined) return fallback
+      if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) < 1) {
+        invalid(`${field} phải là số nguyên dương`)
+      }
+      return Number(value)
+    }
+    const page = positiveInteger(query.page, 1, 'page')
+    const limit = positiveInteger(query.limit, 10, 'limit')
+    if (limit > 100) invalid('limit không được vượt quá 100')
     const skip = (page - 1) * limit
+    if (!Number.isSafeInteger(skip)) invalid('page vượt quá phạm vi hỗ trợ')
+    for (const [min, max] of [
+      ['minPrice', 'maxPrice'],
+      ['minCalories', 'maxCalories']
+    ] as const) {
+      for (const key of [min, max]) {
+        const value = query[key]
+        if (
+          value !== undefined &&
+          value !== '' &&
+          (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value) || !Number.isFinite(Number(value)))
+        ) {
+          invalid(`${key} phải là số hữu hạn không âm`)
+        }
+      }
+      if (query[min] && query[max] && Number(query[min]) > Number(query[max]))
+        invalid(`${min} không được lớn hơn ${max}`)
+    }
+    const csv = (value?: string) => [
+      ...new Set(
+        (value || '')
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      )
+    ]
+    const goals = csv(query.goalTags)
+    const allowedGoals: HealthGoal[] = ['LoseFat', 'GainMuscle', 'MaintainWeight']
+    if (goals.some((goal) => !allowedGoals.includes(goal as HealthGoal))) invalid('goalTags không hợp lệ')
+    if (query.excludeMyAllergens !== undefined && !['true', 'false'].includes(query.excludeMyAllergens)) {
+      invalid('excludeMyAllergens phải là true hoặc false')
+    }
+    const excludeMyAllergens = query.excludeMyAllergens !== 'false'
+    // Identity is supplied only by the controller after session validation, never from query parameters.
+    const customer =
+      excludeMyAllergens && customerId && !isAdmin
+        ? await databaseService.users.findOne(
+            { _id: new ObjectId(customerId), role: UserRole.CUSTOMER },
+            { projection: { 'healthProfile.allergies': 1 } }
+          )
+        : null
+    const personalRules = (customer?.healthProfile?.allergies || [])
+      .flatMap((rule) => rule.split(/[,/]/))
+      .map(normalizeSearchText)
+      .filter(Boolean)
+    const excludedRules = [
+      ...new Set([...csv(query.excludeAllergens).map(normalizeSearchText), ...personalRules])
+    ].filter(Boolean)
 
     // Khởi tạo object match rỗng
     const match: Filter<Food> = {}
@@ -71,6 +148,22 @@ class FoodService {
     if (!isAdmin) {
       match.isActive = true
       match.$expr = { $gt: [{ $subtract: ['$stock', { $ifNull: ['$reservedStock', 0] }] }, 0] }
+    }
+    if (goals.length) match.goalTags = { $in: goals as HealthGoal[] }
+    if (excludedRules.length) {
+      // Keep legacy free-text ingredient matching, with literal Vietnamese-aware patterns.
+      // Old profiles may store the vegan restriction in allergies.
+      const vegan = excludedRules.some((rule) => ['vegan', 'an chay'].includes(rule))
+      const allergens = excludedRules.filter((rule) => !['vegan', 'an chay'].includes(rule))
+      if (vegan) match.$and = [{ tags: { $in: [/^vegan$/i] } }]
+      if (allergens.length) {
+        const patterns = allergens.map((rule) => new RegExp(legacyNamePattern(rule), 'i'))
+        match.$nor = [
+          { 'ingredients.allergyTags': { $in: patterns } },
+          { 'ingredients.name': { $in: patterns } },
+          { tags: { $in: patterns } }
+        ]
+      }
     }
 
     const search = normalizeSearchText(query.search || '')
@@ -122,6 +215,10 @@ class FoodService {
 
     // Chỉ cho phép sort theo các field an toàn
     const allowedSortFields = ['createdAt', 'price', 'calories', 'name'] as const
+    if (query.sortBy !== undefined && !allowedSortFields.includes(query.sortBy as (typeof allowedSortFields)[number])) {
+      invalid('sortBy không hợp lệ')
+    }
+    if (query.order !== undefined && !['asc', 'desc'].includes(query.order)) invalid('order không hợp lệ')
     const sortBy = allowedSortFields.includes(query.sortBy as (typeof allowedSortFields)[number])
       ? (query.sortBy as (typeof allowedSortFields)[number])
       : 'createdAt'
@@ -129,7 +226,8 @@ class FoodService {
     const sortOrder = query.order === 'desc' ? -1 : 1
 
     const sort: Record<string, 1 | -1> = {
-      [sortBy]: sortOrder
+      [sortBy]: sortOrder,
+      _id: sortOrder
     }
 
     const [foods, total] = await Promise.all([
@@ -148,6 +246,10 @@ class FoodService {
       filters: {
         search: query.search || '',
         tags: query.tags || '',
+        goalTags: goals.join(','),
+        excludeAllergens: query.excludeAllergens || '',
+        excludeMyAllergens,
+        personalAllergyFilterApplied: personalRules.length > 0,
         minPrice: query.minPrice || '',
         maxPrice: query.maxPrice || '',
         minCalories: query.minCalories || '',

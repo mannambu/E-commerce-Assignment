@@ -9,23 +9,12 @@ type FoodParams = {
   food_id: string
 }
 
-type FoodListQuery = {
-  page?: string
-  limit?: string
-  search?: string
-  tags?: string
-  minPrice?: string
-  maxPrice?: string
-  minCalories?: string
-  maxCalories?: string
-  sortBy?: string
-  order?: 'asc' | 'desc'
-}
-
 export const getFoodsController = async (req: Request, res: Response) => {
   // Middleware đã xác thực cả JWT, tài khoản và phiên đăng nhập.
   const isAdmin = req.decoded_authorization?.role === UserRole.ADMIN
-  const result = await foodService.getFoods(req.query, isAdmin)
+  const customerId =
+    req.decoded_authorization?.role === UserRole.CUSTOMER ? req.decoded_authorization.user_id : undefined
+  const result = await foodService.getFoods(req.query, isAdmin, customerId)
 
   return res.status(HTTP_STATUS.OK).json({
     message: 'Lấy danh sách món ăn thành công',
