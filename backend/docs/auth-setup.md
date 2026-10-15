@@ -151,4 +151,4 @@ npm.cmd run build
 npm.cmd run lint
 ```
 
-Test dùng DB giả và SMTP giả; kiểm tra JWT/Bcrypt thật, logout, logout-all, refresh đồng thời, reset hết hạn/đã dùng, khóa/mở, tạo Manager và quyền đọc đơn. Cần thử thêm trên Atlas + SMTP của bạn để xác nhận quyền DB, transaction và khả năng gửi thư thực tế.
+Test dùng DB giả và SMTP giả; kiểm tra JWT/Bcrypt thật, logout, logout-all, refresh đồng thời, reset hết hạn/đã dùng, khóa/mở, tạo Manager và quyền đọc đơn. Các ca HTTP reset còn kiểm tra phản hồi không lộ tài khoản, hạn mã 15 phút, cooldown không gửi thêm thư, lỗi validation không tiêu tốn lượt thử, reset không mở khóa tạm và không trả token đăng nhập mới. Cần thử thêm trên Atlas + SMTP của bạn để xác nhận quyền DB, transaction và khả năng gửi thư thực tế.

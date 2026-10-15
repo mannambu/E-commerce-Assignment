@@ -10,7 +10,7 @@ _Mục tiêu của cụm này là cho người mới tạo được tài khoản
 
 **_Màn hình WF-03 đăng nhập._** _Người dùng thấy ô email, ô mật khẩu, checkbox ghi nhớ, link quên mật khẩu sang WF-04 và nút Đăng nhập. Sự kiện: (1) nhập email + mật khẩu rồi bấm Đăng nhập; (2) server verify Bcrypt, kiểm tra trạng thái khóa, cấp JWT access 60 phút + refresh 7 ngày mang role rồi điều hướng theo vai trò — Customer về trang chủ/thực đơn, Manager về WF-24 góc vận hành, Kitchen về WF-24 góc bếp, Delivery về WF-24 góc giao, Admin về WF-05; (3) mọi request sau đó kèm header Authorization Bearer JWT, server verify chữ ký ở mọi API. Dữ liệu nhập: email, password, rememberMe. Ràng buộc chi tiết: sai thì báo một câu chung Email hoặc mật khẩu chưa đúng, tuyệt đối không tiết lộ email có tồn tại; sai liên tiếp 5 lần thì khóa tạm 15 phút và hiện đếm ngược, tái phạm trong 1 giờ thì nhân đôi tối đa 2 giờ; tài khoản bị Admin khóa thì báo Đã bị khóa, liên hệ Admin; JWT hết hạn giữa chừng thì đá về WF-03, giữ giỏ hàng lưu server; đổi quyền hoặc khóa giữa phiên thì có hiệu lực từ API call kế tiếp, phiên cũ mất hiệu lực ngay._
 
-**_Màn hình WF-04 quên mật khẩu + đăng xuất + ma trận quyền._** _Người quên mật khẩu nhập email rồi bấm Gửi liên kết; hệ thống gửi mail qua SendGrid chứa link 30 phút dùng 1 lần; mở link còn hạn thì đặt mật khẩu mới đạt chuẩn, xong thì Bcrypt mới và thu hồi mọi phiên cũ; link hết hạn hoặc đã dùng thì báo lỗi và cho gửi lại. Đăng xuất thì thu hồi JWT phía server rồi về WF-03, bấm Back không vào lại được trang bảo vệ. Ma trận quyền hiển thị ở WF-04 cho người xem, nhưng quyết định chặn thật nằm ở backend trả 403: Customer chỉ chạm thực đơn/đặt/theo dõi/đánh giá; Manager chỉ điều phối đơn; Kitchen chỉ quanh Cooking; Delivery chỉ quanh Delivering; Admin chỉ quản trị. Token giả mạo role thì chữ ký sai và bị từ chối ngay._
+**_Màn hình WF-04 quên mật khẩu + đăng xuất + ma trận quyền._** _Người quên mật khẩu nhập email rồi bấm Gửi mã xác nhận; hệ thống gửi mã 6 chữ số qua dịch vụ email SMTP đã cấu hình, hiệu lực 15 phút và dùng 1 lần. Giao diện hiển thị thông báo chung dù email có tồn tại hay không, sau đó cho nhập mã, mật khẩu mới và xác nhận mật khẩu. Mỗi mã được kiểm tra tối đa 5 lần; gửi lại sau ít nhất 60 giây sẽ thay mã cũ và đặt lại số lần thử. Mã hợp lệ và mật khẩu đạt chuẩn thì hệ thống cập nhật Bcrypt, thu hồi mọi phiên cũ và hiển thị thành công kèm nút về WF-03 để đăng nhập lại. Mã sai, hết hạn, đã dùng hoặc hết lượt thì báo lỗi tại form và cho yêu cầu mã mới; lỗi này không kích hoạt refresh token. Reset không tự mở khóa tài khoản. Đăng xuất thì thu hồi JWT phía server rồi về WF-03, bấm Back không vào lại được trang bảo vệ. Ma trận quyền hiển thị ở WF-04 cho người xem, nhưng quyết định chặn thật nằm ở backend trả 403: Customer chỉ chạm thực đơn/đặt/theo dõi/đánh giá; Manager chỉ điều phối đơn; Kitchen chỉ quanh Cooking; Delivery chỉ quanh Delivering; Admin chỉ quản trị. Token giả mạo role thì chữ ký sai và bị từ chối ngay._
 
 **FR-AUTH-001** — Hệ thống phải cho phép khách vãng lai đăng ký tài khoản Khách hàng bằng email và mật khẩu.
 
@@ -90,15 +90,15 @@ Chặn quay lại trang được bảo vệ bằng nút Back sau khi đăng xu�
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-04; Xác minh: kiểm thử.
 
-**FR-AUTH-014** — Hệ thống phải gửi liên kết đặt lại mật khẩu qua email; liên kết hiệu lực 30 phút, dùng 1 lần.
+**FR-AUTH-014** — Hệ thống phải gửi mã đặt lại mật khẩu gồm 6 chữ số qua email; mã hiệu lực 15 phút, dùng 1 lần và được kiểm tra tối đa 5 lần. Gửi lại sau ít nhất 60 giây phải thay mã cũ và đặt lại số lần thử.
 
-Gửi liên kết đặt lại mật khẩu qua email với hiệu lực 30 phút và chỉ dùng một lần qua SendGrid để khôi phục truy cập an toàn trên WF-04.
+WF-04 sử dụng email và mã xác nhận, không dùng liên kết reset. Mã được gửi qua dịch vụ SMTP đã cấu hình, chỉ lưu dạng băm ở server và không trả qua API. Với email hợp lệ về định dạng, phản hồi gửi mã phải giống nhau dù tài khoản có tồn tại hay không; phản hồi thành công không bảo đảm thư đã đến hộp thư. Giao diện chặn gửi trùng khi đang xử lý, cho sửa email và đếm ngược 60 giây trước khi gửi lại; server quyết định thời hạn và số lần thử. Mã sai, hết hạn, đã dùng hoặc vượt lượt phải báo lỗi tại form mà không tự refresh phiên hay chuyển về đăng nhập. Lỗi kết nối hoặc dịch vụ gửi mã chưa sẵn sàng phải được hiển thị để người dùng thử lại.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-04; Xác minh: kiểm thử.
 
-**FR-AUTH-015** — Khi mật khẩu mới hợp lệ (≥ 8 ký tự), Hệ thống phải cập nhật băm Bcrypt và thu hồi mọi phiên cũ.
+**FR-AUTH-015** — Khi email và mã reset hợp lệ, mật khẩu mới từ 8–50 ký tự, tối đa 72 byte UTF-8 và ô xác nhận khớp, Hệ thống phải cập nhật băm Bcrypt, vô hiệu mã đã dùng và thu hồi mọi phiên cũ.
 
-Cập nhật băm Bcrypt mới khi mật khẩu mới đạt chuẩn từ 8 ký tự và thu hồi mọi phiên cũ để phiên bị lộ không còn hiệu lực trên WF-04.
+Kiểm tra mật khẩu và xác nhận ở cả client và server trên WF-04. Sau khi đặt lại thành công, hiển thị thông báo cùng nút về WF-03 để đăng nhập bằng mật khẩu mới; không tự đăng nhập hoặc cấp token mới. Việc đặt lại mật khẩu không tự mở khóa tài khoản bị Admin khóa hoặc đang khóa tạm.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-04; Xác minh: kiểm thử.
 

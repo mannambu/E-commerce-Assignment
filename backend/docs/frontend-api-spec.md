@@ -952,7 +952,7 @@ Response:
 
 ### **Refresh và kết thúc phiên**
 
-1. Chỉ xử lý refresh cho 401 từ request cần access token; loại trừ login, register, logout, logout-all, forgot-password, reset-password và refresh-token khỏi interceptor tự refresh. Lỗi 401 của reset có nghĩa link reset không hợp lệ.
+1. Chỉ xử lý refresh cho 401 từ request cần access token; loại trừ login, register, logout, logout-all, forgot-password, reset-password và refresh-token khỏi interceptor tự refresh. Lỗi 401 của reset có nghĩa mã xác nhận không hợp lệ, hết hạn, đã dùng hoặc vượt số lần thử; không phải lỗi hết phiên đăng nhập.
 2. Nếu nhiều request cùng nhận 401, chờ chung **một** request refresh đang chạy. Gửi boolean thật cho `remember_me` khi đăng nhập.
 3. Khi refresh thành công, lưu đồng thời cặp token mới rồi thử lại request ban đầu tối đa một lần. Không tiếp tục dùng refresh token cũ.
 4. Refresh trả 401 hoặc request đã thử lại vẫn trả 401: xóa trạng thái đăng nhập và chuyển về login. Lỗi mạng/5xx cần được hiển thị riêng, không tạo vòng lặp refresh.

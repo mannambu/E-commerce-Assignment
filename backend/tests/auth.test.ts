@@ -486,6 +486,85 @@ test('HTTP reset works with email and code, rejects the old link body and preser
   await assert.rejects(users.login({ identifier: account.email, password: newPassword }), { status: 403 })
 })
 
+test('HTTP reset preserves a temporary lock and only permits a fresh login after it expires', async (t) => {
+  const { account, login, sessions } = setup(t)
+  const oldTokens = await login()
+  const api = await startApi(t)
+  const lockedUntil = new Date(Date.now() + 60000)
+  account.account_status = AccountStatus.LOCKED
+  account.locked_until = lockedUntil
+  account.loginAttempts = 5
+  account.forgot_password_token = await bcrypt.hash('012345', 12)
+  account.forgot_password_expires_at = new Date(Date.now() + 15 * 60000)
+  const newPassword = 'NewPassword123!'
+
+  const response = await api('/users/reset-password', undefined, 'POST', {
+    email: account.email,
+    reset_code: '012345',
+    password: newPassword,
+    confirm_password: newPassword
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(Object.keys(response.body), ['message'])
+  assert.equal(sessions.length, 0)
+  assert.equal(account.account_status, AccountStatus.LOCKED)
+  assert.equal(Number(account.locked_until), Number(lockedUntil))
+  assert.equal(account.loginAttempts, 5)
+  await assert.rejects(users.login({ identifier: account.email, password: newPassword }), { status: 400 })
+
+  account.locked_until = new Date(0)
+  const fresh = await users.login({ identifier: account.email, password: newPassword })
+  assert.equal(await access(fresh.access_token), undefined)
+  assert.equal((await access(oldTokens.access_token)).status, 401)
+  assert.equal((await refresh(oldTokens.refresh_token)).status, 401)
+})
+
+test('public recovery HTTP responses hide account existence and reject invalid input before consuming attempts', async (t) => {
+  const { account } = setup(t)
+  const api = await startApi(t)
+  let code = ''
+  t.mock.method(email, 'getResetConfig', () => ({}))
+  const send = t.mock.method(email, 'sendPasswordReset', async (_recipient: string, value: string) => {
+    code = value
+  })
+  const startedAt = Date.now()
+  const known = await api('/users/forgot-password', undefined, 'POST', { email: account.email })
+  assert.equal(known.status, 200)
+  assert.deepEqual(Object.keys(known.body), ['message'])
+  assert.ok(Number(account.forgot_password_expires_at) >= startedAt + 15 * 60000)
+  assert.ok(Number(account.forgot_password_expires_at) <= Date.now() + 15 * 60000)
+  const unknown = await api('/users/forgot-password', undefined, 'POST', { email: 'missing@example.com' })
+  const repeated = await api('/users/forgot-password', undefined, 'POST', { email: account.email })
+  assert.deepEqual(unknown, known)
+  assert.deepEqual(repeated, known)
+  assert.equal(send.mock.callCount(), 1)
+
+  const body = {
+    email: account.email,
+    reset_code: code,
+    password: 'NewPassword123!',
+    confirm_password: 'Different123!'
+  }
+  const invalid = await api('/users/reset-password', undefined, 'POST', body)
+  assert.equal(invalid.status, 422)
+  assert.ok(invalid.body.errors.confirm_password)
+  assert.equal(account.forgot_password_attempts, 0)
+  assert.equal(account.password, legacyHash)
+
+  const wrongCode = code === '000000' ? '999999' : '000000'
+  const rejected = await api('/users/reset-password', undefined, 'POST', {
+    ...body,
+    reset_code: wrongCode,
+    confirm_password: body.password
+  })
+  assert.equal(rejected.status, 401)
+  assert.deepEqual(Object.keys(rejected.body), ['message'])
+  assert.equal(account.forgot_password_attempts, 1)
+  const success = await api('/users/reset-password', undefined, 'POST', { ...body, confirm_password: body.password })
+  assert.equal(success.status, 200)
+  assert.deepEqual(Object.keys(success.body), ['message'])
+})
+
 test('Admin locks/unlocks with audit, clears temporary lock and cannot revive old sessions', async (t) => {
   const { account, accounts, audits, login } = setup(t)
   const tokens = await login()
