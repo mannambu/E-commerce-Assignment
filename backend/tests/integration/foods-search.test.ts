@@ -7,7 +7,7 @@ import type { AddressInfo } from 'node:net'
 import Food from '../../src/models/schemas/Food.schema'
 
 // Real regex/count/pagination queries against an isolated temporary database, never the project DB.
-test('FR-CAT-002 food search on an isolated MongoDB', { timeout: 180000 }, async (t) => {
+test('FR-CAT-001/002/006 catalogue and food availability on an isolated MongoDB', { timeout: 180000 }, async (t) => {
   const mongo = await MongoMemoryServer.create()
   t.after(() => mongo.stop())
   process.env.DB_URI = mongo.getUri()
@@ -125,7 +125,7 @@ test('FR-CAT-002 food search on an isolated MongoDB', { timeout: 180000 }, async
   )
 
   await t.test('empty search leaves catalogue behavior intact and missing keywords return an empty page', async () => {
-    const active = food('Món hết hàng vẫn theo bộ lọc cũ', { stock: 0 })
+    const active = food('Món đang bán và còn hàng')
     await seed([active, food('Món ẩn', { isActive: false })])
     assert.deepEqual(ids((await foods.getFoods({ search: '   ' })).foods), ids([active]))
     const missing = await foods.getFoods({ search: 'khong co mon nay' })
@@ -142,8 +142,103 @@ test('FR-CAT-002 food search on an isolated MongoDB', { timeout: 180000 }, async
     assert.equal((await foods.getFoods({ search: 'dau hu' })).pagination.total, 1)
   })
 
+  await t.test(
+    'customer catalogue counts only active available stock; Admin retains hidden and sold-out foods',
+    async () => {
+      const partial = food('Cơm gà còn một phần', {
+        stock: 5,
+        reservedStock: 4,
+        price: 30000,
+        images: ['https://example.test/food.jpg'],
+        goalTags: ['GainMuscle']
+      })
+      const legacy = food('Cơm gà chưa có reservedStock', { stock: 2, price: 40000 })
+      const empty = food('Cơm gà hết', { stock: 0, price: 10000 })
+      const held = food('Cơm gà giữ hết', { stock: 5, reservedStock: 5, price: 20000 })
+      const hidden = food('Cơm gà ẩn', { isActive: false, stock: 8 })
+      const inconsistent = food('Cơm gà kho lệch', { stock: 1, reservedStock: 2 })
+      const rows = [partial, legacy, empty, held, hidden, inconsistent]
+      await seed(rows)
+      await database.foods.updateOne({ _id: legacy._id }, { $unset: { reservedStock: '' } })
+      const before = await database.foods.find({}).sort({ _id: 1 }).toArray()
+      const query = { search: 'com ga', limit: '1', sortBy: 'price', order: 'asc' as const }
+      const first = await foods.getFoods({ ...query, page: '1' })
+      const second = await foods.getFoods({ ...query, page: '2' })
+      assert.deepEqual(ids(first.foods), ids([partial]))
+      assert.deepEqual(ids(second.foods), ids([legacy]))
+      assert.deepEqual(first.pagination, { page: 1, limit: 1, total: 2, total_pages: 2 })
+      assert.deepEqual(second.pagination, { page: 2, limit: 1, total: 2, total_pages: 2 })
+      assert.deepEqual(first.foods[0].availability, {
+        isActive: true,
+        availableQuantity: 1,
+        inStock: true,
+        canAddToCart: true
+      })
+      assert.equal(first.foods[0].stock, 5, 'Raw stock must not change meaning for existing consumers')
+      for (const field of ['name', 'images', 'price', 'calories', 'goalTags'] as const) {
+        assert.deepEqual(first.foods[0][field], partial[field])
+      }
+      assert.equal(second.foods[0].availability.availableQuantity, 2)
+      const admin = await foods.getFoods({ search: 'com ga' }, true)
+      assert.deepEqual(ids(admin.foods), ids(rows))
+      assert.equal(admin.pagination.total, 6)
+      for (const item of [empty, held, hidden, inconsistent]) {
+        assert.equal(admin.foods.find((row) => row._id!.equals(item._id!))!.availability.canAddToCart, false)
+      }
+      assert.equal(admin.foods.find((row) => row._id!.equals(inconsistent._id!))!.availability.availableQuantity, 0)
+      assert.deepEqual(await database.foods.find({}).sort({ _id: 1 }).toArray(), before)
+    }
+  )
+
+  await t.test(
+    'stock holds, releases and depletion are reflected on the next read without changing isActive',
+    async () => {
+      const item = food('Cơm gà', { stock: 2 })
+      await seed([item])
+      assert.equal((await foods.getFoodById(String(item._id))).availability.canAddToCart, true)
+      await database.foods.updateOne({ _id: item._id }, { $set: { reservedStock: 2 } })
+      assert.equal((await foods.getFoods({})).pagination.total, 0)
+      assert.equal((await foods.getFoodById(String(item._id))).availability.canAddToCart, false)
+      await database.foods.updateOne({ _id: item._id }, { $set: { reservedStock: 0 } })
+      assert.equal((await foods.getFoods({})).pagination.total, 1)
+      await database.foods.updateOne({ _id: item._id }, { $set: { stock: 0 } })
+      const detail = await foods.getFoodById(String(item._id))
+      assert.deepEqual(detail.availability, {
+        isActive: true,
+        availableQuantity: 0,
+        inStock: false,
+        canAddToCart: false
+      })
+      await database.foods.updateOne({ _id: item._id }, { $set: { isActive: false } })
+      await assert.rejects(foods.getFoodById(String(item._id)), { status: 404 })
+      await assert.rejects(foods.getFoodById(String(new ObjectId())), { status: 404 })
+    }
+  )
+
+  await t.test(
+    'cart rechecks availability after a customer viewed an available item and never reserves stock itself',
+    async () => {
+      const carts = (await import('../../src/services/cart.services')).default
+      const userId = String(new ObjectId())
+      const item = food('Cơm gà', { stock: 2 })
+      await seed([item])
+      assert.equal((await foods.getFoodById(String(item._id))).availability.canAddToCart, true)
+      await database.foods.updateOne({ _id: item._id }, { $set: { reservedStock: 2 } })
+      await assert.rejects(carts.addItem(userId, { itemId: String(item._id), quantity: 1 }), { status: 400 })
+      assert.equal((await database.carts.findOne({ userId: new ObjectId(userId) }))!.items.length, 0)
+      await database.foods.updateOne({ _id: item._id }, { $set: { reservedStock: 1 } })
+      await carts.addItem(userId, { itemId: String(item._id), quantity: 1 })
+      await assert.rejects(carts.addItem(userId, { itemId: String(item._id), quantity: 1 }), { status: 400 })
+      assert.equal((await database.carts.findOne({ userId: new ObjectId(userId) }))!.items[0].quantity, 1)
+      assert.equal((await database.foods.findOne({ _id: item._id }))!.reservedStock, 1)
+    }
+  )
+
   await t.test('public HTTP search keeps the response contract and rejects repeated search parameters', async () => {
-    await seed([food('Cơm gà'), food('Cơm gà ẩn', { isActive: false })])
+    const empty = food('Cơm gà hết', { stock: 0 })
+    const held = food('Cơm gà giữ hết', { stock: 2, reservedStock: 2 })
+    const hidden = food('Cơm gà ẩn', { isActive: false })
+    await seed([food('Cơm gà'), empty, held, hidden])
     const app = express()
     const router = (await import('../../src/routes/foods.routes')).default
     const { defaultErrorHandler } = await import('../../src/middlewares/errors.middlewares')
@@ -169,6 +264,15 @@ test('FR-CAT-002 food search on an isolated MongoDB', { timeout: 180000 }, async
     assert.equal(body.result.foods[0].name, 'Cơm gà')
     assert.equal(body.result.filters.search, 'com ga')
     assert.equal(body.result.pagination.total, 1)
+    assert.equal(body.result.foods[0].availability.canAddToCart, true)
+    for (const item of [empty, held]) {
+      const detailResponse = await fetch(`${base}/${item._id}`)
+      assert.equal(detailResponse.status, 200)
+      const detail = await detailResponse.json()
+      assert.equal(detail.result.availability.availableQuantity, 0)
+      assert.equal(detail.result.availability.canAddToCart, false)
+    }
+    assert.equal((await fetch(`${base}/${hidden._id}`)).status, 404)
     assert.equal((await fetch(`${base}?search=com&search=ga`)).status, 422)
   })
 })

@@ -464,10 +464,10 @@ Query optional:
 
 **Phân quyền (Quan trọng):**
 
-* Nếu Header chứa Token của **Admin**: Trả về TOÀN BỘ thực đơn.  
-* Nếu không có token, token đã hết hạn/thu hồi, tài khoản bị khóa hoặc user là **Customer/Manager**: Chỉ trả về món đang bán (isActive: true). Quyền Admin chỉ được cấp sau khi kiểm tra JWT + phiên + role/tokenVersion hiện tại trong DB. Lọc món còn hàng và cảnh báo dị ứng cá nhân còn cần hoàn thiện theo US-13.
+* Nếu Header chứa Token của **Admin** còn hiệu lực: Được xem cả món ẩn và hết hàng để quản trị; vẫn áp dụng bộ lọc và phân trang đã yêu cầu.
+* Nếu không có token, token đã hết hạn/thu hồi, tài khoản bị khóa hoặc user là **Customer/Manager**: Chỉ trả về món đang bán (`isActive: true`) và còn tồn kho khả dụng (`stock - reservedStock > 0`). Dữ liệu cũ thiếu `reservedStock` được coi là chưa giữ hàng (`0`). Quyền Admin chỉ được cấp sau khi kiểm tra JWT + phiên + role/tokenVersion hiện tại trong DB. Cảnh báo dị ứng cá nhân còn cần hoàn thiện theo US-13.
 
-**Giới hạn hiện tại:** `GET /foods` là API public, tự kiểm tra JWT và role trong DB, chưa gọi `validateSession` để kiểm tra phiên/tokenVersion/trạng thái tài khoản. Token sai hoặc hết hạn bị bỏ qua và request dùng quyền khách; token Admin đã logout nhưng JWT còn hạn vẫn có thể được nhận diện là Admin tại riêng endpoint này. Cần đồng bộ optional auth ở backend trong bước tiếp theo. Các API tạo/sửa/xóa món dùng middleware kiểm tra phiên đầy đủ.
+**Tồn kho danh mục — FR-CAT-001/006:** Điều kiện còn hàng được lọc trong MongoDB trước khi đếm và phân trang; không lọc bỏ món sau khi đã lấy một trang. Món đã được giữ hết cũng được coi là hết hàng đối với khách. Các trường `images`, `name`, `calories`, `price`, `goalTags` được giữ nguyên để hiển thị thẻ món. Mỗi phần tử trong `result.foods` bổ sung `availability` như API chi tiết bên dưới; dữ liệu này được tính khi đọc, không lưu thêm vào DB. Không tự đổi `isActive` vì hết hàng: khi nhả giữ kho hoặc bổ sung hàng, món đang bán sẽ xuất hiện lại ở lần đọc tiếp theo.
 
 Response:
 ```json
@@ -492,7 +492,24 @@ Response:
 
 ### **GET /foods/:food_id**
 
-Response: chi tiết food.
+Response: `{ message, result: food }`. Giữ nguyên các trường hiện có, bổ sung:
+
+```json
+{
+  "availability": {
+    "isActive": true,
+    "availableQuantity": 0,
+    "inStock": false,
+    "canAddToCart": false
+  }
+}
+```
+
+* `availableQuantity = max(0, stock - reservedStock)`; thiếu `reservedStock` dùng `0`. `stock` gốc vẫn là số phần chưa bán, bao gồm phần giữ tạm; không dùng riêng `stock` để quyết định còn hàng.
+* `inStock` cho biết còn ít nhất một phần khả dụng; `canAddToCart` chỉ đúng khi món đang bán và còn phần khả dụng. Hai cờ này không xét số lượng món đã có trong giỏ của người gọi.
+* Món đang bán nhưng hết hàng vẫn trả HTTP **200** ở chi tiết để phía sử dụng API có thể hiển thị nhãn Hết hàng và vô hiệu nút Thêm vào giỏ theo FR-CAT-006. Món ẩn hoặc không tồn tại trả **404**, kể cả khi mở trực tiếp URL; không thay quyền của endpoint chi tiết.
+* Tồn khả dụng là ảnh chụp tại lúc đọc, không phải cam kết giữ hàng. API giỏ kiểm tra lại tổng lượng cùng món trên mọi dòng/ngày/bữa và từ chối thêm/sửa vượt tồn kho hoặc món ngừng bán (HTTP **400**). Checkout tiếp tục giữ/trừ kho bằng transaction; đọc danh mục, chi tiết và thêm giỏ không giữ kho.
+* Đợt FR-CAT-001/006 chỉ hoàn thiện backend và hợp đồng API. Giao diện vô hiệu nút, nhãn và lưới món vẫn thuộc phần tích hợp frontend.
 
 ### **POST /foods (Auth, Admin)**
 

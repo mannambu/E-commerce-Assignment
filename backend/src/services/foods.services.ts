@@ -42,6 +42,19 @@ function legacyNamePattern(normalizedSearch: string) {
     .join('')
 }
 
+function withAvailability(food: Food) {
+  const availableQuantity = Math.max(0, food.stock - (food.reservedStock ?? 0))
+  return {
+    ...food,
+    availability: {
+      isActive: food.isActive,
+      availableQuantity,
+      inStock: availableQuantity > 0,
+      canAddToCart: food.isActive && availableQuantity > 0
+    }
+  }
+}
+
 class FoodService {
   async getFoods(query: GetFoodsQuery, isAdmin: boolean = false) {
     if (query.search !== undefined && typeof query.search !== 'string') {
@@ -54,10 +67,10 @@ class FoodService {
     // Khởi tạo object match rỗng
     const match: Filter<Food> = {}
 
-    // THÊM ĐOẠN NÀY ĐỂ BẢO MẬT HIỂN THỊ:
-    // Nếu KHÔNG PHẢI Admin -> Bắt buộc chỉ lấy những món đang bán
+    // Filter sellable stock before counting and pagination. Admin keeps the full catalogue.
     if (!isAdmin) {
       match.isActive = true
+      match.$expr = { $gt: [{ $subtract: ['$stock', { $ifNull: ['$reservedStock', 0] }] }, 0] }
     }
 
     const search = normalizeSearchText(query.search || '')
@@ -125,7 +138,7 @@ class FoodService {
     ])
 
     return {
-      foods,
+      foods: foods.map(withAvailability),
       pagination: {
         page,
         limit,
@@ -165,7 +178,8 @@ class FoodService {
       })
     }
 
-    return food
+    // An active but sold-out item remains readable by direct URL.
+    return withAvailability(food)
   }
 
   async createFood(payload: FoodType) {
