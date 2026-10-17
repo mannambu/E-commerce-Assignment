@@ -80,6 +80,7 @@ npm run start
 - `npm test`: kiểm tra schema, đăng ký, xác thực và đánh giá món ăn bằng dữ liệu giả; không kết nối MongoDB
 - `npm run test:checkout:integration`: kiểm thử checkout/tồn kho với MongoDB replica set tạm, không dùng DB dự án
 - `npm run test:foods:integration`: kiểm thử FR-CAT-001/002/003/004/006/007 trên MongoDB tạm (tìm có/không dấu, dữ liệu cũ, tồn khả dụng, quyền xem, lọc mục tiêu/dị ứng mặc định, cảnh báo dị ứng danh mục/chi tiết kể cả khi tắt lọc, hồ sơ chưa khai báo, xác thực phiên, kiểm tra query, phân trang ổn định và kiểm tra lại kho khi thêm giỏ); không dùng DB dự án, lần đầu có thể cần tải MongoDB binary
+  Bộ lệnh cũng chạy FR-ADM-001 qua HTTP thật: quyền Admin, thêm/sửa/ẩn món, validation dữ liệu lồng nhau, trường server quản lý, PATCH không ghi một phần khi lỗi và bảo vệ lượng kho đang giữ.
 - `npm run build`: build TypeScript ra `dist`
 - `npm run start`: chạy bản build
 - `npm run lint`: kiểm tra lint

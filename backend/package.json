@@ -5,7 +5,7 @@
   "scripts": {
     "test": "tsx --test tests/*.test.ts",
     "test:checkout:integration": "tsx --test tests/integration/checkout.test.ts",
-    "test:foods:integration": "tsx --test tests/integration/foods-search.test.ts",
+    "test:foods:integration": "tsx --test tests/integration/foods-search.test.ts tests/integration/foods-admin.test.ts",
     "test:schema": "tsx --test tests/schema.test.ts",
     "schema:indexes": "tsx scripts/schema-indexes.ts",
     "data:users": "tsx scripts/generate-users-import.ts",

@@ -2,7 +2,8 @@ import { Filter, ObjectId } from 'mongodb'
 import { escapeRegExp } from 'lodash'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { ErrorWithStatus } from '~/models/Errors'
-import Food, { FoodType } from '~/models/schemas/Food.schema'
+import Food from '~/models/schemas/Food.schema'
+import { CreateFoodReqBody, UpdateFoodReqBody } from '~/models/requests/Food.request'
 import { normalizeSearchText } from '~/models/schemas/common'
 import { HealthGoal, UserRole } from '~/models/schemas/User.schema'
 import databaseService from './database.services'
@@ -334,7 +335,7 @@ class FoodService {
     return { ...withAvailability(food), allergyWarning: allergyWarning(food, allergyContext) }
   }
 
-  async createFood(payload: FoodType) {
+  async createFood(payload: CreateFoodReqBody) {
     const food = new Food({
       name: payload.name.trim(),
       description: payload.description.trim(),
@@ -359,12 +360,12 @@ class FoodService {
     const result = await databaseService.foods.insertOne(food)
 
     return {
-      _id: result.insertedId,
-      ...food
+      ...food,
+      _id: result.insertedId
     }
   }
 
-  async updateFood(food_id: string, payload: Partial<FoodType>) {
+  async updateFood(food_id: string, payload: UpdateFoodReqBody) {
     if (!ObjectId.isValid(food_id)) {
       throw new ErrorWithStatus({
         message: 'ID món ăn không hợp lệ',

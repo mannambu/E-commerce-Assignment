@@ -560,6 +560,8 @@ Response: `{ message, result: food }`. Giữ nguyên các trường hiện có, 
 
 ### **POST /foods (Auth, Admin)**
 
+FR-ADM-001: chỉ phiên Admin hợp lệ được thêm, sửa hoặc ẩn món. Customer/Manager nhận **403**; thiếu token, token sai/hết hạn/thu hồi nhận **401**.
+
 Body:
 ```json
 {  
@@ -584,9 +586,32 @@ Body:
 ```
 * Food không còn `details` và `isCombo`. Mô tả dùng `description`; gói tuần được chọn trong Cart/Order.
 
+**Quy tắc dữ liệu dùng chung cho POST/PATCH:**
+
+| Field | Quy tắc |
+| --- | --- |
+| `name`, `description` | Chuỗi không rỗng sau khi trim. |
+| `images` | Mảng có ít nhất một chuỗi không rỗng; trim từng phần tử. Hiện không kiểm tra URL hoặc khả năng tải ảnh. |
+| `price` | Số hữu hạn lớn hơn 0. |
+| `calories` | Số hữu hạn không âm. |
+| `nutrition` | Object đủ `protein`, `carb`, `fat`, mỗi giá trị là số hữu hạn không âm, đơn vị gram. |
+| `ingredients` | Mảng có ít nhất một object gồm `name` không rỗng và `allergyTags` là mảng chuỗi không rỗng. `allergyTags: []` hợp lệ khi không khai báo tag dị ứng. |
+| `tags` | Mảng chuỗi không rỗng; cho phép `[]`. Đây là tag thông thường, khác `goalTags`. |
+| `goalTags` | Mảng giá trị `LoseFat`, `GainMuscle`, `MaintainWeight`; cho phép `[]`, POST bỏ trống mặc định `[]`. |
+| `stock` | Số nguyên không âm, không vượt `Number.MAX_SAFE_INTEGER`; là tổng lượng chưa bán gồm cả lượng đang giữ. |
+| `isActive` | Boolean; POST bỏ trống mặc định `true`. |
+
+POST bắt buộc mọi field trên trừ `goalTags` và `isActive`. Không chấp nhận `null` thay cho giá trị. Để tương thích, các trường số nhận cả số JSON và chuỗi số hợp lệ rồi lưu thành số; `stock` dạng chuỗi phải gồm chữ số nguyên. `isActive` còn nhận chuỗi `"true"`/`"false"`, nhưng không nhận `0`/`1`. Khuyến nghị FE gửi đúng kiểu JSON. Trim tên, mô tả, đường dẫn ảnh, tag, tên nguyên liệu và tag dị ứng; không tự đổi cách viết hoa/thường của tag.
+
+Chỉ các field trong bảng được ghi. Field ngoài hợp đồng như `_id`, `normalizedName`, `reservedStock`, `rating`, `reviewCount`, `version`, thời gian tạo/sửa, `availability`, `allergyWarning` bị bỏ qua; các field thừa bên trong nutrition/nguyên liệu cũng bị loại. `normalizedName` được BE tính từ tên món để tìm kiếm không dấu.
+
+Thành công trả HTTP **201**: `{ "message": "Tạo món ăn thành công", "result": { ...food } }`, có `_id` vừa tạo. POST/PATCH trả dữ liệu Food lưu trong DB, không bổ sung `availability`/`allergyWarning` như GET danh sách và chi tiết.
+
+Dữ liệu sai trả **422** với `{ "message": "...", "errors": { "field": { "msg": "..." } } }`; lỗi nội dung dinh dưỡng nằm ở `errors.nutrition`, nguyên liệu ở `errors.ingredients`. Request không ghi một phần khi có lỗi. FR-ADM-001 kiểm tra kiểu/miền dữ liệu, chưa triển khai cảnh báo chênh lệch kcal với macro của FR-ADM-002.
+
 ### **PATCH /foods/:food_id (Auth, Admin)**
 
-Body (Tất cả các trường đều là optional, gửi trường nào cập nhật trường đó):
+Body: các field trong bảng trên đều tùy chọn, nhưng phải gửi ít nhất một field có thể cập nhật. Field không gửi giữ nguyên. Ví dụ:
 ```json
 {
   "name": "Chicken Salad Updated",
@@ -595,6 +620,13 @@ Body (Tất cả các trường đều là optional, gửi trường nào cập 
   "isActive": true
 }
 ```
+
+* Khi gửi `nutrition`, phải gửi đủ P/C/F; khi gửi `ingredients`, `images`, `tags` hoặc `goalTags`, giá trị mới thay toàn bộ object/mảng tương ứng. Không ghép ngầm từng thuộc tính của nutrition hoặc từng nguyên liệu. Có thể dùng `tags: []`, `goalTags: []` hoặc `allergyTags: []` trong nguyên liệu để xóa các nhãn tương ứng.
+* Body rỗng hoặc chỉ chứa field do server quản lý trả **422** với `errors.body`. Các trường hợp dữ liệu sai khác dùng quy tắc POST.
+* Có thể sửa món đang ẩn và dùng `isActive: true` để bán lại. Việc đổi tên cập nhật luôn `normalizedName`; đổi giá/dinh dưỡng chỉ ghi vào Food, không sửa snapshot của đơn cũ.
+* Nếu `stock` mới thấp hơn `reservedStock`, trả **409** và không lưu bất kỳ field nào của request. Không dùng PATCH để tự thay lượng đang giữ kho.
+* ID sai định dạng trả **422**; ID hợp lệ nhưng không có món trả **404**. Thành công **200**.
+* Chống ghi đè giữa hai Admin bằng `version` thuộc FR-ADM-006, chưa triển khai trong đợt FR-ADM-001; gửi `version` hiện không có tác dụng kiểm tra xung đột.
 
 Response:
 ```json
@@ -610,7 +642,13 @@ Response:
 
 ### **DELETE /foods/:food_id (Auth, Admin)**
 
-Xóa/Ẩn món ăn.
+Ẩn mềm món bằng `isActive: false`, không xóa document, không sửa tồn kho hoặc lượng đang giữ; dữ liệu đơn cũ được giữ nguyên. Không cần body. Thành công **200**:
+
+```json
+{ "message": "Xóa (ẩn) món ăn thành công" }
+```
+
+Gọi lại cho món đã ẩn vẫn trả 200. ID sai định dạng trả **422**, không tìm thấy món trả **404**. Sau khi ẩn, khách không thấy món trong danh mục, mở chi tiết nhận 404; Admin vẫn xem món qua danh sách quản trị. Có thể bán lại bằng PATCH `isActive: true`. Thao tác xác nhận trên giao diện thuộc phần FE.
 
 ## **5) Cart (/cart) - Customer**
 

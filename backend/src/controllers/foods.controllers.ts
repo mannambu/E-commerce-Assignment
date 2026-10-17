@@ -2,7 +2,7 @@ import { Request, Response } from 'express'
 import { ParamsDictionary } from 'express-serve-static-core'
 import HTTP_STATUS from '~/constants/httpStatus'
 import foodService from '~/services/foods.services'
-import { FoodType } from '~/models/schemas/Food.schema'
+import { CreateFoodReqBody, UpdateFoodReqBody } from '~/models/requests/Food.request'
 import { UserRole } from '~/models/schemas/User.schema'
 
 type FoodParams = {
@@ -35,7 +35,10 @@ export const getFoodDetailController = async (req: Request<FoodParams>, res: Res
   })
 }
 
-export const createFoodController = async (req: Request<ParamsDictionary, any, FoodType>, res: Response) => {
+export const createFoodController = async (
+  req: Request<ParamsDictionary, unknown, CreateFoodReqBody>,
+  res: Response
+) => {
   const result = await foodService.createFood(req.body)
 
   return res.status(HTTP_STATUS.CREATED).json({
@@ -44,7 +47,7 @@ export const createFoodController = async (req: Request<ParamsDictionary, any, F
   })
 }
 
-export const updateFoodController = async (req: Request<FoodParams, any, FoodType>, res: Response) => {
+export const updateFoodController = async (req: Request<FoodParams, unknown, UpdateFoodReqBody>, res: Response) => {
   const { food_id } = req.params as FoodParams
   // req.body đã được filter sạch sẽ qua updateFoodValidator
   const result = await foodService.updateFood(food_id, req.body)
