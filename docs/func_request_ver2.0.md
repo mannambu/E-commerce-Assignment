@@ -1,3 +1,13 @@
+## Cơ sở cập nhật và cách đọc
+
+Cập nhật ngày 17/10/2026 theo [phan-hoi-2.md](e:/261/QLDAPM/phan-hoi-2.md) và các xác nhận trực tiếp của chủ yêu cầu. Giữ tên tệp func_request_ver2.0.md; tên SRS v2.2/v2.3 trong phản hồi là thông tin tài liệu nguồn, không phải tuyên bố phát hành một bản SRS đầy đủ mới.
+
+- Câu có mã FR là điều khoản chức năng để triển khai/kiểm thử theo mức ưu tiên ghi kèm. Diễn giải phải thống nhất với FR, không tự tạo quyền hoặc ngoại lệ.
+- Chủ yêu cầu đã xác nhận thay quyết định trước: chỉ hủy cả ngày của gói tuần, không hủy từng món; sau cutoff không tiếp nhận hủy thông thường nhưng được đổi món một lần theo FR-ORD-013.
+- Đánh giá theo từng món trong ngày giao Completed. Giữ reset bằng mã email theo FR-AUTH-014/015.
+- Lựa chọn triển khai, tham chiếu ngoài và điểm chưa chốt được tách ở cuối tài liệu. Đặc tả không chứng minh code/API đã hoàn thành.
+- Múi giờ nghiệp vụ: Asia/Ho_Chi_Minh. Cutoff mặc định 20:00 ngày trước ngày giao, Admin được cấu hình; “trước/sau chốt” dùng cutoff áp dụng cho ngày giao, không phải hằng số bất biến.
+
 ## **3.2 Yêu cầu chức năng**
 
 ### **3.2.1 Xác thực và phân quyền (US-01, 03, 04, 05)**
@@ -8,7 +18,7 @@ _Mục tiêu của cụm này là cho người mới tạo được tài khoản
 
 **_Màn hình WF-01 đăng ký._** _Khách mở trang công khai, thấy logo, tiêu đề Đăng ký tài khoản, 4 ô nhập họ tên, email, mật khẩu, xác nhận mật khẩu, icon mắt bật tắt, checkbox điều khoản bắt buộc và nút Đăng ký full-width. Sự kiện step-by-step: (1) khách nhập họ tên, email hợp lệ, mật khẩu từ 8 ký tự, xác nhận khớp, tick điều khoản rồi bấm Đăng ký; (2) client validate trước rồi server validate lại, kiểm tra email trùng không phân biệt hoa thường; (3) ổn thì mã hóa Bcrypt, tạo tài khoản role Customer duy nhất, chuyển sang WF-03 kèm banner thành công. Dữ liệu nhập: name, email, password, confirm, acceptTos. Ràng buộc chi tiết: mật khẩu tối thiểu 8 ký tự và phải khớp ô xác nhận, lỗi báo inline từng ô ở cả client và server; email trùng thì báo đúng câu Email đã tồn tại và không tạo gì; chặn double-submit bằng disable nút + spinner; không bao giờ cho tự chọn role nội bộ ở form này, Manager/Kitchen/Delivery chỉ do Admin tạo ở WF-05. Trường hợp biên: bấm Back sau đăng ký xong không tạo trùng; mất mạng giữa chừng thì giữ nguyên dữ liệu đã nhập._
 
-**_Màn hình WF-03 đăng nhập._** _Người dùng thấy ô email, ô mật khẩu, checkbox ghi nhớ, link quên mật khẩu sang WF-04 và nút Đăng nhập. Sự kiện: (1) nhập email + mật khẩu rồi bấm Đăng nhập; (2) server verify Bcrypt, kiểm tra trạng thái khóa, cấp JWT access 60 phút + refresh 7 ngày mang role rồi điều hướng theo vai trò — Customer về trang chủ/thực đơn, Manager về WF-24 góc vận hành, Kitchen về WF-24 góc bếp, Delivery về WF-24 góc giao, Admin về WF-05; (3) mọi request sau đó kèm header Authorization Bearer JWT, server verify chữ ký ở mọi API. Dữ liệu nhập: email, password, rememberMe. Ràng buộc chi tiết: sai thì báo một câu chung Email hoặc mật khẩu chưa đúng, tuyệt đối không tiết lộ email có tồn tại; sai liên tiếp 5 lần thì khóa tạm 15 phút và hiện đếm ngược, tái phạm trong 1 giờ thì nhân đôi tối đa 2 giờ; tài khoản bị Admin khóa thì báo Đã bị khóa, liên hệ Admin; JWT hết hạn giữa chừng thì đá về WF-03, giữ giỏ hàng lưu server; đổi quyền hoặc khóa giữa phiên thì có hiệu lực từ API call kế tiếp, phiên cũ mất hiệu lực ngay._
+**_Màn hình WF-03 đăng nhập._** _Người dùng nhập email, mật khẩu, rememberMe. Server xác thực Bcrypt, kiểm tra khóa, cấp access 60 phút rồi điều hướng theo FR-AUTH-007. Không ghi nhớ thì hết 60 phút đăng nhập lại; ghi nhớ thì làm mới access âm thầm trong phiên có hạn không hoạt động 7 ngày. Giỏ giữ server. Sai thông tin báo chung Email hoặc mật khẩu chưa đúng; sai 5 lần khóa 15 phút, tái phạm trong 1 giờ nhân đôi tối đa 2 giờ, hiển thị đếm ngược. Đăng xuất/khóa/đổi quyền/đổi mật khẩu thu hồi phiên ngay; refresh không vượt qua thu hồi. Mọi API bảo vệ đều xác minh token và quyền tại server._
 
 **_Màn hình WF-04 quên mật khẩu + đăng xuất + ma trận quyền._** _Người quên mật khẩu nhập email rồi bấm Gửi mã xác nhận; hệ thống gửi mã 6 chữ số qua dịch vụ email SMTP đã cấu hình, hiệu lực 15 phút và dùng 1 lần. Giao diện hiển thị thông báo chung dù email có tồn tại hay không, sau đó cho nhập mã, mật khẩu mới và xác nhận mật khẩu. Mỗi mã được kiểm tra tối đa 5 lần; gửi lại sau ít nhất 60 giây sẽ thay mã cũ và đặt lại số lần thử. Mã hợp lệ và mật khẩu đạt chuẩn thì hệ thống cập nhật Bcrypt, thu hồi mọi phiên cũ và hiển thị thành công kèm nút về WF-03 để đăng nhập lại. Mã sai, hết hạn, đã dùng hoặc hết lượt thì báo lỗi tại form và cho yêu cầu mã mới; lỗi này không kích hoạt refresh token. Reset không tự mở khóa tài khoản. Đăng xuất thì thu hồi JWT phía server rồi về WF-03, bấm Back không vào lại được trang bảo vệ. Ma trận quyền hiển thị ở WF-04 cho người xem, nhưng quyết định chặn thật nằm ở backend trả 403: Customer chỉ chạm thực đơn/đặt/theo dõi/đánh giá; Manager chỉ điều phối đơn; Kitchen chỉ quanh Cooking; Delivery chỉ quanh Delivering; Admin chỉ quản trị. Token giả mạo role thì chữ ký sai và bị từ chối ngay._
 
@@ -66,9 +76,9 @@ Khóa tạm tài khoản 15 phút sau 5 lần sai liên tiếp để chống dò
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-03; Xác minh: kiểm thử.
 
-**FR-AUTH-010** — Khi JWT access hết hạn (60 phút, refresh 7 ngày), Hệ thống phải chuyển người dùng về trang đăng nhập và giữ nguyên giỏ hàng.
+**FR-AUTH-010** — Hệ thống phải cấp JWT access có thời hạn 60 phút. Không chọn rememberMe thì phiên kết thúc sau 60 phút và phải đăng nhập lại, không dùng refresh để kéo dài phiên. Có chọn rememberMe thì cho làm mới access âm thầm và duy trì phiên với hạn không hoạt động 7 ngày; sử dụng hợp lệ gia hạn hạn không hoạt động, quá 7 ngày không sử dụng phải đăng nhập lại. Giỏ hàng phải được giữ trên server.
 
-Chuyển người dùng về trang đăng nhập WF-03 khi JWT access hết hạn sau 60 phút với refresh 7 ngày và giữ nguyên giỏ hàng lưu server để không mất dữ liệu đang chọn.
+WF-03 gửi lựa chọn ghi nhớ đăng nhập. Refresh không được phục hồi phiên bị thu hồi do đăng xuất, khóa, đổi quyền hoặc đổi/đặt lại mật khẩu. Sự kiện được tính là hoạt động hợp lệ cần chốt tại CĐ-05.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-03; Xác minh: kiểm thử.
 
@@ -102,9 +112,9 @@ Kiểm tra mật khẩu và xác nhận ở cả client và server trên WF-04. 
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-04; Xác minh: kiểm thử.
 
-**FR-AUTH-016** — Hệ thống phải giới hạn quyền theo 5 vai trò: Customer chỉ đặt món, xem và hủy đơn của chính mình khi còn đủ điều kiện, gửi yêu cầu hủy khi đã Confirmed, theo dõi calo và cân nặng, đánh giá món đã mua; Manager điều phối đơn trong ngày gồm confirm hoặc reject đơn Pending, duyệt yêu cầu hủy, gán và đổi shipper, xử lý giao thất bại và đối soát ngoại lệ; Kitchen Staff chỉ xem đơn Confirmed của ca mình, bấm bắt đầu nấu và báo món sẵn sàng; Delivery Staff chỉ xem đơn được gán cho mình, bấm nhận hàng, xuất phát, giao thành công hoặc thất bại và ghi nhận COD thực thu; Admin quản trị tài khoản, phân quyền, danh mục món và cấu hình, được xem báo cáo tài chính để giám sát nhưng mọi can thiệp vào đơn đang vận hành đều là ngoại lệ có lý do và audit log.
+**FR-AUTH-016** — Hệ thống phải giới hạn quyền theo 5 vai trò: Customer đặt món, xem đơn của mình, tự hủy khi chưa trả tiền hoặc gửi yêu cầu hủy khi đã trả tiền theo FR-ORD-015/017/018, theo dõi sức khỏe và đánh giá món đã giao; Manager xác nhận/từ chối Pending, duyệt hủy hợp lệ, gán/đổi shipper, xử lý Failed và đối soát; Kitchen Staff bắt đầu nấu và báo sẵn sàng trong ca; Delivery Staff chỉ nhận/giao phần được gán, ghi kết quả và COD thực thu; Admin quản trị tài khoản, danh mục, cấu hình, xem tài chính và chỉ can thiệp vận hành như ngoại lệ có lý do/audit.
 
-Giới hạn quyền theo 5 vai trò Customer, Manager, Kitchen, Delivery và Admin để mỗi vai trò chỉ chạm đúng nghiệp vụ của mình từ đặt món, điều phối đơn WF-24, nấu, giao đến quản trị; Admin được xem báo cáo tài chính để giám sát nhưng mọi can thiệp vào đơn đang vận hành đều là ngoại lệ có lý do và audit log.
+Hủy phụ thuộc đồng thời thanh toán, trạng thái chế biến và cutoff. Manager xác nhận Pending → Confirmed; chỉ Kitchen Staff chuyển Confirmed → Cooking.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-05; Xác minh: kiểm thử.
 
@@ -144,7 +154,7 @@ Cho phép Admin xem báo cáo tài chính để giám sát nhưng chặn đổi 
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-05; Xác minh: kiểm thử.
 
-_Chi tiết luồng phân quyền của FR-AUTH-016 đến FR-AUTH-022 diễn ra như sau. Trước hết, khách tự đăng ký ở WF-01 nên mặc định mang vai Customer; không có đường nào để khách tự nâng mình thành Manager, bếp, shipper hay Admin vì FR-AUTH-005 đã chặn ở cả client và server. Sau đó Admin vào WF-05, nhập email, chọn một trong bốn vai trò nội bộ là Manager, Kitchen Staff, Delivery Staff hoặc Admin, rồi bấm tạo; dữ liệu nhập gồm email hợp lệ và vai trò, ràng buộc là email chưa tồn tại và vai trò phải thuộc danh sách cho phép. Mỗi vai trò đăng nhập ở WF-03 sẽ rơi đúng về màn hình của mình theo FR-AUTH-007 nên không ai đi lạc sang màn hình của người khác. Trong ngày vận hành, Manager mở WF-24 là thấy toàn bộ đơn Pending để bấm confirm khi còn hàng và IPN đã hợp lệ, hoặc bấm reject kèm lý do khi hết hàng; với đơn khách xin hủy, Manager mở chi tiết đơn, xem lý do khách nhập và bấm duyệt hoặc từ chối; với món bếp đã báo sẵn sàng, Manager chọn shipper trong danh sách đang rảnh rồi bấm gán, khi cần thì đổi shipper khác; với đơn shipper báo giao thất bại, Manager xem lý do và ảnh minh chứng rồi chọn hẹn giao lại trong ngày hoặc hủy có hoàn tiền. Ở khâu bếp, Kitchen Staff mở WF-24 ở chế độ bếp nên chỉ thấy đơn Confirmed của ca mình theo thứ tự giờ giao; sự kiện của bếp rất gọn là bấm bắt đầu nấu khi nhận nguyên liệu và bấm món sẵn sàng khi nấu xong, dữ liệu nhập gần như không có ngoài nút bấm, ràng buộc là không thấy trường tiền và không có nút hủy. Ở khâu giao, Delivery Staff mở WF-24 ở chế độ giao hàng nên chỉ thấy đơn gán cho mình kèm địa chỉ, số điện thoại khách và số COD phải thu; sự kiện của shipper là bấm nhận hàng và xuất phát khi rời quán, tới nơi thì bấm giao thành công và nhập tiền thực thu nếu là COD, hoặc bấm giao thất bại kèm lý do và ảnh; ràng buộc là shipper không mở được đơn của người khác và không sửa được món hay giá. Admin hằng ngày chỉ quanh quẩn ở WF-04 và WF-05 để quản trị, không trực tiếp bấm confirm hay gán shipper; chỉ khi có ngoại lệ vượt quyền Manager thì Admin mới can thiệp vào đơn, lúc đó màn hình bắt nhập lý do và hệ thống ghi audit log theo FR-AUTH-022, nên thầy vẫn hậu kiểm được ai đã đụng vào đơn nào._
+_Customer tự đăng ký; Admin tạo Active với đúng một trong bốn vai trò nội bộ. Manager xem Pending, chỉ xác nhận online đã có IPN thành công hoặc COD; từ chối kèm lý do/hoàn theo FR-ORD-019. Hủy đã trả tiền phải còn đủ điều kiện trước cutoff và chưa nấu tại FR-ORD-018. Bếp xử lý Confirmed → Cooking → Ready trong ca, không thấy tiền; shipper chỉ nhận/giao phần được gán và ghi COD thực thu. Failed giao lại về Ready; quá 24 giờ chưa xử lý job hủy/hoàn. Admin chỉ can thiệp vận hành như ngoại lệ có lý do/audit._
 
 ### **3.2.2 Quản trị người dùng (US-06)**
 
@@ -156,9 +166,9 @@ _Sự kiện step-by-step: (1) Admin mở WF-05 xem danh sách rồi lọc theo 
 
 _Trường hợp biên: Admin cuối cùng cố tự khóa thì nút xác nhận bị chặn để hệ thống không mất người quản trị; tài khoản đang mở phiên ở thiết bị khác thì phiên cũ mất hiệu lực ngay từ API call kế tiếp và người đó bị chuyển về trang đăng nhập._
 
-**FR-PTL-001** — Hệ thống phải cho phép Admin tạo tài khoản nội bộ gồm Manager, Kitchen Staff và Delivery Staff bằng email và gán đúng một vai trò trong bốn vai trò nội bộ; Customer không do Admin tạo mà tự đăng ký ở WF-01.
+**FR-PTL-001** — Hệ thống phải cho Admin tạo tài khoản nội bộ bằng email, gán đúng một trong bốn vai trò Manager, Kitchen Staff, Delivery Staff hoặc Admin; tài khoản Active và có thể đăng nhập ngay. Customer tự đăng ký ở WF-01, không do Admin tạo.
 
-Cho phép Admin tạo tài khoản nội bộ gồm Manager, Kitchen Staff và Delivery Staff bằng email và gán đúng một vai trò trên WF-05 để kiểm soát truy cập nội bộ; Customer không do Admin tạo mà tự đăng ký trên WF-01.
+Không có bước chờ kích hoạt hoặc email kích hoạt trong phạm vi đã chốt. Chỉ Admin được gọi chức năng tạo; danh sách vai trò có thể gán không phải danh sách vai trò được quyền gọi API.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-06; Xác minh: kiểm thử.
 
@@ -192,7 +202,7 @@ Cho phép Admin xem báo cáo tài chính và file Excel đã xuất để giám
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-05, 06; Xác minh: kiểm thử.
 
-_Chi tiết luồng quản trị của FR-PTL-001 đến FR-PTL-006 diễn ra như sau. Màn hình WF-05 là bàn làm việc của Admin, gồm bộ lọc theo vai trò và ô tìm kiếm, bảng người dùng có phân trang và các nút tạo, khóa, mở khóa. Luồng tạo người chạy từng bước như sau: Admin bấm tạo, nhập email và chọn vai trò là Manager, Kitchen Staff, Delivery Staff hoặc Admin, rồi bấm lưu; hệ thống kiểm tra email đúng định dạng và chưa tồn tại, vai trò thuộc danh sách cho phép, sau đó tạo tài khoản ở trạng thái chờ kích hoạt và ghi audit log ai đã tạo ai. Manager không có nút này nên không thể tự tạo đàn em cho mình, đúng tinh thần SoD. Luồng khóa và mở khóa cũng tương tự: Admin mở hồ sơ người dùng, chọn khóa, nhập lý do cụ thể (ví dụ nghỉ việc, vi phạm đối soát), rồi bấm xác nhận; hệ thống đá hết phiên đang mở của người đó ra, lần đăng nhập sau người đó thấy đúng lý do bị khóa. Ràng buộc an toàn là Admin cuối cùng không được tự khóa hay tự hạ cấp chính mình để hệ thống không rơi vào cảnh không còn ai quản trị. Riêng FR-PTL-006 cần đọc kỹ vì đây là chỗ sửa sai của mô hình cũ: trước đây Admin bị chặn hẳn khỏi báo cáo tài chính, còn Manager bị chặn hẳn khỏi đơn hàng, khiến người cần số thì không có đơn để đối chiếu còn người cần xử lý đơn thì không có quyền. Mô hình mới cho Admin được xem báo cáo để giám sát, nhưng khóa quyền đổi trạng thái đơn trong ngày thường; ngược lại Manager được toàn quyền điều phối đơn nhưng không được tạo tài khoản hay sửa cấu hình. Khi Admin buộc phải đụng vào đơn thì màn hình bắt nhập lý do và hệ thống ghi đủ audit log, nên vừa linh hoạt xử lý ngoại lệ vừa giữ được kiểm soát._
+_Chi tiết luồng quản trị của FR-PTL-001 đến FR-PTL-006 diễn ra như sau. Màn hình WF-05 là bàn làm việc của Admin, gồm bộ lọc theo vai trò và ô tìm kiếm, bảng người dùng có phân trang và các nút tạo, khóa, mở khóa. Luồng tạo người chạy từng bước như sau: Admin bấm tạo, nhập email và chọn vai trò là Manager, Kitchen Staff, Delivery Staff hoặc Admin, rồi bấm lưu; hệ thống kiểm tra email đúng định dạng và chưa tồn tại, vai trò thuộc danh sách cho phép, sau đó tạo tài khoản ở trạng thái Active, có thể đăng nhập ngay và ghi audit log ai đã tạo ai. Manager không có nút này nên không thể tự tạo đàn em cho mình, đúng tinh thần SoD. Luồng khóa và mở khóa cũng tương tự: Admin mở hồ sơ người dùng, chọn khóa, nhập lý do cụ thể (ví dụ nghỉ việc, vi phạm đối soát), rồi bấm xác nhận; hệ thống đá hết phiên đang mở của người đó ra, lần đăng nhập sau người đó thấy đúng lý do bị khóa. Ràng buộc an toàn là Admin cuối cùng không được tự khóa hay tự hạ cấp chính mình để hệ thống không rơi vào cảnh không còn ai quản trị. Riêng FR-PTL-006 cần đọc kỹ vì đây là chỗ sửa sai của mô hình cũ: trước đây Admin bị chặn hẳn khỏi báo cáo tài chính, còn Manager bị chặn hẳn khỏi đơn hàng, khiến người cần số thì không có đơn để đối chiếu còn người cần xử lý đơn thì không có quyền. Mô hình mới cho Admin được xem báo cáo để giám sát, nhưng khóa quyền đổi trạng thái đơn trong ngày thường; ngược lại Manager được toàn quyền điều phối đơn nhưng không được tạo tài khoản hay sửa cấu hình. Khi Admin buộc phải đụng vào đơn thì màn hình bắt nhập lý do và hệ thống ghi đủ audit log, nên vừa linh hoạt xử lý ngoại lệ vừa giữ được kiểm soát._
 
 ### **3.2.3 Hồ sơ sức khỏe và chỉ số BMR/TDEE/Target (US-07, 08, 09)**
 
@@ -202,7 +212,7 @@ _Mục tiêu của cụm này là biến số đo cơ thể thành Target calo �
 
 _Sự kiện step-by-step: (1) khách nhập đủ trường rồi bấm Lưu và tính chỉ số, hệ thống kiểm tra miền giá trị rồi lưu hồ sơ và gắn dị ứng để lọc mọi gợi ý sau đó; (2) hệ thống tính BMR theo Mifflin-St Jeor, nhân với hệ số vận động 1,2–1,9 ra TDEE, rồi điều chỉnh theo mục tiêu ra Target với mặc định giảm −15%, tăng +10% và giữ nguyên 0%; (3) mở WF-07 thấy ba thẻ BMR, TDEE và Target kèm giải thích dễ hiểu, số hiển thị làm tròn kcal nguyên, rồi bấm Xem thực đơn gợi ý để sang WF-08 (FR-HLT-005, FR-HLT-006, FR-HLT-007, FR-HLT-009). Khi Target tính ra thấp hơn BMR thì hệ thống nâng Target bằng đúng BMR và hiện cảnh báo an toàn, khi thiếu trường thì báo chưa đủ dữ liệu chứ không tự suy số (FR-HLT-008, FR-HLT-010)._
 
-_Khi khách sửa cân nặng, mức vận động hoặc mục tiêu ở WF-07 thì hệ thống tính lại ngay và lưu dòng lịch sử, đổi mục tiêu giữa tuần thì số mới áp dụng từ chu kỳ thực đơn kế tiếp (FR-HLT-011, FR-HLT-013). Ràng buộc tuổi là giảm cân từ 16 tuổi, 10–15 tuổi chỉ Duy trì kèm xác nhận phụ huynh và dưới 10 tuổi từ chối gợi ý giảm cân (FR-HLT-002). Trường hợp biên: cân đổi quá 5% trong 7 ngày hoặc quá 3 kg một tuần hoặc quá 10 kg một tháng thì hiện cảnh báo và bắt tick xác nhận mới cho lưu; nhập số phi lý ngoài miền 100–250 cm, 25–300 kg, 10–100 tuổi thì chặn kèm lỗi từng trường (FR-HLT-002, FR-HLT-012)._
+_Sửa cân nặng/vận động/mục tiêu thì tính lại ngay và lưu lịch sử; đổi mục tiêu giữa tuần áp dụng thực đơn từ tuần lịch thứ Hai–Chủ nhật kế tiếp. Miền bắt buộc: 100–250 cm, 25–300 kg, 10–100 tuổi; nhóm 10–15 tuổi chỉ Duy trì. Biến động >5%/7 ngày hoặc >3 kg/tuần cần cảnh báo và xác nhận. Xác nhận phụ huynh và >10 kg/tháng thuộc diễn giải/TBD của tài liệu nguồn, chưa phải FR bắt buộc trong phạm vi này; xem cuối tài liệu._
 
 **FR-HLT-001** — Hệ thống phải cho phép Khách hàng khai hồ sơ sức khỏe gồm chiều cao, cân nặng, tuổi, giới tính, mức vận động (5 mức), mục tiêu (giảm/tăng/giữ), dị ứng và ghi chú.
 
@@ -276,9 +286,9 @@ Cảnh báo và yêu cầu tick xác nhận trước khi lưu khi cân nặng đ
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-09; Xác minh: kiểm thử.
 
-**FR-HLT-013** — Khi Khách hàng đổi mục tiêu giữa tuần, Hệ thống phải áp dụng chỉ số mới từ chu kỳ thực đơn kế tiếp.
+**FR-HLT-013** — Khi Khách hàng đổi mục tiêu giữa tuần, Hệ thống phải tính lại chỉ số và lưu lịch sử ngay theo FR-HLT-011, nhưng áp dụng mục tiêu mới cho chu kỳ thực đơn từ tuần lịch kế tiếp, thứ Hai đến Chủ nhật theo múi giờ nghiệp vụ.
 
-Áp dụng chỉ số mới từ chu kỳ thực đơn kế tiếp trên WF-08 khi Customer đổi mục tiêu giữa tuần để giữ ổn định thực đơn tuần hiện tại.
+Chu kỳ kế tiếp bắt đầu 00:00 thứ Hai tiếp theo; không tự sửa thực đơn/đơn đã chốt của tuần hiện tại. Target trên thanh theo dõi trong thời gian chờ cần chốt tại CĐ-06.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-09; Xác minh: kiểm thử.
 
@@ -288,11 +298,11 @@ Cảnh báo và yêu cầu tick xác nhận trước khi lưu khi cân nặng đ
 
 _Mục tiêu là khách mở Thực đơn hôm nay là ăn được ngay đúng mục tiêu mà không phải tự tính calo hay tự nhớ dị ứng. Màn hình WF-08 gồm header Target và phần trăm bám sát, tab Hôm nay/Cả tuần, nhãn Đã lọc dị ứng, 3 thanh macro ngày, 4 bữa sáng/trưa/tối/phụ kèm calo và nút Đổi món, nút Thêm cả ngày vào giỏ và Đặt cả tuần._
 
-_Sự kiện step-by-step: (1) khách có Target và danh sách dị ứng mở WF-08; (2) engine chạy greedy rule-based: lọc tuyệt đối mọi món chứa nguyên liệu dị ứng trước, rồi ghép 4 bữa sao cho tổng ngày trong ±10% Target và macro gần 30/40/30 với dung sai ±5 điểm %; (3) hiển thị 4 bữa kèm tổng calo, phần trăm và cờ xanh khi đạt chuẩn; (4) ở tab Cả tuần engine ráp 7 ngày với quy tắc một món lặp tối đa 2 lần; (5) khách bấm Đổi món ở một bữa thì popover hiện 3–5 món tương đương calo ±15% so với món gốc, đã lọc dị ứng, xếp theo độ tương đồng calo và macro, chọn xong thì tổng ngày và macro tính lại ngay kèm chênh lệch. Dữ liệu vào: Target, allergies\[\], catalog món kèm kcal/P/C/F từ Admin, lịch sử món đã gợi ý trong tuần. Dữ liệu ra: menu ngày/tuần kèm totalKcal, pct, macro và allergyFilter. Ràng buộc chi tiết: sai số tổng ngày ±10% là cứng; lọc dị ứng là tuyệt đối, món dính là loại không thương lượng; macro 30/40/30 dung sai ±5 điểm %; kho món mỏng không ráp đủ chuẩn thì gắn cờ Thực đơn gần đúng có ghi rõ nới gì thay vì trang trắng; dị ứng quá nhiều thì báo Quá ít món phù hợp kèm nút liên hệ; swap xong mà tổng ngày lệch khỏi ±10% thì hiện cảnh báo nhưng vẫn cho giữ; món trong đơn đã checkout thì khóa swap, trong gói tuần thì sau giờ chốt bếp 20h hôm trước của ngày đó thì khóa._
+_Khách mở WF-08 ngày/tuần. Engine lọc tuyệt đối dị ứng, ghép bốn bữa hướng tới ±10% Target và macro 30/40/30 ±5 điểm %, mỗi món lặp tối đa hai lần/tuần. Đổi món hiển thị 3–5 lựa chọn trong ±15% calo món gốc, lọc dị ứng và xếp theo calo/macro; tổng ngày ngoài ngưỡng mềm ±10% cần cảnh báo và xác nhận giữ. Thiếu món hiển thị gần đúng/quá ít món hợp, không nới dị ứng. Checkout khóa sửa thực đơn gốc; gói tuần có đổi riêng theo FR-ORD-013, gồm một lần sau cutoff._
 
-**FR-MNU-001** — Hệ thống phải gợi ý thực đơn ngày gồm bữa sáng, trưa, tối, phụ với tổng năng lượng trong khoảng ±10% Target.
+**FR-MNU-001** — Hệ thống phải gợi ý thực đơn ngày gồm sáng, trưa, tối, phụ, hướng tới tổng năng lượng ±10% Target; đây là ngưỡng mềm. Ngoài ngưỡng phải hiển thị chênh lệch/cảnh báo và cho Khách hàng xác nhận giữ lựa chọn.
 
-Gợi ý thực đơn ngày gồm 4 bữa sáng, trưa, tối, phụ trên WF-08 bằng engine greedy rule-based sao cho tổng năng lượng nằm trong ±10% Target của Khách hàng.
+Phân biệt thực đơn đạt ngưỡng với thực đơn gần đúng/được chấp nhận ngoài ngưỡng. Không nới quy tắc loại trừ dị ứng theo FR-MNU-003.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-10; Xác minh: kiểm thử.
 
@@ -332,9 +342,9 @@ Cung cấp 3–5 món thay thế trong popover Đổi món của WF-08, có năn
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-11; Xác minh: kiểm thử.
 
-**FR-MNU-008** — Sau khi đổi món, Hệ thống phải kiểm tra lại tổng ngày trong ±10% Target và hiển thị chênh lệch.
+**FR-MNU-008** — Sau đổi món, Hệ thống phải tính lại tổng ngày, so sánh với ngưỡng mềm ±10% Target và hiển thị chênh lệch; vượt ngưỡng thì cảnh báo và cho Khách hàng xác nhận giữ món.
 
-Sau khi đổi món phải tính lại tổng ngày và macro, kiểm tra lại ngưỡng ±10% Target và hiển thị chênh lệch cho Khách hàng trên WF-08.
+Không chặn chỉ vì vượt ±10%; vẫn kiểm tra dị ứng và các ràng buộc áp dụng khác.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-11; Xác minh: kiểm thử.
 
@@ -344,9 +354,9 @@ Khi không còn món thay nào phù hợp ràng buộc thì hiển thị thông 
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-11; Xác minh: kiểm thử.
 
-**FR-MNU-010** — Hệ thống phải khóa chức năng đổi món sau khi thực đơn đã được đặt hàng.
+**FR-MNU-010** — Hệ thống phải khóa sửa món trực tiếp trên thực đơn đã đặt hàng; riêng gói tuần được đổi món của ngày giao qua luồng FR-ORD-013.
 
-Khóa chức năng đổi món trên WF-08 sau khi thực đơn đã được đặt hàng nhằm giữ nhất quán giữa món đã chốt và tồn kho đơn hàng.
+Đây là ngoại lệ trên ngày giao của gói tuần, không mở lại thực đơn đã đặt để sửa tùy ý và không mở swap đơn lẻ sau checkout.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-11; Xác minh: kiểm thử.
 
@@ -410,13 +420,13 @@ Khi món bị Admin ẩn hoặc xóa thì hiển thị Không còn bán cho thao
 
 **Câu chuyện báo cáo — giỏ hàng, đặt hàng và combo tuần chạy qua WF-14, WF-15, WF-26 thế nào.**
 
-_Mục tiêu là chốt đơn chắc mà không giữ hàng ảo. WF-14 là giỏ lưu server với hai tab lẻ và tuần, mỗi dòng hiện món, số lượng, ngày giao, đơn giá, tổng và ship tạm tính, dòng hết hàng gắn cờ và chặn checkout (FR-ORD-001, FR-ORD-003, FR-ORD-004). WF-15 gồm cụm checkout với địa chỉ, giờ giao, nút Đặt hàng, một mốc đếm ngược và dòng thời gian năm bước kèm thời điểm (FR-ORD-005, FR-ORD-006, FR-ORD-009). WF-26 là gói bảy ngày một mã chung, mỗi ngày ba bữa kèm nút Đổi, giờ giao cố định, ship chỉ tính ngày đầu và miễn sáu ngày còn lại (FR-ORD-011, FR-ORD-012)._
+_WF-14 lưu giỏ server lẻ/tuần, món/bữa/ngày/số lượng/giá/ship tạm tính, dòng thiếu hàng chặn checkout. WF-15 tạo Pending, thanh toán hiển thị riêng với tiến trình sáu bước gồm Ready. WF-26 là một đơn gói bảy ngày, mỗi ngày bốn bữa, đúng 28 bữa khi mua; trạng thái riêng từng ngày. Ship gói thu một lần ngày đầu, các ngày sau miễn theo FR-ORD-012._
 
-_Sự kiện step-by-step: (1) khách thêm món lẻ hoặc tuần rồi sửa, xóa trong giỏ (FR-ORD-002); (2) chốt địa chỉ và giờ giao rồi bấm Đặt hàng, hệ thống sinh idempotency key chống trùng và trong một giao dịch ACID tạo đơn Pending đồng thời khóa kho (FR-ORD-005, FR-ORD-008); (3) bấm Đặt cả tuần để sinh bảy dòng theo ngày, ngày thiếu món được gắn cờ kèm món thay thế trước thanh toán (FR-ORD-011, FR-ORD-014); (4) đơn online nằm Pending chờ IPN verify, đơn COD chờ Manager xác nhận như §3.2.7 (FR-PAY-002, FR-PAY-004); (5) khách hủy, gửi yêu cầu hủy hoặc đổi món từng ngày tùy trạng thái._
+_Khách chọn món, xem lịch/chính sách rồi đặt với idempotency key; tạo Pending và xử lý kho trong ACID. Gói tuần đủ bảy ngày/bốn bữa mỗi ngày, báo thiếu món và lựa chọn thay trước thanh toán. Online IPN ghi Paid nhưng vẫn chờ Manager; COD cũng chờ Manager. Manager chuyển Confirmed để bếp tiếp nhận, không trực tiếp bắt đầu nấu. Hủy/đổi ngày theo FR-ORD-013/015/017/018._
 
-_Ràng buộc: một mốc 15 phút chung cho giữ hàng và thanh toán, hết giờ hoặc hủy thì nhả kho (FR-ORD-006); đơn online chưa IPN verify không vào Cooking; khách tự hủy ngay chỉ khi Pending hoặc Confirmed chưa nấu với online chưa IPN và COD chưa gán shipper, từ Cooking trở đi phải gửi yêu cầu chờ Manager duyệt real-time (FR-ORD-017, FR-ORD-018); combo khóa đổi sau chốt bếp 20h hôm trước (FR-ORD-013); cấm mọi chuyển lùi (FR-ORD-010, FR-ORD-024)._
+_Online chưa trả có mốc chung 15 phút giữ kho/thanh toán; Pending đã Paid chờ Manager không bị job quá hạn hủy. Hủy thông thường phải chưa Cooking và trước cutoff: chưa trả tự hủy, đã trả Manager duyệt. Gói chỉ hủy cả ngày; sau cutoff không hủy nhưng đổi một lần trong ngày theo FR-ORD-013. Failed xử lý riêng; chỉ chuyển trạng thái theo bảng hợp lệ._
 
-_Luồng đi Pending, Confirmed, Cooking, Ready, Delivering tới Completed, rẽ nhánh Cancelled khi khách tự hủy, job quá hạn thanh toán hủy, Manager duyệt hủy hoặc Rejected, và rẽ Failed khi giao thất bại để Manager hẹn lại hoặc hủy hoàn tiền (FR-ORD-016, FR-ORD-019, FR-ORD-023). Trường hợp biên: hai đơn tranh suất cuối thì bên commit trước thắng, đơn còn lại báo thiếu theo dòng (FR-ORD-007); bấm trùng do mạng chỉ tạo một đơn nhờ key; hủy ngày combo trước chốt hoàn trong 3–5 ngày, sau chốt chỉ đổi một lần; chỉ Completed mở đánh giá và ghi calo (FR-ORD-015, FR-ORD-024)._
+_Luồng chính Pending, Confirmed, Cooking, Ready, Delivering, Completed; Rejected kết thúc từ chối, Cancelled kết thúc hủy, Failed chờ xử lý. Checkout tranh hàng cuối/gửi lại phải chống vượt kho/trùng đơn. Hủy ngày hợp lệ hoàn tiền các bữa đã thu trong 3–5 ngày làm việc, không hoàn riêng ship; toàn gói trước giao ngày đầu hoàn cả ship. Ngày Completed mở review từng món/cộng calo ngay; trạng thái tổng gói phục vụ theo dõi/thống kê riêng._
 
 **FR-ORD-001** — Hệ thống phải lưu giỏ hàng ở server (món, số lượng, ngày giao, đơn giá) và đồng bộ giữa các thiết bị.
 
@@ -448,9 +458,9 @@ Khi Khách hàng chốt địa chỉ và lịch giao trên WF-15 thì tạo đơ
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-18; Xác minh: kiểm thử.
 
-**FR-ORD-006** — Hệ thống phải giữ tồn kho 15 phút khớp hạn thanh toán, hiển thị một mốc đếm ngược, và nhả tồn kho khi hết giờ hoặc khi đơn bị hủy.
+**FR-ORD-006** — Hệ thống phải giữ tồn kho cho online chưa thanh toán trong 15 phút, trùng hạn thanh toán và hiển thị một mốc đếm ngược; quá hạn không có IPN thành công phải hủy/nhả kho theo FR-PAY-007. Đơn đã trả tiền còn Pending chờ Manager không được nhả kho hoặc tự hủy chỉ vì còn Pending.
 
-Giữ tồn kho và hạn thanh toán dùng chung một mốc 15 phút để tránh giữ hàng ảo; hết giờ hoặc hủy thì nhả kho.
+IPN thành công xử lý kho theo FR-PAY-003; hủy/từ chối hợp lệ điều chỉnh phần kho liên quan đúng một lần. Hạn thanh toán online không áp dụng cho COD.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-18; Xác minh: kiểm thử.
 
@@ -466,33 +476,33 @@ Dùng idempotency key để chặn tạo đơn trùng khi client gửi lại req
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-18; Xác minh: kiểm thử.
 
-**FR-ORD-009** — Mục "Đơn của tôi" phải hiển thị dòng thời gian 5 bước (Pending → Confirmed → Cooking → Delivering → Completed) kèm thời điểm từng bước.
+**FR-ORD-009** — Mục Đơn của tôi phải hiển thị tiến trình Pending → Confirmed → Cooking → Ready → Delivering → Completed kèm thời điểm và các nhánh Rejected, Cancelled, Failed; gói tuần hiển thị tiến trình riêng từng ngày dưới mã gói chung.
 
-Mục Đơn của tôi trên WF-15 hiển thị dòng thời gian 5 bước Pending tới Completed kèm thời điểm từng bước để Khách hàng theo dõi tiến độ.
+Thanh toán có nhãn riêng; đã trả tiền không có nghĩa Manager đã xác nhận. Timeline gồm Ready để khớp bàn giao bếp/shipper.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-18; Xác minh: kiểm thử.
 
-**FR-ORD-010** — Hệ thống chỉ được chuyển trạng thái đơn theo chiều tiến; các chuyển ngược (ví dụ Delivering → Pending) phải bị chặn.
+**FR-ORD-010** — Hệ thống chỉ được thực hiện chuyển trạng thái trong bảng hợp lệ; chặn chuyển ngược tùy ý như Delivering → Pending. Failed → Ready là ngoại lệ giao lại do Manager thực hiện theo FR-ORD-023.
 
-Chỉ cho chuyển trạng thái đơn theo chiều tiến và chặn mọi chuyển ngược như Delivering về Pending nhằm giữ toàn vẹn luồng đơn.
+Không dùng cấm lùi tuyệt đối để chặn giao lại. Completed, Rejected, Cancelled không được mở lại qua luồng thường ngày.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-18, 28; Xác minh: kiểm thử.
 
-**FR-ORD-011** — Khi Khách hàng chọn "Đặt cả tuần" từ thực đơn 7 ngày, Hệ thống phải sinh 7 dòng theo ngày dưới một mã gói theo dõi chung.
+**FR-ORD-011** — Khi Khách hàng chọn Đặt cả tuần, Hệ thống phải tạo một đơn gói, một mã theo dõi, gồm 7 ngày giao liên tiếp, mỗi ngày đủ 4 bữa sáng/trưa/tối/phụ, tổng cộng đúng 28 bữa khi đặt. Không cho checkout thiếu ngày/bữa, không tách thành một đơn mẹ và bảy đơn con.
 
-Khi Khách hàng chọn Đặt cả tuần từ thực đơn 7 ngày thì sinh 7 dòng theo ngày dưới một mã gói theo dõi chung trên WF-26.
-
-- Ưu tiên: Should (nên có); Nguồn: US-30; Xác minh: kiểm thử.
-
-**FR-ORD-012** — Với combo tuần, Hệ thống phải chỉ tính phí ship của ngày 1 và hiển thị rõ từng khoản được miễn.
-
-Với combo tuần trên WF-26 chỉ tính phí ship của ngày 1 và hiển thị rõ từng khoản được miễn cho 6 ngày còn lại.
+Bảy dòng là bảy kỳ giao, mỗi kỳ chứa các món của bốn bữa, không phải bảy dòng món. Hủy ngày sau mua theo FR-ORD-015 không phải mua gói thiếu ngày.
 
 - Ưu tiên: Should (nên có); Nguồn: US-30; Xác minh: kiểm thử.
 
-**FR-ORD-013** — Hệ thống phải cho đặt khung giờ giao cố định một lần cho cả combo, cho phép đổi món từng ngày trước giờ chốt bếp 20h hôm trước và khóa việc đổi sau giờ chốt.
+**FR-ORD-012** — Hệ thống phải thu phí ship cả gói một lần tại ngày 1 và hiển thị miễn phí ngày 2–7. Hủy riêng một ngày không hoàn riêng phí ship; hủy toàn gói hợp lệ trước lần giao ngày đầu tiên hoàn cả phí ship đã thu.
 
-Cho đặt khung giờ giao cố định một lần cho cả combo trên WF-26, cho đổi món từng ngày trước giờ chốt bếp 20h hôm trước và khóa đổi sau giờ chốt.
+Ship thuộc gói, không chia thành khoản hoàn riêng theo ngày. Khi hoàn toàn gói phải trừ phần đã hoàn trước đó để không hoàn lặp.
+
+- Ưu tiên: Should (nên có); Nguồn: US-30; Xác minh: kiểm thử.
+
+**FR-ORD-013** — Hệ thống phải cho đặt khung giờ giao cố định cho cả gói. Trước cutoff từng ngày được đổi món ngày đó; sau cutoff không tiếp nhận hủy thông thường và chỉ được đổi món một lần trong ngày giao đó, không thay đổi số tiền ngày/gói. Cutoff mặc định 20:00 hôm trước, Admin được cấu hình theo FR-ADM-015.
+
+Không chuyển món sang ngày khác. Vẫn kiểm tra dị ứng, kho và cảnh báo calo. Thời điểm cuối được đổi sau cutoff so với Cooking/Ready/Delivering cần chốt tại CĐ-02. Cùng đơn giá và giờ giao mặc định 12:00 của weekly-orders.md chưa phải điều khoản SRS.
 
 - Ưu tiên: Should (nên có); Nguồn: US-30; Xác minh: kiểm thử.
 
@@ -502,33 +512,33 @@ Khi một ngày trong combo thiếu món thì gắn cờ kèm món thay thế tr
 
 - Ưu tiên: Should (nên có); Nguồn: US-30; Xác minh: kiểm thử.
 
-**FR-ORD-015** — Khi Khách hàng hủy lẻ một ngày trong combo, Hệ thống phải hoàn tiền ngày đó (trước chốt hoàn 100% trong 3–5 ngày, sau chốt đổi món 1 lần) theo chính sách đã hiển thị trước khi xác nhận.
+**FR-ORD-015** — Hệ thống chỉ hỗ trợ hủy toàn bộ một ngày giao trong gói tuần, không hủy lẻ món. Ngày hủy phải chưa Cooking và còn trước cutoff; chưa trả tự hủy theo FR-ORD-017, đã trả yêu cầu Manager duyệt theo FR-ORD-018. Hủy hợp lệ giảm 100% tiền các bữa của ngày đó; phần đã thu được hoàn trong 3–5 ngày làm việc. Ship theo FR-ORD-012.
 
-Khi Khách hàng hủy lẻ một ngày trong combo thì hoàn tiền ngày đó theo chính sách đã hiển thị trước xác nhận, trước chốt hoàn 100% trong 3–5 ngày còn sau chốt chỉ đổi món 1 lần.
+Chưa thu thì giảm số phải trả, không tạo khoản hoàn giả. Hủy toàn gói phải thỏa điều kiện của các ngày liên quan; trước giao ngày đầu hoàn cả ship đã thu. Ngày hủy Cancelled, không cộng calo; hủy cả bảy ngày thì gói Cancelled. Hiển thị chính sách trước xác nhận. Sau cutoff chỉ đổi theo FR-ORD-013; Failed là ngoại lệ riêng theo FR-ORD-023.
 
 - Ưu tiên: Should (nên có); Nguồn: US-30; Xác minh: kiểm thử.
 
-**FR-ORD-016** — Hệ thống phải hỗ trợ trạng thái đơn đầy đủ: Pending → Confirmed/Rejected → Cooking → Ready → Delivering → Completed, cùng hai nhánh kết thúc sớm là Cancelled và Failed; mọi chuyển đổi phải ghi người thực hiện và thời điểm.
+**FR-ORD-016** — Hệ thống phải hỗ trợ Pending → Confirmed → Cooking → Ready → Delivering → Completed; Pending có thể kết thúc Rejected; hủy hợp lệ kết thúc Cancelled. Delivering → Failed mở nhánh ngoại lệ FR-ORD-023, không phải kết thúc bất biến. Mỗi chuyển đổi phải ghi người thực hiện hoặc tác nhân hệ thống và thời điểm.
 
-Hỗ trợ máy trạng thái đơn đầy đủ từ Pending tới Completed cùng hai nhánh kết thúc sớm Cancelled và Failed, mọi chuyển đổi đều ghi người thực hiện và thời điểm trên WF-24.
-
-- Ưu tiên: Must (bắt buộc); Nguồn: US-18, US-28; Xác minh: kiểm thử.
-
-**FR-ORD-017** — Hệ thống phải cho phép Khách hàng tự hủy đơn ở trạng thái Pending, và ở trạng thái Confirmed khi bếp chưa bấm bắt đầu nấu (chưa vào Cooking) kèm điều kiện: đơn online chưa có IPN thành công, đơn COD chưa được gán shipper; khi tự hủy phải nhả tồn kho và ghi lý do "Khách tự hủy".
-
-Cho Khách hàng tự hủy ngay ở Pending và ở Confirmed khi bếp chưa bấm bắt đầu nấu, với điều kiện đơn online chưa có IPN thành công và đơn COD chưa gán shipper; khi hủy phải nhả kho và ghi lý do Khách tự hủy.
+Thanh toán lưu riêng. Với gói tuần, chế biến/giao/hủy áp dụng từng ngày, trạng thái tổng theo FR-ORD-026 không thay lịch sử ngày.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-18, US-28; Xác minh: kiểm thử.
 
-**FR-ORD-018** — Khi đơn đã vào Cooking trở đi và Khách hàng muốn hủy, Hệ thống phải chuyển yêu cầu sang dạng "yêu cầu hủy chờ Manager duyệt" thay vì hủy ngay; Manager duyệt hoặc từ chối kèm lý do, Khách hàng nhận thông báo real-time.
+**FR-ORD-017** — Hệ thống phải cho Khách hàng tự hủy đơn/ngày giao của mình khi chưa trả tiền, đang Pending hoặc Confirmed, chưa Cooking và còn trước cutoff áp dụng; giải phóng/trả phần kho chưa chế biến đúng một lần và ghi lý do Khách tự hủy.
 
-Khi đơn đã vào Cooking trở đi thì yêu cầu hủy của Khách hàng chuyển thành yêu cầu chờ Manager duyệt kèm lý do, Khách hàng nhận thông báo real-time trên WF-15 và WF-24.
+Các điều kiện phải đồng thời đúng; chưa thanh toán không tạo quyền hủy sau chốt hoặc sau bắt đầu nấu. Gói tuần chỉ hủy cả ngày; đúng thời điểm cutoff được tính là đã chốt.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-18, US-28; Xác minh: kiểm thử.
 
-**FR-ORD-019** — Hệ thống phải cho phép Manager từ chối (Reject) đơn Pending kèm lý do (hết nguyên liệu, quá tải bếp, ngoài khu vực giao); đơn Rejected phải nhả tồn kho và không được chuyển tiếp sang Cooking.
+**FR-ORD-018** — Với đơn/ngày giao đã trả tiền, còn Pending hoặc Confirmed, chưa Cooking và trước cutoff, Hệ thống phải cho gửi yêu cầu hủy chờ Manager duyệt. Duyệt hợp lệ thì hủy phần tương ứng, hoàn 100% khoản được hoàn theo chính sách áp dụng và trả kho chưa chế biến; từ chối thì đơn tiếp tục xử lý, thông báo lý do real-time.
 
-Cho Manager từ chối đơn Pending kèm lý do bắt buộc như hết nguyên liệu hay quá tải bếp trên WF-24; đơn Rejected phải nhả kho và không được chuyển tiếp sang Cooking.
+Lưu yêu cầu/kết quả riêng, không thêm trạng thái đơn. Điều kiện chưa nấu và trước cutoff phải còn đúng khi duyệt. Gói tuần áp dụng tiền món/ship theo FR-ORD-012/015. Không nhận hủy thông thường từ Cooking trở đi; Failed và khiếu nại là ngoại lệ riêng.
+
+- Ưu tiên: Must (bắt buộc); Nguồn: US-18, US-28; Xác minh: kiểm thử.
+
+**FR-ORD-019** — Hệ thống phải cho Manager từ chối Pending kèm lý do như hết nguyên liệu/quá tải/ngoài khu vực; chuyển Rejected, trả kho đã giữ/trừ chưa chế biến và không chuyển tiếp Cooking. Nếu đã trả tiền, Hệ thống phải tự động xử lý hoàn 100% khoản đã thu của phần bị từ chối, tránh hoàn trùng.
+
+Từ chối toàn đơn hoàn toàn bộ khoản đã thu gồm ship. Luồng tự động phải tạo yêu cầu và thực hiện hoàn qua phương thức thanh toán tương ứng; yêu cầu Pending chưa đồng nghĩa tiền đã về. Lưu kết quả hoàn thực tế riêng trong Transaction và thông báo khách; lỗi hoàn phải được ghi nhận để đối soát, không đánh dấu đã hoàn chỉ từ thao tác từ chối.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-28; Xác minh: kiểm thử.
 
@@ -550,58 +560,65 @@ Cho shipper ghi nhận kết quả giao trên WF-24, giao thành công thì chuy
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-28; Xác minh: kiểm thử.
 
-**FR-ORD-023** — Khi đơn ở Failed, Hệ thống phải giữ đơn lại để Manager xử lý trong ngày: hẹn giao lại (Failed → Ready/Delivering) hoặc hủy có hoàn tiền (Failed → Cancelled); mọi xử lý phải ghi audit log và thông báo cho Khách hàng.
+**FR-ORD-023** — Khi đơn/ngày giao Failed, Hệ thống phải cho Manager chọn giao lại Failed → Ready rồi gán shipper, hoặc hủy/hoàn Failed → Cancelled; không cho Failed → Delivering trực tiếp. Nếu vẫn Failed chưa xử lý sau 24 giờ kể từ lần vào Failed đó, Hệ thống phải tự hủy phần thất bại, tự động xử lý hoàn 100% khoản đã thu thuộc phần đó, ghi audit log và thông báo.
 
-Khi đơn ở Failed thì giữ lại để Manager xử lý trong ngày trên WF-24, hẹn giao lại về Ready hoặc hủy có hoàn tiền về Cancelled, mọi xử lý đều ghi audit log và thông báo cho Khách hàng.
+Shipper nhận hàng/xuất phát từ Ready trước Delivering. Job và Manager chống xử lý/hoàn lặp; chưa thu không phát sinh hoàn. Yêu cầu hoàn và kết quả hoàn thực tế được ghi riêng như FR-ORD-019. Gói tuần chỉ xử lý ngày Failed; phí ship ngoại lệ cần chốt CĐ-03. Không tự trả món đã nấu/hỏng thành hàng bán được.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-28; Xác minh: kiểm thử.
 
-**FR-ORD-024** — Hệ thống phải cấm mọi chuyển trạng thái đi lùi (ví dụ Delivering → Cooking, Completed → bất kỳ); chỉ Completed mới mở khóa đánh giá Verified Purchase và ghi nhận calo thực tế.
+**FR-ORD-024** — Hệ thống phải chặn chuyển ngoài bảng hợp lệ, gồm Delivering → Cooking hoặc mở lại Completed; ngoại lệ giao lại chỉ Failed → Ready theo FR-ORD-023. Chỉ phần giao Completed mới mở đánh giá món và tự ghi calo.
 
-Cấm mọi chuyển trạng thái đi lùi; chỉ đơn Completed mới mở khóa đánh giá Verified Purchase và ghi nhận calo thực tế.
+Ngày gói tuần Completed mở đánh giá từng món và ghi calo ngay, không chờ toàn gói. Ngày Cancelled/Rejected/Failed không tự ghi calo hoặc mở review. Tick đã ăn và nhập tay là nguồn độc lập theo FR-TRK-006.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-18, US-26; Xác minh: kiểm thử.
 
-**Vận hành đơn trong ngày — từ lúc khách đặt tới lúc giao xong:**
+**FR-ORD-025** — Hệ thống phải cho Khách hàng gửi khiếu nại về phần giao trong vòng 24 giờ sau nhận hàng; xử lý qua luồng ngoại lệ có lý do/audit, không mở lại quyền hủy thông thường hoặc tự chuyển Completed sang trạng thái khác.
 
-_Buổi sáng khách mở WF-15 bấm ĐẶT HÀNG, đơn sinh ra ở Pending kèm một mốc đếm ngược giữ hàng + thanh toán 15 phút (FR-ORD-005, FR-ORD-006). Nếu khách trả online thì đơn nằm chờ IPN, nếu chọn COD thì đơn chờ Manager xác nhận, đây là điểm khác nhau duy nhất ở cửa vào. Trong lúc đơn còn Pending, hoặc vừa Confirmed mà bếp chưa bấm nấu, khách đổi ý thì mở chính WF-15 bấm Hủy đơn là xong ngay, hàng tự nhả, không cần ai duyệt (FR-ORD-017). Hết 15 phút chưa có IPN thì job tự hủy theo FR-PAY-007; hủy của khách và hủy của job không đè nhau nhờ khóa dòng._
+Gửi khiếu nại không tự tạo quyền hoàn 100%; tiền/hàng phải có quyết định theo phân quyền. Chi tiết bằng chứng, kết quả và hạn giải quyết cần chốt CĐ-07.
 
-_B1, Manager mở WF-24 ở góc nhìn điều phối, thấy hàng đợi Pending xếp theo giờ giao. Manager bấm Xác nhận thì đơn Pending → Confirmed (online bắt buộc đã có IPN verify, COD thì xác nhận ngay), bấm Từ chối kèm lý do thì đơn Pending → Rejected, hàng nhả, khách nhận thông báo. Không có đường nào khác rời khỏi Pending ngoài ba cửa Confirmed, Rejected và Cancelled (khách tự hủy hoặc job tự hủy)._
+- Ưu tiên: Must (bắt buộc); Nguồn: phản hồi mục 4, US-28; Xác minh: kiểm thử.
 
-_B2, bếp mở WF-24 ở góc nhìn bếp, danh sách chỉ hiện đơn Confirmed thuộc ca mình theo thứ tự giờ giao. Bếp nhận nguyên liệu thì bấm Bắt đầu nấu, đơn Confirmed → Cooking. Từ thời điểm này khách không còn nút tự hủy, muốn hủy phải bấm Gửi yêu cầu hủy kèm lý do, yêu cầu nằm chờ ở hàng đợi của Manager (FR-ORD-018). Bếp nấu xong bấm Món sẵn sàng, đơn Cooking → Ready, Manager nhìn thấy để điều shipper._
+**FR-ORD-026** — Hệ thống phải lưu tiến trình bảy ngày trong cùng một đơn gói. Cả bảy ngày Completed thì gói Completed; cả bảy ngày Cancelled thì gói Cancelled. Đánh giá và calo xét ngay theo từng ngày Completed, độc lập trạng thái tổng.
 
-_B3, Manager ở WF-24 góc nhìn điều phối gán shipper cho đơn Ready, giờ cao điểm có thể đổi shipper cho nhau. Shipper mở WF-24 ở góc nhìn giao hàng, chỉ thấy đơn gán cho mình kèm địa chỉ, số điện thoại khách và số COD phải thu. Tới quán shipper bấm Nhận hàng và xuất phát, đơn Ready → Delivering._
+Gói có cả ngày Completed và Cancelled/Rejected cần chốt cách tổng hợp tại CĐ-04; không vì vậy trì hoãn review/calo ngày đã giao.
 
-_B4, shipper tới nơi thì chốt một trong hai cửa. Giao được thì bấm Giao thành công, đơn Delivering → Completed, với COD thì nhập số tiền thực thu ngay tại màn hình này để cuối ca đối soát (FR-ORD-022). Giao không được thì bấm Giao thất bại, nhập lý do bắt buộc và đính kèm ảnh khi cần, đơn Delivering → Failed, khách nhận thông báo real-time._
+- Ưu tiên: Must (bắt buộc); Nguồn: phản hồi mục 3, 9, US-30; Xác minh: kiểm thử.
 
-_B5, đơn Failed không tự trôi đi đâu mà nằm lại hàng đợi ngoại lệ của Manager. Manager mở chi tiết đơn, gọi xác minh rồi chọn hẹn giao lại (đơn quay về Ready để gán lại shipper) hoặc hủy có hoàn tiền (đơn Failed → Cancelled, sinh bản ghi hoàn ở sổ Transaction). Mọi lần duyệt hủy, gán shipper, xử lý Failed và đối soát ngoại lệ tiền hàng đều ghi audit log người làm và thời điểm (FR-ORD-023, NFR-AUD-001). Chỉ đơn đi tới Completed mới mở khóa đánh giá và cộng calo ngày (FR-ORD-024)._
+**Vận hành đơn trong ngày — từ lúc đặt tới lúc giao xong:**
 
-**Chuyển trạng thái đơn hàng hợp lệ (máy trạng thái đầy đủ, thay thế bảng 5 bước cũ):**
+1. Tạo Pending. Online có hạn 15 phút; IPN ghi Paid/chốt kho nhưng vẫn Pending. COD chưa thu và cũng chờ Manager.
+2. Manager xác nhận Pending → Confirmed; online phải đã xác minh thanh toán. Từ chối chuyển Rejected, trả kho chưa chế biến, tự khởi tạo hoàn khoản đã thu của phần bị từ chối.
+3. Bếp nhận Confirmed trong ca rồi bấm bắt đầu nấu → Cooking; nấu xong → Ready. Manager xác nhận không thay thao tác bắt đầu nấu.
+4. Manager gán shipper cho Ready; shipper được gán nhận hàng/xuất phát → Delivering.
+5. Giao thành công → Completed và ghi COD thực thu; thất bại → Failed kèm lý do/minh chứng.
+6. Failed được Manager giao lại về Ready hoặc hủy/hoàn; nếu chưa xử lý sau 24 giờ, job hủy/hoàn phần đó. Với gói tuần áp dụng từng ngày, không tự hủy ngày khác.
+7. Hủy thông thường chỉ khi chưa nấu và trước cutoff: chưa trả tự hủy, đã trả Manager duyệt. Khiếu nại trong 24 giờ sau nhận hàng là luồng ngoại lệ riêng.
 
-- **Pending → Confirmed**: Manager, WF-24 điều phối — IPN hợp lệ đã verify với đơn online, hoặc đơn COD; bấm Xác nhận..
-- **Pending → Rejected**: Manager, WF-24 điều phối — Nhập lý do bắt buộc (hết nguyên liệu, quá tải, ngoài khu vực); nhả tồn kho..
-- **Pending → Cancelled**: Khách tự bấm ở WF-15, hoặc job tự hủy, hoặc Manager duyệt hủy — Khách tự hủy khi đủ điều kiện FR-ORD-017; đơn online quá 15 phút không IPN thì job hủy lý do "Quá hạn thanh toán"; nhả tồn kho..
-- **Confirmed → Cooking**: Bếp, WF-24 bếp — Bếp bấm Bắt đầu nấu khi nhận nguyên liệu; đơn online phải có IPN đã xác minh..
-- **Confirmed → Cancelled**: Khách + Manager duyệt, WF-15 và WF-24 điều phối — Khách tự hủy khi bếp chưa nấu và đủ điều kiện FR-ORD-017 thì hủy ngay; đã quá điều kiện thì chuyển thành yêu cầu hủy chờ Manager duyệt..
-- **Cooking → Ready**: Bếp, WF-24 bếp — Bếp bấm Món sẵn sàng khi nấu xong..
-- **Cooking → Cancelled**: Manager duyệt yêu cầu hủy, WF-24 điều phối — Khách gửi yêu cầu hủy từ WF-15, Manager duyệt kèm lý do; điều chỉnh kho và tiền theo chính sách..
-- **Ready → Delivering**: Shipper, WF-24 giao hàng — Shipper bấm Nhận hàng và xuất phát cho đơn được gán cho mình..
-- **Ready → Cancelled**: Manager duyệt yêu cầu hủy, WF-24 điều phối — Tương tự Cooking; hủy ở Ready phải kiểm tra món đã nấu để xử lý hao hụt..
-- **Delivering → Completed**: Shipper, WF-24 giao hàng — Bấm Giao thành công; đơn COD nhập số tiền thực thu bắt buộc..
-- **Delivering → Failed**: Shipper, WF-24 giao hàng — Bấm Giao thất bại, nhập lý do bắt buộc và ảnh minh chứng khi cần..
-- **Failed → Ready**: Manager, WF-24 điều phối — Hẹn giao lại trong ngày, gán lại shipper..
-- **Failed → Cancelled**: Manager, WF-24 điều phối — Hủy có hoàn tiền, sinh bản ghi hoàn ở sổ Transaction, ghi audit log..
-- **Bất kỳ trừ Completed/Rejected/Cancelled → Cancelled**: Manager xử lý ngoại lệ, WF-24 điều phối — Chỉ khi có yêu cầu hủy được duyệt hoặc khiếu nại hợp lệ, kèm lý do và audit log..
+**Bảng chuyển hợp lệ cho đơn lẻ hoặc từng ngày giao gói tuần:**
 
-_Ràng buộc chốt T2: cấm đi lùi (FR-ORD-010, FR-ORD-024); đơn online chưa có IPN verify không bao giờ vào Cooking; chỉ Completed mới mở đánh giá và ghi calo; giữ hàng và hạn thanh toán cùng một mốc 15 phút._
+| Chuyển đổi | Tác nhân | Điều kiện / hệ quả |
+| --- | --- | --- |
+| Pending → Confirmed | Manager | Online đã IPN thành công hoặc COD; chưa bắt đầu nấu. |
+| Pending → Rejected | Manager | Lý do; trả kho chưa chế biến; đã thu thì khởi tạo hoàn 100% phần bị từ chối. |
+| Pending → Cancelled | Customer / Manager / job | Khách tự hủy hoặc Manager duyệt theo FR-ORD-017/018; job chỉ online quá hạn chưa có IPN thành công. |
+| Confirmed → Cancelled | Customer / Manager | Chưa nấu, trước cutoff; chưa trả tự hủy, đã trả phải duyệt. |
+| Confirmed → Cooking | Kitchen Staff | Thuộc ca; online đã xác minh thanh toán. |
+| Cooking → Ready | Kitchen Staff | Hoàn tất chế biến; không mở hủy thông thường. |
+| Ready → Delivering | Delivery Staff | Shipper được gán nhận hàng/xuất phát. |
+| Delivering → Completed | Delivery Staff | Giao thành công; nhập COD thực thu. |
+| Delivering → Failed | Delivery Staff | Lý do bắt buộc, minh chứng theo FR-ORD-022. |
+| Failed → Ready | Manager | Chọn giao lại rồi gán shipper; không nhảy Delivering. |
+| Failed → Cancelled | Manager / job | Manager hủy/hoàn hoặc job sau 24 giờ chưa xử lý; audit/thông báo, không hoàn lặp. |
+
+Không có hủy thông thường từ Cooking/Ready/Delivering. Can thiệp khiếu nại/ngoại lệ phải theo FR-ADM-010/015 có lý do/audit, không mặc nhiên cấp API đổi mọi trạng thái sang Cancelled. Completed/Rejected/Cancelled không mở lại qua luồng chuẩn. Failed → Ready là ngoại lệ giao lại được phép.
 
 ### **3.2.7 Thanh toán và tự hủy (US-19, 20)**
 
 **Câu chuyện báo cáo — tiền chạy qua màn hình WF-16 thế nào.**
 
-_Mục tiêu là thu được tiền chắc chắn qua webhook đã verify, không bao giờ tin redirect, và dọn sạch đơn treo để không giữ hàng ảo. Màn hình WF-16 gồm tổng tiền, radio VNPay/MoMo/COD, một mốc đếm ngược 15 phút duy nhất, nút Thanh toán và 3 trạng thái kết quả là thành công đã xác nhận, thất bại thử lại, đã hủy do quá hạn kèm nút Đặt lại._
+_WF-16 hiển thị số tiền, VNPay/MoMo/COD và mốc 15 phút cho online chưa trả. Thanh toán thành công ghi rõ đã thanh toán, chờ Manager khi còn Pending; không hiển thị như đã xác nhận vận hành. Thanh toán thất bại được thử lại trong hạn; hủy quá hạn có nút Đặt lại._
 
-_Sự kiện step-by-step: (1) khách chọn VNPay hoặc MoMo rồi bấm Thanh toán, hệ thống chuyển sang cổng; (2) khách trả tiền ở cổng rồi được đưa về trang kết quả chỉ để xem, trang này không đổi trạng thái đơn; (3) cổng gọi IPN về server mang mã đơn, số tiền, thời gian và chữ ký; (4) server verify chữ ký, khớp số tiền và mã đơn, rồi trong một transaction chuyển đơn sang Confirmed/paid, biến giữ hàng tạm thành trừ thật, ghi sổ Transaction và bắn WebSocket cho khách, Manager và bếp; (5) chọn COD thì đơn chuyển Confirmed ngay không qua cổng, thu tiền khi giao, shipper nhập số thực thu ở WF-24C; (6) job quét chạy định kỳ: đơn online Pending quá 15 phút chưa có IPN thành công thì chuyển Cancelled lý do Quá hạn thanh toán, nhả hàng và hiện nút Đặt lại một chạm. Dữ liệu nhập: method, redirect payload, IPN payload gồm orderId, amount, signature, timestamp. Ràng buộc chi tiết: chữ ký sai thì từ chối, giữ nguyên đơn và ghi log cảnh báo; bỏ giữa chừng ở cổng thì đơn vẫn Pending để trả tiếp trong 15 phút; IPN về sát phút 15 đúng lúc job chạy thì khóa dòng, bên commit trước thắng; job lũy đẳng chống chạy trùng 2 instance; COD không thuộc diện tự hủy; mọi lần hủy ghi log đối soát; múi giờ chuẩn Asia/Ho_Chi_Minh._
+_Khách redirect sang cổng; trang kết quả không đổi trạng thái. Server xác minh chữ ký, mã đơn, số tiền IPN; giao dịch hợp lệ ghi Paid, chốt kho, Transaction nhưng giữ Pending. Manager xác nhận rồi bếp mới tiếp nhận/bắt đầu nấu. COD cũng chờ Manager và chỉ thu khi giao. Job 15 phút chỉ xử lý online Pending chưa có IPN thành công; chữ ký sai bị từ chối/log. IPN/job tranh chấp phải khóa cập nhật, bên commit trước thắng, không thu/hoàn/nhả kho lặp; callback muộn không mở lại đơn hủy. COD không thuộc job này._
 
 **FR-PAY-001** — Hệ thống phải hỗ trợ ba phương thức thanh toán: VNPay, MoMo (redirect + IPN) và COD.
 
@@ -615,15 +632,15 @@ Trạng thái thanh toán online chỉ được xác định bởi IPN có chữ
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-19; Xác minh: kiểm thử.
 
-**FR-PAY-003** — Khi nhận IPN hợp lệ, Hệ thống phải chuyển đơn sang Confirmed/đã thanh toán và biến giữ hàng tạm thành trừ kho thật.
+**FR-PAY-003** — Khi IPN hợp lệ xác nhận thanh toán thành công cho đơn còn hợp lệ, Hệ thống phải ghi Paid, chốt kho đang giữ thành trừ kho thật và ghi Transaction trong cùng giao dịch; không tự chuyển trạng thái vận hành Confirmed hoặc Cooking. Đơn vẫn Pending chờ Manager.
 
-Khi nhận IPN hợp lệ thì chuyển đơn sang Confirmed đã thanh toán, biến giữ hàng tạm thành trừ kho thật và bắn WebSocket cho Khách hàng, Manager và bếp.
+Giữ trách nhiệm chốt kho tại IPN của đặc tả trước nhưng tách xác nhận vận hành. Chỉ Manager chuyển Confirmed, sau đó bếp bắt đầu nấu. Job quá hạn không hủy Pending đã Paid; callback muộn/đơn kết thúc cần đối soát, không mở lại đơn.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-19; Xác minh: kiểm thử.
 
-**FR-PAY-004** — Với COD, Hệ thống phải chuyển đơn sang Confirmed ngay và thu tiền lúc giao.
+**FR-PAY-004** — Với COD, Hệ thống phải tạo Pending với thanh toán chưa thu và chờ Manager chuyển Confirmed; chỉ thu lúc giao, Delivery Staff nhập số thực thu.
 
-Với COD thì chuyển đơn sang Confirmed ngay trên WF-16 và thu tiền lúc giao, shipper nhập số thực thu tại WF-24.
+COD không tự Confirmed khi đặt và không thuộc job hết hạn online. Giữ/trừ kho khi COD chờ Manager cần chốt CĐ-01, không suy từ hạn online 15 phút.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-19; Xác minh: kiểm thử.
 
@@ -669,11 +686,11 @@ Job tự hủy phải lũy đẳng chống chạy trùng nhiều instance và kh
 
 _Mục tiêu là khép kín vòng theo dõi để khách thấy tiến trình cân nặng đối chiếu trực tiếp với mục tiêu calo ngày. Màn hình WF-18 gồm dòng cân hiện tại và cân mục tiêu, ô nhập cân hôm nay kèm nút Lưu, biểu đồ đường theo thời gian với đường đứt nét thể hiện mốc mục tiêu, bộ lọc khoảng 30 ngày, 3 tháng và Tất cả, tooltip ngày cộng số ki-lô-gam khi di chuột cùng bảng số liệu văn bản đặt dưới biểu đồ. Màn hình WF-19 gồm tiêu đề Hôm nay với tỉ lệ đã nạp trên Target kèm phần trăm, thanh tiến trình đổi trạng thái khi vượt ngưỡng, dòng macro đã nạp theo đạm, bột và béo, hàng trạng thái từng bữa sáng, trưa, tối và phụ với dấu đã ăn hoặc chưa ăn, cùng nút thêm món ngoài hệ thống bằng tên và ki-lô-ca-lo ước lượng (FR-TRK-002, FR-TRK-004, FR-TRK-005)._
 
-_Sự kiện step-by-step: (1) khách mở WF-18, nhập cân hôm nay rồi bấm Lưu thì một điểm mới xuất hiện trên biểu đồ đường và cân hiện tại đồng bộ sang hồ sơ, đồng thời kích hoạt tính lại chỉ số theo FR-HLT-011 khi chênh lệch đáng kể; (2) từ hai điểm trở lên biểu đồ vẽ thêm đường xu hướng và mốc mục tiêu, chưa có dữ liệu thì hiện trạng thái trống kèm lời gọi ghi cân lần đầu; (3) khách sang WF-19 xem thanh calo ngày được cộng từ đơn Completed, tick đã ăn và nhập tay nhanh, vượt Target thì thanh chuyển trạng thái cảnh báo bằng biểu tượng kèm chữ; (4) qua nửa đêm thanh tự đặt lại và ngày cũ lùi vào lịch sử. Dữ liệu nhập: cân nặng ngày, tick đã ăn, tên và ki-lô-ca-lo ước lượng của món ngoài. Ràng buộc chi tiết: giá trị phi lý bị chặn kèm khoảng hợp lệ, trùng ngày thì giữ lần nhập mới nhất; biến động trên 5% trong 7 ngày hoặc trên 3 kg mỗi tuần hoặc trên 10 kg mỗi tháng thì hiện cảnh báo và yêu cầu tick xác nhận trước khi lưu nhưng vẫn cho lưu (FR-TRK-001, FR-TRK-003, FR-TRK-006, FR-TRK-007, FR-TRK-008, FR-HLT-012)._
+_Ghi cân trên WF-18 kiểm tra miền giá trị, giữ điểm mới nhất cùng ngày và đồng bộ hồ sơ/lịch sử. Biến động >5%/7 ngày hoặc >3 kg/tuần cảnh báo/xác nhận theo FR-HLT-012; >10 kg/tháng thuộc TBD-03, chưa chốt FR. WF-19 nhận calo từ phần giao Completed, tick đã ăn, nhập tay; ngày gói tuần giao xong ghi ngay. Nửa đêm sang ngày mới, giữ lịch sử; vượt Target cảnh báo icon/chữ._
 
 **FR-TRK-001** — Hệ thống phải cho phép ghi cân nặng hằng ngày, tạo một điểm trên biểu đồ đường và đồng bộ vào hồ sơ; khi lệch lớn phải kích hoạt tính lại theo FR-HLT-011.
 
-Cho phép Khách ghi cân nặng hằng ngày trên WF-18 để tạo một điểm mới trên biểu đồ đường và đồng bộ cân hiện tại sang hồ sơ; khi biến động vượt ngưỡng (trên 5% trong 7 ngày, trên 3 kg mỗi tuần hoặc trên 10 kg mỗi tháng) thì kích hoạt tính lại chỉ số theo FR-HLT-011.
+Cho phép Khách ghi cân nặng hằng ngày trên WF-18 để tạo một điểm mới trên biểu đồ đường và đồng bộ cân hiện tại sang hồ sơ; khi biến động vượt ngưỡng FR-HLT-012 phải xác nhận và tính lại theo FR-HLT-011; ngưỡng theo tháng chưa thuộc FR bắt buộc.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-22; Xác minh: kiểm thử.
 
@@ -701,9 +718,9 @@ Hiển thị thanh tiến độ calo ngày trên WF-19 gồm lượng đã nạp
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-23; Xác minh: kiểm thử.
 
-**FR-TRK-006** — Lượng calo đã nạp phải được tính từ ba nguồn: đơn Completed, tick "đã ăn" và nhập tay nhanh (tên + kcal ước).
+**FR-TRK-006** — Calo đã nạp phải tính từ ba nguồn: phần giao Completed, tick đã ăn và nhập tay tên/kcal ước lượng. Gói tuần phải cộng ngay theo từng ngày Completed, không chờ toàn gói và không tự cộng ngày hủy/thất bại.
 
-Lượng calo đã nạp trên WF-19 được cộng từ ba nguồn là đơn Completed, tick "đã ăn" từng bữa và nhập tay nhanh món ngoài bằng tên cộng kcal ước, nhằm khép kín vòng theo dõi cả món trong và ngoài hệ thống.
+Không cộng trùng cùng suất do sự kiện Completed lặp hoặc tick đã ăn cùng suất. Ghi theo ngày giao, giữ snapshot dinh dưỡng.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-23; Xác minh: kiểm thử.
 
@@ -723,9 +740,9 @@ Thanh calo WF-19 tự đặt lại vào nửa đêm và giữ lịch sử các n
 
 **Câu chuyện báo cáo — thông báo real-time chạy qua chuông WF-21 thế nào.**
 
-_Mục tiêu là bảo đảm khách không bỏ lỡ sự kiện quan trọng nhờ đẩy tức thì trong ứng dụng và gửi thêm email cho sự kiện khẩn. Màn hình WF-21 gồm biểu tượng chuông trên thanh điều hướng với huy hiệu chưa đọc và trang Thông báo với các tab Tất cả, Khẩn, Thường và Tin; mỗi dòng thông báo mang biểu tượng và chữ phân biệt mức, ví dụ đơn quá hạn thanh toán, đơn chuyển sang giai đoạn nấu và thực đơn tuần mới đã sẵn sàng. Các sự kiện bắt buộc đẩy gồm xác nhận đơn, IPN thành công, hủy đơn, khóa và mở tài khoản cùng IPN thất bại, trong đó nhóm khẩn như hủy đơn, khóa tài khoản và IPN thất bại được gửi song song qua ứng dụng và email bằng nhà cung cấp SendGrid (FR-NTF-001, FR-NTF-002)._
+_WF-21 gồm chuông/badge và tab Tất cả, Khẩn, Thường, Tin. FR bắt buộc thông báo trong ứng dụng qua WebSocket, lưu DB, đồng bộ bù; sự kiện theo FR-NTF và FR vận hành liên quan. Email khẩn SendGrid được phản hồi dẫn từ EIR-SW-002/TBD-11, không tự suy thành yêu cầu bổ sung của FR-NTF; xem tham chiếu cuối tài liệu._
 
-_Sự kiện step-by-step: (1) sự kiện phát sinh ở server thì hệ thống lưu thông báo vào cơ sở dữ liệu rồi đẩy ngay qua WebSocket tới phiên đang mở, huy hiệu chưa đọc tăng lên; (2) khách mở tab tương ứng để đọc chi tiết, sự kiện khẩn luôn nổi bật bằng biểu tượng kèm chữ chứ không bao giờ chỉ báo bằng màu; (3) khách ngoại tuyến thì toàn bộ thông báo chờ được bù đầy đủ ở lần đăng nhập kế tiếp, mất kết nối giữa chừng thì client tự nối lại và đồng bộ bù phần bị lỡ. Dữ liệu nhập: mã sự kiện, mức ưu tiên và nội dung đính kèm đơn hoặc tài khoản. Ràng buộc chi tiết: người dùng được tắt mức tin nhưng không được tắt mức khẩn và mức thường; mọi thông báo đều lưu trữ bền vững để đối soát và bù, sự kiện khẩn bắt buộc đi cả hai kênh ứng dụng và email (FR-NTF-003, FR-NTF-004, FR-NTF-005)._
+_Server lưu thông báo rồi đẩy WebSocket; UI dùng icon/chữ và badge. Offline được bù lúc đăng nhập; mất kết nối nối lại và đồng bộ phần lỡ. Chỉ được tắt tin, không tắt khẩn/thường. Kênh email khẩn cần đối chiếu yêu cầu giao diện ngoài và xác nhận phạm vi, không gán là bắt buộc theo FR-NTF._
 
 **FR-NTF-001** — Hệ thống phải đẩy thông báo qua WebSocket cho các sự kiện: xác nhận đơn, IPN thành công, hủy đơn, khóa/mở tài khoản; và hiển thị huy hiệu chưa đọc.
 
@@ -753,7 +770,7 @@ Khi mất kết nối giữa chừng, client WF-21 tự nối lại WebSocket v�
 
 **FR-NTF-005** — Hệ thống phải cho phép người dùng tắt mức "tin" và không cho phép tắt mức "khẩn" và "thường".
 
-Người dùng trên WF-21 được tắt mức "tin" nhưng không được tắt mức "khẩn" và "thường", đồng thời sự kiện khẩn bắt buộc đi song song qua ứng dụng và email bằng SendGrid để không bị chặn nhầm.
+Người dùng được tắt "tin" nhưng không tắt "khẩn"/"thường". Điều khoản này không tự bổ sung email; EIR-SW-002/TBD-11 được ghi riêng cuối tài liệu.
 
 - Ưu tiên: Should (nên có); Nguồn: US-25; Xác minh: kiểm thử.
 
@@ -761,25 +778,25 @@ Người dùng trên WF-21 được tắt mức "tin" nhưng không được t�
 
 **Câu chuyện báo cáo — khách đánh giá món đã mua thật ở WF-22 thế nào.**
 
-_Mục tiêu là chỉ giữ lại trải nghiệm của người đã ăn thật để điểm số đáng tin cho người đến sau. Màn hình WF-22 gồm khu vực chờ đánh giá liệt kê từng món thuộc đơn Completed kèm nút Đánh giá, biểu mẫu gửi gồm thang sao, ô nhận xét, đính kèm ảnh và nút Gửi, cùng khu vực đã đánh giá với bộ lọc theo số sao và có ảnh kèm điểm trung bình hiển thị ở trang món ăn. Chỉ đơn đi tới Completed mới mở khóa nút này; đơn ở bất kỳ trạng thái nào khác đều không thấy cửa đánh giá (FR-REV-001, FR-REV-004)._
+_WF-22 liệt kê món đủ điều kiện theo phần giao Completed; gói tuần mở review ngay từng món ngày giao xong, không đợi cuối gói. Biểu mẫu sao/chữ/ảnh; danh sách lọc sao/ảnh và điểm trung bình theo món._
 
-_Sự kiện step-by-step: (1) khách mở WF-22, chọn một món trong đơn Completed rồi gửi thang sao kèm nhận xét và ảnh; (2) server xác minh mua hàng trước khi lưu, lời gọi thiếu đơn Completed cho món đó bị trả lỗi 403 và không lưu gì; (3) mỗi đơn chỉ gửi một đánh giá cho một món và được sửa trong 7 ngày thay vì gửi thêm bản mới; (4) đánh giá vi phạm thì Admin ẩn đi và tác giả nhận thông báo nêu rõ lý do, thao tác ẩn được ghi nhật ký kiểm toán. Dữ liệu nhập: mã đơn Completed, mã món, số sao, nội dung chữ và ảnh đính kèm. Ràng buộc chi tiết: một cặp đơn và món đúng một đánh giá, hết 7 ngày thì khóa sửa; lọc theo sao và có ảnh giúp người đọc kiểm chứng nhanh, điểm trung bình nuôi lại trang danh mục và chi tiết (FR-REV-002, FR-REV-003, FR-REV-005)._
+_Khách chọn món thuộc ngày đã giao; server kiểm tra chủ đơn, món thuộc ngày đó, trạng thái Completed; không đủ trả 403 và không lưu. Mỗi bộ đơn + ngày giao + món có một review, sửa trong 7 ngày từ lúc tạo. Admin ẩn vi phạm kèm lý do/audit/thông báo. Một món ở nhiều ngày được review riêng từng ngày; số lượng hoặc bữa lặp cùng ngày không nhân review._
 
-**FR-REV-001** — Hệ thống phải chỉ cho phép gửi đánh giá món ăn (sao, chữ, ảnh) khi đã xác minh mua hàng: có đơn món ăn ở trạng thái Completed.
+**FR-REV-001** — Hệ thống chỉ cho đánh giá món bằng sao/chữ/ảnh khi xác minh món thuộc đơn của chính Khách hàng và phần giao chứa món đã Completed; gói tuần xét từng ngày, không yêu cầu toàn gói Completed.
 
-Chỉ đơn Completed mới mở khóa nút đánh giá sao/chữ/ảnh trên WF-22 cho từng món đã mua, để điểm số phản ánh trải nghiệm ăn thật; các trạng thái khác không thấy cửa đánh giá.
+WF-22 mở review ngay cho món ngày đã giao; món chỉ thuộc ngày chưa hoàn thành, Failed, Rejected, Cancelled không đủ điều kiện.
 
 - Ưu tiên: Should (nên có); Nguồn: US-26; Xác minh: kiểm thử.
 
 **FR-REV-002** — Khi API đánh giá được gọi mà chưa xác minh mua hàng, Hệ thống phải trả 403 và không lưu đánh giá.
 
-Khi API đánh giá được gọi mà chưa xác minh được đơn Completed cho món đó, server trả 403 và không lưu gì trên WF-22, nhằm chặn spam và gọi API trái phép.
+Khi API đánh giá không xác minh được quyền sở hữu đơn và phần giao Completed chứa món theo FR-REV-001, server trả 403 và không lưu gì. Với gói tuần kiểm tra ngày giao tương ứng, không đòi toàn gói Completed.
 
 - Ưu tiên: Should (nên có); Nguồn: US-26; Xác minh: kiểm thử.
 
-**FR-REV-003** — Hệ thống phải giới hạn mỗi đơn một đánh giá và cho phép sửa trong 7 ngày.
+**FR-REV-003** — Hệ thống phải giới hạn một đánh giá cho mỗi món trong mỗi ngày giao Completed của một đơn; cho tác giả sửa trong 7 ngày kể từ lúc tạo.
 
-Mỗi cặp đơn-món chỉ có đúng một đánh giá và được sửa trong 7 ngày thay vì gửi thêm bản mới trên WF-22, để chống nhân bản điểm mà vẫn cho Khách hiệu chỉnh trải nghiệm.
+Khóa nghiệp vụ là đơn + kỳ giao/ngày giao + món. Cùng món ở hai ngày có review riêng; cùng món lặp trong một ngày không nhân review. Đơn lẻ có một kỳ giao áp dụng cùng quy tắc.
 
 - Ưu tiên: Should (nên có); Nguồn: US-26; Xác minh: kiểm thử.
 
@@ -801,11 +818,11 @@ Admin được ẩn đánh giá vi phạm trên WF-22 và tác giả nhận thô
 
 _Mục tiêu là để món chuẩn trước khi bán và đơn trôi xuyên suốt từ bếp tới tay khách mà không ai lấn quyền ai. Màn hình WF-23 dành cho Admin tạo, sửa, ẩn món gồm tên, ảnh, giá, kcal, protein, carb, fat, nguyên liệu, dị ứng, tồn kho và nhãn mục tiêu (FR-ADM-001); màn hình WF-24 tách thành ba góc nhìn là WF-24A cho Manager điều phối toàn sàn, WF-24B cho bếp chỉ thấy việc nấu, WF-24C cho shipper chỉ thấy việc giao; ma trận hiển thị và chặn quyền chốt tại WF-04._
 
-_Sự kiện step-by-step: (1) Admin nhập món ở WF-23, hệ thống cảnh báo khi kcal và macro không nhất quán rồi mới cho lưu (FR-ADM-002), sửa giá hoặc tồn kho không làm đổi giá đã chụp của đơn cũ (FR-ADM-003), xóa món đã dính đơn cũ thì ưu tiên ẩn mềm kèm xác nhận (FR-ADM-004), tồn kho về 0 thì chuyển ngay sang Hết hàng (FR-ADM-005); (2) đầu ca Manager mở WF-24A, hàng Pending xếp theo giờ giao, bấm xác nhận để chuyển Pending thành Confirmed hoặc từ chối kèm lý do để chuyển thành Rejected, đơn online chỉ được xác nhận khi đã có IPN xác minh (FR-ADM-011, FR-ADM-009); (3) khách đã vào Cooking trở đi muốn hủy thì gửi yêu cầu hủy, Manager duyệt để chuyển thành Cancelled kèm điều chỉnh kho và tiền hoặc từ chối duyệt kèm lý do; (4) đơn sang Ready thì Manager gán và đổi shipper ngay trên WF-24A; (5) bếp mở WF-24B chỉ thấy đơn Confirmed thuộc ca mình, bấm bắt đầu nấu để chuyển Confirmed thành Cooking rồi bấm món sẵn sàng để chuyển Cooking thành Ready, không sửa giá tiền và không tự hủy đơn (FR-ADM-012); (6) shipper mở WF-24C chỉ thấy đơn Manager gán cho mình, bấm nhận hàng và xuất phát để chuyển Ready thành Delivering, sau đó chốt giao thành công để chuyển thành Completed với đơn COD bắt buộc nhập số tiền thực thu, hoặc chốt giao thất bại kèm lý do và ảnh minh chứng để chuyển thành Failed (FR-ADM-013); (7) đơn Failed nằm lại hàng đợi ngoại lệ của Manager để hẹn giao lại thành Ready hoặc hủy có hoàn tiền thành Cancelled._
+_Admin quản lý món WF-23; Manager WF-24A xác nhận/từ chối Pending, duyệt hủy trước cutoff/chưa Cooking, gán shipper Ready, xử lý Failed. Bếp WF-24B bắt đầu nấu/báo Ready trong ca; shipper WF-24C nhận phần được gán, xuất phát, ghi kết quả/COD. Online phải Paid trước Manager xác nhận; IPN không tự Confirmed. Failed chưa xử lý 24 giờ do job hủy/hoàn. Ghi lịch sử/thông báo theo FR._
 
-_Dữ liệu nhập gồm thông tin món và tồn kho ở WF-23, nút xác nhận và lý do từ chối bắt buộc, mã shipper được gán, yêu cầu hủy của khách, lý do thất bại và ảnh minh chứng, số COD thực thu ở WF-24C. Ràng buộc chi tiết là chỉ cho chuyển trạng thái theo chiều tiến và đồng bộ real-time cho khách hàng (FR-ADM-008), đơn online chưa verify IPN không bao giờ vào Cooking, bảng đơn có phân trang và lọc theo trạng thái, ngày, từ khóa (FR-ADM-007), hai Admin sửa cùng món thì phát hiện xung đột bằng khóa lạc quan (FR-ADM-006)._
+_Dữ liệu gồm món/kho, lý do từ chối/duyệt hủy, shipper, lý do/minh chứng Failed, COD thực thu. Quyền chuyển theo FR-ADM-008 và bảng §3.2.6; Failed → Ready là ngoại lệ. Bảng đơn phân trang/lọc, bếp không nhận trường tiền, shipper không mở đơn người khác; sửa món đồng thời theo FR-ADM-006._
 
-_Trường hợp biên là khách tự hủy ở WF-15 khi đơn còn Pending hoặc Confirmed chưa nấu và đủ điều kiện thì hủy ngay không cần duyệt, đã vào Cooking thì nút tự hủy ẩn đi; bấm nhầm món sẵn sàng thì bếp không tự rút lại được mà gọi Manager xử lý; chênh lệch COD thiếu hoặc thừa thì ghi đúng số thực thu để Manager đối soát cuối ca. Admin không trực đơn hằng ngày mà giữ vai quản trị là tạo và phân quyền tài khoản Manager, Kitchen, Delivery cùng cấu hình giờ chốt bếp, chỉ can thiệp đơn đang vận hành khi vượt quyền Manager với lý do bắt buộc (FR-ADM-015); mọi lần duyệt hủy, gán đổi shipper, xử lý Failed và chỉnh tiền hàng đều ghi audit log gồm người làm, việc làm, mã đơn, thời điểm, lý do và đẩy thông báo real-time cho khách hàng (FR-ADM-014). Ma trận WF-04 chỉ ẩn menu ở giao diện, mọi gọi API trái vai trò như Manager tạo tài khoản hay sửa cấu hình, bếp xem báo cáo hay chạm tiền, shipper tự hủy đơn đều bị server trả 403._
+_Khách chưa trả chỉ tự hủy khi Pending/Confirmed, chưa nấu, trước cutoff; đã trả Manager duyệt cùng điều kiện. Sau chốt không hủy thông thường; đổi gói một lần không tạo quyền hủy. Bếp không tự rút Ready; shipper ghi đúng thiếu/thừa COD để đối soát. Admin chỉ ngoại lệ có lý do/audit; Manager không tạo tài khoản/sửa cấu hình; server chặn trái quyền._
 
 **FR-ADM-001** — Hệ thống phải cho phép Admin thêm, sửa, ẩn món gồm tên, ảnh, giá, kcal, P/C/F, nguyên liệu, dị ứng, tồn kho và tag mục tiêu.
 
@@ -843,15 +860,15 @@ Khi hai Admin sửa cùng một món đồng thời trên WF-23, hệ thống ph
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-27; Xác minh: kiểm thử.
 
-**FR-ADM-007** — Hệ thống phải hiển thị bảng đơn cho Admin, phân trang, lọc theo trạng thái, ngày và từ khóa.
+**FR-ADM-007** — Hệ thống phải hiển thị bảng đơn vận hành cho Manager với phân trang/lọc trạng thái, ngày, từ khóa; bếp/shipper nhận góc nhìn giới hạn FR-ADM-012/013; Admin xem giám sát và can thiệp ngoại lệ FR-ADM-015.
 
-Bảng đơn vận hành hiển thị phân trang kèm lọc theo trạng thái, ngày và từ khóa, giúp người trực tìm nhanh đơn cần xử lý trong ngày cao điểm.
+Quyền xem không cấp Admin quyền vận hành thường ngày.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-28; Xác minh: kiểm thử.
 
-**FR-ADM-008** — Hệ thống phải cho Admin chuyển trạng thái đơn theo chiều tiến (Confirmed → Cooking → Delivering → Completed) và đồng bộ real-time cho Khách hàng.
+**FR-ADM-008** — Hệ thống phải phân quyền chuyển trạng thái theo công đoạn: Manager xác nhận/từ chối Pending; Kitchen Staff chuyển Confirmed → Cooking → Ready; Delivery Staff được gán chuyển Ready → Delivering và ghi kết quả. Thay đổi phải đồng bộ real-time cho khách.
 
-Đơn chỉ được chuyển trạng thái theo chiều tiến (Confirmed → Cooking → Delivering → Completed) và đồng bộ real-time cho Khách hàng, nhằm giữ dòng vận hành một chiều không đi lùi.
+Hủy/giao lại theo FR-ORD-017/018/023. Admin chỉ can thiệp ngoại lệ có lý do/audit theo FR-AUTH-022.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-28; Xác minh: kiểm thử.
 
@@ -891,13 +908,13 @@ Mọi lần Manager duyệt hủy, gán đổi shipper, xử lý Failed và ch�
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-28; Xác minh: kiểm thử.
 
-**FR-ADM-015** — Hệ thống phải giới hạn Admin ở vai quản trị: tạo và phân quyền tài khoản Manager, Kitchen Staff, Delivery Staff, chỉnh cấu hình giờ chốt bếp và tham số nghiệp vụ; Admin chỉ can thiệp đơn đang vận hành trong trường hợp ngoại lệ vượt quyền Manager, bắt buộc nhập lý do và ghi audit log.
+**FR-ADM-015** — Hệ thống phải giới hạn Admin ở quản trị: tạo/phân quyền Manager, Kitchen Staff, Delivery Staff hoặc Admin; chỉnh cutoff và tham số nghiệp vụ. Cutoff mặc định 20:00 ngày trước giao, được cấu hình thay vì cố định trong code. Can thiệp đơn chỉ như ngoại lệ vượt quyền Manager có lý do/audit.
 
-Admin giữ vai quản trị là tạo và phân quyền tài khoản Manager/Kitchen/Delivery cùng chỉnh cấu hình giờ chốt bếp và tham số nghiệp vụ, chỉ can thiệp đơn đang vận hành trong ngoại lệ vượt quyền Manager với lý do bắt buộc và audit log; mọi gọi API trái vai trò như Manager tạo tài khoản hay sửa cấu hình đều bị server trả 403 theo ma trận WF-04.
+Customer tự đăng ký; Manager không tạo tài khoản/sửa cấu hình. Dùng cutoff nhất quán cho đổi/hủy và công bố chính sách; snapshot cutoff của đơn đang có được ghi ở mục lựa chọn triển khai.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-28; Xác minh: kiểm thử.
 
-_Về quan hệ giữa FR-ADM-007..010 cũ và FR-ADM-011..015 mới: bốn yêu cầu cũ giữ nguyên để không vỡ truy vết, trong đó chủ ngữ "Admin" được hiểu là người trực vận hành trước đây. Từ bản này, việc trực đơn hằng ngày chuyển sang Manager (FR-ADM-011, FR-ADM-014), bếp và shipper mỗi bên chỉ thao tác đúng khâu của mình (FR-ADM-012, FR-ADM-013), còn Admin lùi về quản trị tài khoản, phân quyền, cấu hình và can thiệp ngoại lệ có lý do (FR-ADM-015). Ma trận quyền chi tiết xem WF-04 ở tài liệu wireframe, bảng đơn ba góc nhìn xem WF-24._
+_Giữ mã FR-ADM-007..010 để truy vết nhưng đồng bộ chủ thể với phân quyền hiện hành: Manager vận hành, bếp nấu, shipper giao, Admin quản trị/giám sát và ngoại lệ. Không dùng chủ ngữ Admin của mô hình cũ để cấp quyền vận hành thường ngày._
 
 ### **3.2.12 Báo cáo tài chính và xuất Excel (US-29)**
 
@@ -934,3 +951,42 @@ Nút xuất Excel trên WF-25 đẩy việc vào hàng đợi bất đồng bộ
 Khi khoảng ngày không có dữ liệu, WF-25 hiển thị số 0 kèm gợi ý đổi khoảng chứ không báo lỗi, để Manager phân biệt kỳ trắng doanh thu với lỗi hệ thống.
 
 - Ưu tiên: Should (nên có); Nguồn: US-29; Xác minh: kiểm thử.
+
+### Đối chiếu 12 phản hồi và phạm vi áp dụng
+
+| Mục phản hồi | Điều khoản | Quyết định / giới hạn |
+| --- | --- | --- |
+| 1. Hai bước | FR-PAY-003/004, FR-ORD-019 | Tiền riêng; Manager xác nhận; bếp bắt đầu nấu; từ chối đã thu thì hoàn. Giữ IPN chốt kho từ đặc tả trước. |
+| 2. Hủy đã trả | FR-AUTH-016, FR-ORD-017/018 | Chưa trả tự hủy, đã trả duyệt; đồng thời chưa nấu/trước cutoff. |
+| 3. Hủy ngày | FR-ORD-011/012/015/026 | Chỉ cả ngày; không hoàn riêng ship; toàn gói hợp lệ trước giao ngày đầu hoàn ship. Thay xác nhận cũ hủy từng món. |
+| 4. Sau cutoff | FR-ORD-013/015/017/018/025 | Không hủy thông thường; đổi một lần trong ngày; khiếu nại 24 giờ sau nhận. |
+| 5. Failed | FR-ORD-010/016/023/024 | Giao lại qua Ready; 24 giờ chưa xử lý tự hủy/hoàn. |
+| 6. Nội bộ | FR-PTL-001/002, FR-ADM-015 | Bốn vai trò nội bộ, Active ngay; danh sách đủ năm vai trò. |
+| 7. Số bữa | FR-ORD-011, WF-26 | Mua đủ 7 × 4 = 28 bữa; hủy sau mua là luồng riêng. |
+| 8. Cutoff | FR-ORD-013, FR-ADM-015 | 20:00 hôm trước là mặc định có cấu hình; cùng đơn giá/12:00 chưa phải SRS. |
+| 9. Review/calo | FR-ORD-024/026, FR-TRK-006, FR-REV-001/003 | Theo ngày Completed, review riêng từng món như chủ yêu cầu xác nhận. |
+| 10. Target | FR-HLT-013, FR-MNU-001/008/010 | ±10% mềm; mục tiêu áp dụng thực đơn từ tuần lịch kế tiếp. |
+| 11. RememberMe | FR-AUTH-010, WF-03 | Không ghi nhớ 60 phút; ghi nhớ 7 ngày không hoạt động, thu hồi ngay vẫn hiệu lực. |
+| 12. TBD | Diễn giải sức khỏe/tracking/thông báo | Tách nguồn, không tự biến thành FR bắt buộc. |
+
+### Lựa chọn triển khai và tham chiếu ngoài
+
+- weekly-orders.md ghi đổi món cùng đơn giá, giao mặc định 12:00, snapshot cutoff/chính sách theo đơn. Đây là lựa chọn triển khai đã ghi nhận, không tự trở thành SRS. Quy tắc sau cutoff không đổi số tiền không mặc nhiên đòi mọi món thay có cùng giá niêm yết.
+- Theo phản hồi mục 12: xác nhận phụ huynh thuộc diễn giải/TBD-14; >10 kg/tháng thuộc diễn giải/TBD-03; email khẩn SendGrid được dẫn từ EIR-SW-002/TBD-11. Chưa có đầy đủ tài liệu nguồn trong tệp này; chưa đưa thành tiêu chí FR mới và không kết luận EIR vô hiệu chỉ vì không mang mã FR.
+- Phụ lục API B và /auth/login được nhắc trong phản hồi không có trong tệp này. Khi đồng bộ API: chỉ Admin gọi liệt kê/tạo người dùng; danh sách trả đối tượng đủ năm vai trò, tạo cho gán bốn vai trò nội bộ; đăng nhập nhận rememberMe hoặc trường ánh xạ. Không nhầm vai trò đối tượng với quyền gọi API, không tự đổi URL backend.
+- “Không ảnh hưởng code” ở phản hồi mục 6 chỉ mô tả ý định sửa câu chữ SRS. Backend còn phải đối chiếu enum, phân quyền, trạng thái và payload; cập nhật đặc tả chưa chứng minh code đã đáp ứng.
+- Reset mã email FR-AUTH-014/015 giữ nguyên theo xác nhận trước; phản hồi mới không thay quyết định này.
+
+### Điểm còn cần chốt trước phần code phụ thuộc
+
+CĐ là vấn đề cần quyết định, không phải yêu cầu mới đã duyệt. Không suy thêm quyền hoặc chính sách tiền/kho từ các mục này.
+
+| Mã | Cần chốt | Ảnh hưởng |
+| --- | --- | --- |
+| CĐ-01 | COD Pending chờ Manager giữ/trừ kho lúc nào, có hạn chờ không? Cutoff đơn lẻ dùng cùng cấu hình ngày giao hay chính sách riêng? | Checkout, kho, xác nhận/hủy đơn lẻ. |
+| CĐ-02 | Đổi sau cutoff kết thúc ở trạng thái nào; ai thực hiện/duyệt khi đã nấu; một lần được đổi bao nhiêu món? | Gói tuần, bếp, kho. |
+| CĐ-03 | Hoàn ngày Failed/Rejected xử lý ship gói thế nào, có khác khách tự hủy ngày không? | Hoàn tự động/đối soát; không tự áp chính sách hủy thường vào ngoại lệ. |
+| CĐ-04 | Gói lẫn Completed và Cancelled/Rejected tổng hợp trạng thái nào? Doanh thu/số đơn tính theo gói hay ngày, giá vốn/hoàn thuộc kỳ nào? | Trạng thái tổng, FR-FIN-001; không trì hoãn review/calo ngày. |
+| CĐ-05 | Thao tác người dùng, request xác thực hay refresh gia hạn phiên? Request nền khi không sử dụng có tính hoạt động không? | Phiên trượt, tránh polling giữ phiên vô hạn. |
+| CĐ-06 | Target đã tính nhưng chưa tới thứ Hai dùng thế nào trên thanh calo hiện tại và ngày chưa đặt? | Hồ sơ, thực đơn, tracking, snapshot. |
+| CĐ-07 | Khiếu nại cần minh chứng gì, hạn giải quyết/kết quả bồi hoàn; mốc nhận hàng có đồng nhất Completed không? | FR-ORD-025, ngoại lệ, tài chính. |
