@@ -40,6 +40,8 @@ export interface DeliveryPeriod {
   _id: ObjectId
   date: LocalDate
   scheduledAt: Date
+  kitchenStaffIds?: ObjectId[] // Staff assigned to the kitchen shift for this delivery.
+  assignedShipperId?: ObjectId
   cutoffAt?: Date // Set at checkout using kitchen settings.
   items: OrderItem[]
   status: OrderStatus

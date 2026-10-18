@@ -394,6 +394,30 @@ test('weekly shortage reports the affected date and safe alternatives before pay
   assert.equal(f.data.orders.length, 1)
 })
 
+test('Admin daily swap and cancellation require and audit the actual exception reason', async (t) => {
+  const f = setup(t)
+  const adminId = String(f.admin._id)
+  const swap = { foodId: String(f.alternative._id), version: 0 }
+  await assert.rejects(weekly.swapItem(adminId, f.orderId, f.deliveryId, f.itemId, swap), { status: 403 })
+  await assert.rejects(
+    weekly.cancelDelivery(adminId, f.orderId, f.deliveryId, { version: 0, reason: 'Cancellation' }),
+    { status: 403 }
+  )
+  assert.equal(f.data.audits.length, 0)
+  assert.equal(f.order.version, 0)
+  await weekly.swapItem(adminId, f.orderId, f.deliveryId, f.itemId, { ...swap, exceptionReason: '  Correct item  ' })
+  assert.equal(f.data.audits[0].reason, 'Correct item')
+  await weekly.cancelDelivery(adminId, f.orderId, f.deliveryId, {
+    version: 1,
+    reason: 'Cancellation',
+    exceptionReason: 'Customer complaint'
+  })
+  const audit = f.data.audits.find((log) => log.action === 'DeliveryCancelled')!
+  assert.equal(audit.reason, 'Customer complaint')
+  assert.equal(audit.before.status, 'Confirmed')
+  assert.equal(f.order.deliveries[0].cancellation!.reason, 'Customer complaint')
+})
+
 test('alternatives respect current allergies, same snapshot price, nutrition and available stock; swap changes only the chosen day', async (t) => {
   const f = setup(t)
   const alternatives = await weekly.getAlternatives(f.userId, f.orderId, f.deliveryId, f.itemId)
@@ -594,33 +618,67 @@ test('daily status affects only that day; future dates and unverified online pay
   })
   const adminId = String(f.admin._id)
   await assert.rejects(
-    weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, { version: 0, status: 'Cooking' }),
+    weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, {
+      exceptionReason: 'Integration test exception',
+      version: 0,
+      status: 'Cooking'
+    }),
     { status: 400 }
   )
   f.order.deliveries[0].date = toLocalDate(new Date())
   f.order.payment = { method: 'VNPay', status: 'Paid', paidAmount: 370000 }
   await assert.rejects(
-    weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, { version: 0, status: 'Cooking' }),
+    weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, {
+      exceptionReason: 'Integration test exception',
+      version: 0,
+      status: 'Cooking'
+    }),
     { status: 400 }
   )
   f.data.transactions.push({ orderId: f.order._id, kind: 'Payment', status: 'Succeeded', source: 'VerifiedIPN' })
   await assert.rejects(
-    weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, { version: 0, status: 'Cooking' }),
+    weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, {
+      exceptionReason: 'Integration test exception',
+      version: 0,
+      status: 'Cooking'
+    }),
     { status: 409 }
   )
   f.order.inventoryHold = { status: 'Committed', items: [{ foodId: f.food._id!, quantity: 7 }] }
-  await weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, { version: 0, status: 'Cooking' })
+  await weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, {
+    exceptionReason: 'Integration test exception',
+    version: 0,
+    status: 'Cooking'
+  })
   await assert.rejects(
-    weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, { version: 1, status: 'Completed' }),
+    weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, {
+      exceptionReason: 'Integration test exception',
+      version: 1,
+      status: 'Completed'
+    }),
     { status: 400 }
   )
-  await weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, { version: 1, status: 'Delivering' })
-  await weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, { version: 2, status: 'Completed' })
+  await weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, {
+    exceptionReason: 'Integration test exception',
+    version: 1,
+    status: 'Delivering'
+  })
+  await weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, {
+    exceptionReason: 'Integration test exception',
+    version: 2,
+    status: 'Completed'
+  })
   assert.equal(f.order.deliveries[0].status, 'Completed')
   assert.ok(f.order.deliveries.slice(1).every((day) => day.status === 'Confirmed'))
   assert.equal(f.order.status, 'Confirmed')
   assert.equal(tracked, 1)
-  await assert.rejects(orders.updateOrderStatus(adminId, f.orderId, { status: 'Completed' }), { status: 400 })
+  await assert.rejects(
+    orders.updateOrderStatus(adminId, f.orderId, {
+      exceptionReason: 'Integration test exception',
+      status: 'Completed'
+    }),
+    { status: 400 }
+  )
   await assert.rejects(orders.cancelOrder(f.userId, f.orderId), { status: 400 })
 })
 

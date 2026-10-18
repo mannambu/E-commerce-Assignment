@@ -136,7 +136,7 @@ usersRouter.get('/me', accessTokenValidator, wrapRequestHandler(getMeController)
 usersRouter.patch('/me', accessTokenValidator, updateMeValidator, wrapRequestHandler(updateMeController))
 
 /**
- * Description. Search and paginate Customer/Manager accounts (Admin only)
+ * Description. Search and paginate all five roles (Admin only)
  * Path: /
  * Method: GET
  * Header: { Authorization: Bearer <access_token> }
@@ -150,7 +150,7 @@ usersRouter.get(
 )
 
 /**
- * Description. Lock / unlock a Customer or Manager account
+ * Description. Lock / unlock an account; protect the last active Admin
  * Path: /:user_id/status
  * Method: PATCH
  * Header: { Authorization: Bearer <access_token> }
@@ -164,7 +164,7 @@ usersRouter.patch(
   wrapRequestHandler(updateUserStatusController)
 )
 
-// Admin chỉ chuyển vai trò giữa Customer và Manager; mọi phiên cũ bị thu hồi.
+// Admin changes roles with a reason; all old sessions are revoked.
 usersRouter.patch(
   '/:user_id/role',
   accessTokenValidator,

@@ -1,3 +1,4 @@
+import { adminExceptionReason } from '~/utils/permissions'
 import { ClientSession, ObjectId } from 'mongodb'
 import { ErrorWithStatus } from '~/models/Errors'
 import Order, { DeliveryPeriod, OrderItem, OrderStatus } from '~/models/schemas/Order.schema'
@@ -312,6 +313,7 @@ class WeeklyOrdersService {
   ) {
     return database.withTransaction(async (session) => {
       const { actor, order, delivery } = await this.getContext(userId, orderId, deliveryId, session)
+      const exceptionReason = adminExceptionReason(actor.role, payload.exceptionReason)
       this.checkVersion(order, payload.version)
       this.checkEditable(order, delivery)
       this.checkSwapHold(order)
@@ -346,7 +348,7 @@ class WeeklyOrdersService {
           entityId: order._id!,
           before: { deliveryId: delivery._id, item },
           after: { deliveryId: delivery._id, item: replacement },
-          reason: 'Đổi món cùng giá trước giờ chốt bếp',
+          reason: exceptionReason || 'Đổi món cùng giá trước giờ chốt bếp',
           createdAt: new Date()
         },
         { session }
@@ -405,6 +407,7 @@ class WeeklyOrdersService {
   async cancelDelivery(userId: string, orderId: string, deliveryId: string, payload: CancelDeliveryReqBody) {
     return database.withTransaction(async (session) => {
       const { actor, order, delivery } = await this.getContext(userId, orderId, deliveryId, session)
+      const exceptionReason = adminExceptionReason(actor.role, payload.exceptionReason)
       // Gửi lại yêu cầu hủy không hoàn thêm tiền hay nhả kho lần hai.
       if (delivery.status === 'Cancelled') return this.describeOrder(order)
       this.checkVersion(order, payload.version)
@@ -412,10 +415,16 @@ class WeeklyOrdersService {
       const quote = this.cancellationQuote(order, delivery)
       const now = new Date()
       const refundTransactionId = quote.refundAmount > 0 ? new ObjectId() : undefined
+      const previousStatus = delivery.status
       delivery.status = 'Cancelled'
-      delivery.statusHistory.push({ status: 'Cancelled', changedAt: now, actorId: actor._id, reason: payload.reason })
+      delivery.statusHistory.push({
+        status: 'Cancelled',
+        changedAt: now,
+        actorId: actor._id,
+        reason: exceptionReason || payload.reason
+      })
       delivery.cancellation = {
-        reason: payload.reason,
+        reason: exceptionReason || payload.reason,
         cancelledAt: now,
         cancelledBy: actor.role === UserRole.ADMIN ? 'Admin' : 'Customer',
         creditedAmount: quote.creditedAmount,
@@ -456,8 +465,9 @@ class WeeklyOrdersService {
           action: 'DeliveryCancelled',
           entityType: 'Order',
           entityId: order._id!,
+          before: { deliveryId: delivery._id, status: previousStatus },
           after: { deliveryId: delivery._id, ...delivery.cancellation },
-          reason: payload.reason,
+          reason: exceptionReason || payload.reason,
           createdAt: now
         },
         { session }
@@ -474,6 +484,7 @@ class WeeklyOrdersService {
   ) {
     const updated = await database.withTransaction(async (session) => {
       const { actor, order, delivery } = await this.getContext(adminId, orderId, deliveryId, session)
+      const exceptionReason = adminExceptionReason(actor.role, payload.exceptionReason)
       if (actor.role !== UserRole.ADMIN)
         throw new ErrorWithStatus({ message: 'Chỉ Admin được cập nhật trạng thái giao', status: 403 })
       if (delivery.status === payload.status) return order
@@ -507,8 +518,14 @@ class WeeklyOrdersService {
           status: 409
         })
       }
+      const previousStatus = delivery.status
       delivery.status = payload.status
-      delivery.statusHistory.push({ status: payload.status, changedAt: new Date(), actorId: actor._id })
+      delivery.statusHistory.push({
+        status: payload.status,
+        changedAt: new Date(),
+        actorId: actor._id,
+        reason: exceptionReason
+      })
       await this.saveOrder(order, actor, session)
       await database.auditLogs.insertOne(
         {
@@ -517,8 +534,9 @@ class WeeklyOrdersService {
           action: 'OrderStatusChanged',
           entityType: 'Order',
           entityId: order._id!,
+          before: { deliveryId: delivery._id, status: previousStatus },
           after: { deliveryId: delivery._id, status: delivery.status },
-          reason: 'Cập nhật một ngày giao',
+          reason: exceptionReason!,
           createdAt: new Date()
         },
         { session }

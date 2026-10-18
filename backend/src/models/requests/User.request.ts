@@ -59,7 +59,7 @@ export interface UpdateMeReqBody {
 
 export interface GetUsersQuery {
   search?: string
-  role?: UserRole.CUSTOMER | UserRole.MANAGER
+  role?: UserRole
   status?: AccountStatus
   page?: string
   limit?: string
@@ -71,7 +71,7 @@ export interface UpdateUserStatusReqBody {
 }
 
 export interface UpdateUserRoleReqBody {
-  role: UserRole.CUSTOMER | UserRole.MANAGER
+  role: UserRole
   reason: string
 }
 

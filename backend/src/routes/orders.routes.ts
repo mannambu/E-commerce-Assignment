@@ -145,6 +145,7 @@ ordersRouter.get('/', accessTokenValidator, isCustomerValidator, wrapRequestHand
 ordersRouter.get(
   '/:orderId',
   accessTokenValidator,
+  requireRoles(UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER),
   orderIdParamValidator,
   wrapRequestHandler(getMyOrderDetailController)
 )

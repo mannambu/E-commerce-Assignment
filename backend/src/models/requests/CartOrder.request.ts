@@ -51,6 +51,7 @@ export interface CreateOrderReqBody extends QuoteOrderReqBody {
 }
 
 export interface UpdateOrderStatusReqBody {
+  exceptionReason?: string // Required for Admin intervention; never a normal workflow.
   status: Exclude<OrderStatus, 'Pending' | 'Cancelled'>
 }
 
@@ -64,16 +65,19 @@ export interface UpdatePaymentStatusReqBody {
 }
 
 export interface SwapDeliveryItemReqBody {
+  exceptionReason?: string // Required for Admin intervention; never a normal workflow.
   foodId: string
   version: number
 }
 
 export interface CancelDeliveryReqBody {
+  exceptionReason?: string // Required for Admin intervention; never a normal workflow.
   reason: string
   version: number
 }
 
 export interface UpdateDeliveryStatusReqBody {
+  exceptionReason?: string // Required for Admin intervention; never a normal workflow.
   status: 'Cooking' | 'Delivering' | 'Completed'
   version: number
 }

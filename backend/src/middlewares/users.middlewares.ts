@@ -7,7 +7,7 @@ import HTTP_STATUS from '~/constants/httpStatus'
 import { USERS_MESSAGES } from '~/constants/messages'
 import { ErrorWithStatus } from '~/models/Errors'
 import { TokenPayload } from '~/models/requests/User.request'
-import { AccountStatus, UserRole } from '~/models/schemas/User.schema'
+import { AccountStatus, UserRole, ALL_ROLES, INTERNAL_ROLES } from '~/models/schemas/User.schema'
 import databaseService from '~/services/database.services'
 import usersService from '~/services/user.services'
 import { verifyToken } from '~/utils/jwt'
@@ -118,7 +118,7 @@ export const createUserValidator = validate(
   checkSchema(
     {
       ...accountFields,
-      role: { isIn: { options: [[UserRole.CUSTOMER, UserRole.MANAGER]] } }
+      role: { isIn: { options: [INTERNAL_ROLES] } }
     },
     ['body']
   )
@@ -128,7 +128,7 @@ export const getUsersValidator = validate(
   checkSchema(
     {
       search: { optional: true, isString: { bail: true }, trim: true, isLength: { options: { max: 100 } } },
-      role: { optional: true, isIn: { options: [[UserRole.CUSTOMER, UserRole.MANAGER]] } },
+      role: { optional: true, isIn: { options: [ALL_ROLES] } },
       status: { optional: true, isIn: { options: [[AccountStatus.ACTIVE, AccountStatus.LOCKED]] } },
       page: { optional: true, isInt: { options: { min: 1, max: 1000000 } } },
       limit: { optional: true, isInt: { options: { min: 1, max: 100 } } }
@@ -602,8 +602,8 @@ export const updateUserRoleValidator = validate(
       role: {
         in: ['body'],
         isIn: {
-          options: [[UserRole.CUSTOMER, UserRole.MANAGER]],
-          errorMessage: 'Chỉ được chuyển vai trò giữa Customer và Manager'
+          options: [ALL_ROLES],
+          errorMessage: 'Vai trò phải là Customer, Manager, Kitchen Staff, Delivery Staff hoặc Admin'
         }
       }
     },

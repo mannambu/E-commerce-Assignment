@@ -1,5 +1,5 @@
 import { config } from 'dotenv'
-import { Filter, ObjectId } from 'mongodb'
+import { ClientSession, Filter, ObjectId } from 'mongodb'
 import { randomInt, randomUUID } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import {
@@ -21,7 +21,15 @@ import {
 } from '~/models/requests/User.request'
 import Food from '~/models/schemas/Food.schema'
 import Session from '~/models/schemas/Session.schema'
-import User, { AccountStatus, ActivityLevel, HealthGoal, HealthProfile, UserRole } from '~/models/schemas/User.schema'
+import User, {
+  AccountStatus,
+  ActivityLevel,
+  HealthGoal,
+  HealthProfile,
+  UserRole,
+  ALL_ROLES,
+  INTERNAL_ROLES
+} from '~/models/schemas/User.schema'
 import databaseService from '~/services/database.services'
 import { hashPassword, hashToken, isLegacyPassword, verifyPassword } from '~/utils/crypto'
 import emailService from './email.services'
@@ -188,7 +196,7 @@ class UsersService {
     const user = await databaseService.users.findOne({
       _id: new ObjectId(payload.user_id),
       account_status: AccountStatus.ACTIVE,
-      role: { $in: [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER] }
+      role: { $in: ALL_ROLES }
     })
     if (!user || user.role !== payload.role || (user.tokenVersion ?? 0) !== payload.tokenVersion) {
       throw new ErrorWithStatus({ status: 401, message: 'Invalid or revoked session' })
@@ -298,7 +306,7 @@ class UsersService {
   async login(payload: LoginReqBody) {
     const identifier = (payload.identifier || payload.email || '').trim()
     const user = await databaseService.users.findOne({
-      role: { $in: [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER] },
+      role: { $in: ALL_ROLES },
       $or: [{ email: identifier.toLowerCase() }, { username: identifier }]
     })
 
@@ -311,7 +319,9 @@ class UsersService {
 
     if (user.account_status === AccountStatus.LOCKED && !user.locked_until) {
       throw new ErrorWithStatus({
-        message: USERS_MESSAGES.ACCOUNT_IS_LOCKED,
+        message: user.lockReason
+          ? `${USERS_MESSAGES.ACCOUNT_IS_LOCKED}: ${user.lockReason}`
+          : USERS_MESSAGES.ACCOUNT_IS_LOCKED,
         status: HTTP_STATUS.FORBIDDEN
       })
     }
@@ -385,7 +395,7 @@ class UsersService {
     const response = { message: USERS_MESSAGES.CHECK_EMAIL_TO_RESET_PASSWORD }
     const user = await databaseService.users.findOne({
       email: email.toLowerCase().trim(),
-      role: { $in: [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER] }
+      role: { $in: ALL_ROLES }
     })
     if (!user) return response
     if (
@@ -439,7 +449,7 @@ class UsersService {
     const user = await databaseService.users.findOneAndUpdate(
       {
         email: email.toLowerCase().trim(),
-        role: { $in: [UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER] },
+        role: { $in: ALL_ROLES },
         forgot_password_expires_at: { $gt: new Date() },
         forgot_password_attempts: { $lt: RESET_CODE_MAX_ATTEMPTS }
       },
@@ -513,7 +523,7 @@ class UsersService {
   async getAllUsers(query: GetUsersQuery = {}) {
     const page = Number(query.page || 1)
     const limit = Number(query.limit || 20)
-    const filter: Filter<User> = { role: { $in: [UserRole.CUSTOMER, UserRole.MANAGER] } }
+    const filter: Filter<User> = { role: { $in: ALL_ROLES } }
     if (query.role) filter.role = query.role
     if (query.status) filter.account_status = query.status
 
@@ -603,7 +613,7 @@ class UsersService {
       role: UserRole.ADMIN,
       account_status: AccountStatus.ACTIVE
     })
-    if (!actor || ![UserRole.CUSTOMER, UserRole.MANAGER].includes(payload.role)) {
+    if (!actor || !INTERNAL_ROLES.includes(payload.role)) {
       throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
     }
     const user = new User({
@@ -618,6 +628,11 @@ class UsersService {
       throw new ErrorWithStatus({ status: 409, message: 'Email or username already exists' })
     }
     await databaseService.withTransaction(async (session) => {
+      const currentActor = await databaseService.users.findOne(
+        { _id: actor._id, role: UserRole.ADMIN, account_status: AccountStatus.ACTIVE },
+        { session }
+      )
+      if (!currentActor) throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
       await databaseService.users.insertOne(user, { session })
       await databaseService.auditLogs.insertOne(
         {
@@ -642,6 +657,20 @@ class UsersService {
     }
   }
 
+  private async protectLastAdmin(user: User, session: ClientSession) {
+    if (user.role !== UserRole.ADMIN || user.account_status !== AccountStatus.ACTIVE) return
+    const admins = await databaseService.users
+      .find({ role: UserRole.ADMIN, account_status: AccountStatus.ACTIVE }, { session })
+      .sort({ _id: 1 })
+      .toArray()
+    if (admins.length <= 1) {
+      throw new ErrorWithStatus({ status: 409, message: 'Không thể khóa hoặc hạ quyền Admin hoạt động cuối cùng' })
+    }
+    // Both concurrent removals write the same guard. MongoDB retries the loser,
+    // which then reads the new number of active Admins instead of removing both.
+    await databaseService.users.updateOne({ _id: admins[0]._id }, { $inc: { adminGuardVersion: 1 } }, { session })
+  }
+
   async updateUserStatus(targetUserId: string, status: AccountStatus, actorId: string, reason: string) {
     if (!ObjectId.isValid(targetUserId) || ![AccountStatus.ACTIVE, AccountStatus.LOCKED].includes(status)) {
       throw new ErrorWithStatus({ status: 400, message: 'Invalid user or status' })
@@ -658,15 +687,20 @@ class UsersService {
       if (!actor) throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
       const user = await databaseService.users.findOne({ _id: userId }, { session })
       if (!user) throw new ErrorWithStatus({ status: 404, message: USERS_MESSAGES.USER_NOT_FOUND })
-      if (![UserRole.CUSTOMER, UserRole.MANAGER].includes(user.role))
-        throw new ErrorWithStatus({ status: 403, message: 'Cannot lock or modify an Admin account' })
+
       // Khóa tạm do đăng nhập sai vẫn phải chuyển thành khóa lâu dài khi Admin yêu cầu.
       const isTemporaryLock = status === AccountStatus.LOCKED && user.locked_until != null
       if (user.account_status === status && !isTemporaryLock) return false
+      if (status === AccountStatus.LOCKED) await this.protectLastAdmin(user, session)
       await databaseService.users.updateOne(
         { _id: userId },
         {
-          $set: { account_status: status, loginAttempts: 0, forgot_password_token: '' },
+          $set: {
+            account_status: status,
+            lockReason: status === AccountStatus.LOCKED ? reason.trim() : '',
+            loginAttempts: 0,
+            forgot_password_token: ''
+          },
           $unset: { locked_until: '', forgot_password_expires_at: '' },
           $inc: { tokenVersion: 1 },
           $currentDate: { updated_at: true }
@@ -694,7 +728,7 @@ class UsersService {
   }
 
   async updateUserRole(targetUserId: string, payload: UpdateUserRoleReqBody, actorId: string) {
-    if (!ObjectId.isValid(targetUserId) || ![UserRole.CUSTOMER, UserRole.MANAGER].includes(payload.role)) {
+    if (!ObjectId.isValid(targetUserId) || !ALL_ROLES.includes(payload.role)) {
       throw new ErrorWithStatus({ status: 400, message: 'Tài khoản hoặc vai trò không hợp lệ' })
     }
     if (typeof payload.reason !== 'string' || !payload.reason.trim() || payload.reason.trim().length > 500) {
@@ -709,10 +743,8 @@ class UsersService {
       if (!actor) throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
       const user = await databaseService.users.findOne({ _id: userId }, { session })
       if (!user) throw new ErrorWithStatus({ status: 404, message: USERS_MESSAGES.USER_NOT_FOUND })
-      if (![UserRole.CUSTOMER, UserRole.MANAGER].includes(user.role)) {
-        throw new ErrorWithStatus({ status: 403, message: 'Không được thay đổi vai trò của tài khoản Admin' })
-      }
       if (user.role === payload.role) return false
+      if (payload.role !== UserRole.ADMIN) await this.protectLastAdmin(user, session)
 
       await databaseService.users.updateOne(
         { _id: userId },

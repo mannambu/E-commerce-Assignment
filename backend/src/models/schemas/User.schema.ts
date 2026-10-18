@@ -3,8 +3,13 @@ import { ObjectId } from 'mongodb'
 export enum UserRole {
   CUSTOMER = 'Customer',
   MANAGER = 'Manager',
+  KITCHEN = 'Kitchen Staff',
+  DELIVERY = 'Delivery Staff',
   ADMIN = 'Admin'
 }
+
+export const ALL_ROLES = Object.values(UserRole)
+export const INTERNAL_ROLES = ALL_ROLES.filter((role) => role !== UserRole.CUSTOMER)
 
 export enum AccountStatus {
   ACTIVE = 'Active',
@@ -49,6 +54,8 @@ export interface UserType {
   phone?: string
   role?: UserRole
   account_status?: AccountStatus
+  lockReason?: string
+  adminGuardVersion?: number
   loginAttempts?: number
   locked_until?: Date
   created_at?: Date
@@ -73,6 +80,8 @@ export default class User implements UserType {
   phone: string
   role: UserRole
   account_status: AccountStatus
+  lockReason?: string
+  adminGuardVersion?: number
   loginAttempts: number
   locked_until?: Date
   created_at?: Date
@@ -96,6 +105,8 @@ export default class User implements UserType {
     this.phone = user.phone ?? ''
     this.role = user.role ?? UserRole.CUSTOMER
     this.account_status = user.account_status ?? AccountStatus.ACTIVE
+    this.lockReason = user.lockReason
+    this.adminGuardVersion = user.adminGuardVersion ?? 0
     this.loginAttempts = user.loginAttempts ?? 0
     this.locked_until = user.locked_until
     this.forgot_password_token = user.forgot_password_token ?? ''

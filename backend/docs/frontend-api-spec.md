@@ -6,10 +6,10 @@ Cập nhật nhóm Foods đến **15/10/2026** (FR-CAT-001/002/003/004/006/007).
 
 Các thay đổi frontend cần tiếp nhận:
 
-- Vai trò hiện tại: `Customer`, `Admin`, `Manager`. Backend đã bỏ API/role PT.
+- Vai trò hiện tại: `Customer`, `Manager`, `Kitchen Staff`, `Delivery Staff`, `Admin`. Backend đã bỏ API/role PT. Checklist và phạm vi thực hiện: [Vai trò và tài khoản](roles-accounts.md).
 - JWT gắn với phiên trong DB; logout thu hồi phiên phía server, reset mật khẩu thu hồi tất cả phiên.
 - Refresh trả cặp token mới ở root response; đăng nhập/đăng ký trả token trong `result`.
-- Admin tạo Customer/Manager qua `POST /users`; Manager đọc toàn bộ đơn qua `GET /orders/all`.
+- Admin tạo bốn vai trò nội bộ qua `POST /users`; Customer tự đăng ký. Manager đọc toàn bộ đơn qua `GET /orders/all`; bếp/giao hàng đọc phần được gán qua `GET /workspace/orders`.
 - Món của đơn nằm trong `deliveries[].items[]`; giỏ hàng dùng `_id` của dòng để sửa/xóa.
 - Cấu hình backend, seed và tạo index thống nhất `DB_URI` + `DB_NAME`. Frontend chỉ cần URL API; không đưa cấu hình MongoDB hoặc SMTP vào frontend. Xem [hướng dẫn thiết lập](auth-setup.md).
 
@@ -91,7 +91,7 @@ Body:
 }
 ```
 
-* role: chỉ nhận Customer hoặc bỏ trống; Admin/Manager không đăng ký qua API này.
+* role: chỉ nhận Customer hoặc bỏ trống; cả bốn vai trò nội bộ không đăng ký qua API này.
 * `email`, `username`, `password`, `confirm_password`, `phone` bắt buộc. Username dài 3–30 ký tự; email/username phải chưa tồn tại. Phone hiện chỉ kiểm tra không rỗng, chưa áp dụng regex số điện thoại Việt Nam.
 * Email được lưu chữ thường, bỏ khoảng trắng hai đầu. Hồ sơ sức khỏe gửi qua API `/users/health-profile` sau đăng nhập.
 * Thành công trả HTTP **200**, tài khoản Active và một phiên đăng nhập mới. Backend hiện vẫn trả token ngay sau đăng ký.
@@ -115,7 +115,7 @@ JWT mới có role/sessionId/tokenVersion; backend kiểm tra phiên trong DB. T
 - `identifier` nhận email hoặc username; có thể gửi `email` thay thế khi không có `identifier`.
 - `remember_me` tùy chọn; gửi boolean JSON `true`/`false`.
 - Thời hạn mặc định: access 15 phút, refresh 7 ngày (có thể đổi bằng cấu hình backend). `remember_me: true` đặt hạn refresh 30 ngày. Mỗi lần đăng nhập tạo phiên riêng.
-- Response thành công HTTP **200**; `role` có thể là `Customer`, `Admin` hoặc `Manager`.
+- Response thành công HTTP **200**; `result.role` là một trong năm vai trò hiện tại.
 
 | Trường hợp | HTTP | Hành vi |
 | --- | --- | --- |
@@ -290,15 +290,15 @@ Body (optional fields):
 
 ### **GET /users (Auth, Admin)**
 
-Tìm kiếm và phân trang tài khoản Customer/Manager. Danh sách này không bao gồm Admin.
+Tìm kiếm và phân trang cả năm vai trò, bao gồm Admin.
 
-Query: `search` (tối đa 100 ký tự, tìm chuỗi trong email/username/phone, không phân biệt hoa thường), `role=Customer|Manager`, `status=Active|Locked`, `page` (mặc định 1, tối đa 1000000), `limit` (mặc định 20, tối đa 100). Ví dụ: `/users?role=Manager&status=Active&page=1&limit=20`.
+Query: `search` (tối đa 100 ký tự, tìm chuỗi trong email/username/phone, không phân biệt hoa thường), `role` thuộc năm vai trò, `status=Active|Locked`, `page` (mặc định 1, tối đa 1000000), `limit` (mặc định 20, tối đa 100). Ví dụ: `/users?role=Kitchen%20Staff&status=Active&page=1&limit=20`.
 
 Response HTTP **200**: `{ "message": "Lấy danh sách người dùng thành công", "result": { "items": [], "page": 1, "limit": 20, "total": 0 } }`. `total` là số tài khoản khớp bộ lọc, không phải số dòng của trang. Mỗi dòng chỉ gồm `_id`, `email`, `username`, `phone`, `role`, `account_status`, `created_at`; sắp xếp `created_at` và `_id` giảm dần. Không trả hồ sơ sức khỏe hay dữ liệu xác thực. Customer/Manager nhận 403; query sai nhận 422.
 
 ### **POST /users (Auth, Admin)**
 
-Admin tạo tài khoản Customer hoặc Manager. Khác với `/users/register`, field `role` bắt buộc và không nhận `Admin`.
+Admin tạo Manager, Kitchen Staff, Delivery Staff hoặc Admin ở trạng thái Active. Field `role` bắt buộc, không nhận Customer.
 
 Body:
 
@@ -330,13 +330,13 @@ Response HTTP **201**:
 }
 ```
 
-Không trả password hoặc token đăng nhập cho user mới. Backend ghi audit `UserCreated`; người vừa được tạo cần đăng nhập riêng. Tài khoản Admin được khởi tạo bằng seed, không qua API này.
+Không trả password hoặc token đăng nhập cho user mới. Backend ghi audit `UserCreated`; người vừa được tạo có thể đăng nhập ngay. Chỉ Admin đầu tiên cần khởi tạo bằng seed.
 
 Lỗi: 401 nếu phiên không hợp lệ; 403 nếu người gọi không phải Admin; 422 nếu validation không đạt (bao gồm role sai hoặc email/username đã tồn tại khi kiểm tra); service có thể trả 409 nếu phát hiện trùng email/username sau bước validation.
 
 ### **PATCH /users/:user_id/status (Auth, Admin)**
 
-Admin khóa/mở tài khoản Customer/Manager. Backend chặn thay đổi trạng thái mọi tài khoản Admin, kể cả chính người gọi.
+Admin khóa/mở tài khoản thuộc cả năm vai trò. Backend chặn khóa Admin Active cuối cùng, kể cả khi có yêu cầu đồng thời.
 
 Body:
 ```json
@@ -353,15 +353,15 @@ Response HTTP **200**:
 
 Khi trạng thái thay đổi, cả khóa và mở khóa đều xóa khóa tạm/bộ đếm đăng nhập sai, hủy token reset đang chờ, tăng tokenVersion và xóa mọi phiên của user. Mở khóa yêu cầu đăng nhập lại; phiên cũ không sống lại. Backend ghi audit `AccountLocked` hoặc `AccountUnlocked` kèm lý do trong cùng transaction. Nếu trạng thái đã đúng, trả `changed: false`, không thu hồi phiên hoặc ghi audit lặp. Riêng tài khoản đang khóa tạm (`Locked` có `locked_until`), Admin gửi `Locked` sẽ chuyển thành khóa lâu dài và trả `changed: true`.
 
-User không tồn tại trả 404; sửa tài khoản Admin trả 403; user_id/status/reason không hợp lệ ở validator trả 422.
+User không tồn tại trả 404; khóa Admin Active cuối cùng trả 409; user_id/status/reason không hợp lệ ở validator trả 422. Người bị khóa nhận đúng lý do khóa khi đăng nhập.
 
 ### **PATCH /users/:user_id/role (Auth, Admin)**
 
-Body: `{ "role": "Manager", "reason": "Phân công phụ trách báo cáo" }`. Chỉ đổi Customer ↔ Manager; `reason` bắt buộc, 1–500 ký tự sau khi trim. Không cho nâng thành Admin hoặc sửa role của bất kỳ tài khoản Admin nào, kể cả chính người gọi.
+Body: `{ "role": "Manager", "reason": "Phân công phụ trách báo cáo" }`. Cho phép đổi giữa năm vai trò; `reason` bắt buộc, 1–500 ký tự sau khi trim. Không được hạ quyền Admin Active cuối cùng.
 
 Response HTTP **200**: `{ "message": "Đã cập nhật vai trò tài khoản", "changed": true }`. Thay đổi role, tăng tokenVersion, thu hồi mọi phiên và ghi audit `RoleChanged` (quyền cũ/mới, người thực hiện, lý do) trong cùng transaction. Tài khoản đang Locked vẫn Locked. User cần đăng nhập lại để nhận role mới. Gửi lại cùng role trả `changed: false`, giữ phiên và không ghi audit lặp.
 
-Lỗi: 401 nếu phiên không hợp lệ, 403 nếu không phải Admin hoặc đích là Admin, 404 nếu user không tồn tại, 422 nếu ID/role/reason sai.
+Lỗi: 401 nếu phiên không hợp lệ, 403 nếu không phải Admin, 404 nếu user không tồn tại, 409 nếu làm mất Admin Active cuối cùng, 422 nếu ID/role/reason sai.
 
 ### **POST /users/health-profile (Auth, Customer)**
 
@@ -806,17 +806,17 @@ Lấy chi tiết order, response HTTP 200 dạng `{ "message": "...", "result": 
 ### **PATCH /orders/:orderId/cancel**
 
 * Customer hủy đơn lẻ Pending hoặc COD Confirmed chưa chế biến. Nhả/trả kho và cập nhật đơn trong cùng transaction.
-* Admin được hủy rộng hơn, nhưng không hủy được Completed hoặc Cancelled.
+* Admin can thiệp phải gửi `exceptionReason` (1–500 ký tự); vẫn không hủy được Completed hoặc Cancelled và phải qua các kiểm tra nghiệp vụ hiện có. Hệ thống ghi lý do vào audit.
 * Manager không được hủy (403 ngay tại middleware). API này chỉ dùng cho đơn lẻ; gói tuần trả 400 và phải hủy từng ngày qua API mới bên dưới.
 
 ### **PATCH /orders/:orderId/status**
 
 Body:
 ```json
-{ "status": "Cooking" }
+{ "status": "Cooking", "exceptionReason": "Xử lý ngoại lệ đã xác minh" }
 ```
 
-* Chỉ Admin.  
+* Chỉ Admin can thiệp ngoại lệ có lý do và audit; thiếu `exceptionReason` trả 403. Đây chưa phải API vận hành Manager/bếp/giao hàng theo v2.0.
 * Đơn lẻ theo Confirmed → Cooking → Delivering → Completed; kho phải Committed, online cần giao dịch VerifiedIPN thành công. Gói tuần trả 400 tại endpoint này; dùng trạng thái từng ngày.
 
 ### **POST /orders/:orderId/payments/retry (Customer)**
@@ -852,7 +852,7 @@ Body:
 | PATCH | `/orders/:orderId/deliveries/:deliveryId/status` | Admin |
 | GET, PATCH | `/admin/commerce-settings` | Admin |
 
-Đổi món gửi `{ "foodId": "...", "version": 0 }`; hủy gửi `{ "reason": "...", "version": 0 }`; trạng thái gửi `{ "status": "Cooking", "version": 0 }`. Version cũ trả 409. Manager chỉ đọc Order, không gọi thao tác ngày.
+Đổi món gửi `{ "foodId": "...", "version": 0 }`; hủy gửi `{ "reason": "...", "version": 0 }`; trạng thái gửi `{ "status": "Cooking", "version": 0 }`. Admin phải thêm `exceptionReason` vào mọi body thay đổi này; thiếu lý do trả 403. Version cũ trả 409. Manager hiện chỉ đọc Order; luồng vận hành mới chưa triển khai.
 
 Đổi/hủy chỉ trước cutoff của ngày Pending/Confirmed. Đổi món cùng giá snapshot, kiểm tra calo/dị ứng/kho; hủy xem preview trước xác nhận. Ngày đã trả tạo yêu cầu Refund **Pending**, chưa tự hoàn tiền. Trạng thái ngày theo `Confirmed → Cooking → Delivering → Completed`, chỉ xử lý từ ngày giao, online phải có IPN xác thực. Chính sách hủy, ví dụ và hướng dẫn UI đầy đủ ở [weekly-orders.md](weekly-orders.md).
 
@@ -1072,18 +1072,18 @@ Response:
 
 ### **Quyền đã có cho màn hình quản trị/đơn hàng**
 
-| Chức năng | Customer | Admin | Manager |
-| --- | --- | --- | --- |
-| Tạo Customer/Manager, tìm/lọc/phân trang user, khóa/mở, đổi role | Không | Có; không sửa tài khoản Admin | Không |
-| Giỏ hàng, hồ sơ sức khỏe, thực đơn, tracking, tạo/sửa review | Có, dữ liệu của mình | Không | Không |
-| CRUD món | Không | Có | Không |
-| Quote/tạo đơn, retry thanh toán | Có, đơn của mình | Không | Không |
-| Xem toàn bộ đơn qua `/orders/all` | Không | Có | Có, chỉ đọc |
-| Xem chi tiết đơn | Đơn của mình | Mọi đơn | Mọi đơn |
-| Hủy đơn | Đơn của mình, Pending | Trừ Completed/Cancelled | Không |
-| Đổi trạng thái đơn/thanh toán | Không | Có | Không |
-| Dashboard vận hành, nhật ký toàn hệ thống `/admin/*` | Không | Có | Không |
-| Báo cáo tài chính/Excel Manager | Chưa có API | Chưa có API | Chưa có API |
+| Chức năng | Customer | Admin | Manager | Kitchen Staff / Delivery Staff |
+| --- | --- | --- | --- | --- |
+| Tạo nội bộ, tìm/lọc/phân trang user, khóa/mở, đổi role | Không | Có; bảo vệ Admin Active cuối cùng | Không | Không |
+| Giỏ hàng, sức khỏe, thực đơn, tracking, tạo/sửa review | Dữ liệu của mình | Không | Không | Không |
+| CRUD món | Không | Có | Không | Không |
+| Quote/tạo đơn, retry thanh toán | Đơn của mình | Không | Không | Không |
+| `/orders/all` và chi tiết đầy đủ | Chỉ chi tiết đơn mình | Có | Có | Không |
+| `/workspace/orders` | Không | Có | Có | Chỉ phần được gán; giới hạn trường |
+| Sửa/hủy đơn hoặc ngày giao qua API hiện có | Theo điều kiện hiện có | Ngoại lệ có lý do/audit | Chưa có luồng vận hành mới | Chưa có thao tác bếp/giao mới |
+| Sửa payment-status thủ công | Không | Không | Không | Không |
+| Sổ giao dịch `/workspace/transactions` | Không | Có | Có | Không |
+| Báo cáo tổng hợp/Excel | Chưa có | Chưa có | Chưa có | Không |
 
 Cart, Tracking, Health Profile, gợi ý thực đơn và tạo/sửa review đã được giới hạn Customer ở backend. `/users/me`, đăng xuất và upload dùng chung cho các vai trò có phiên hợp lệ. Danh mục món và danh sách review vẫn công khai. Customer chỉ được sửa review của mình; Admin được xóa review theo API hiện tại.
 

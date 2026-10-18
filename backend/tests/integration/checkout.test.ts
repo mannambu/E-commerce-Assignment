@@ -368,7 +368,10 @@ test('checkout and inventory on an isolated MongoDB replica set', { timeout: 180
       status: 400
     })
     await assert.rejects(
-      orders.updateOrderStatus(String(f.admin._id), String(created.orderId), { status: 'Cooking' }),
+      orders.updateOrderStatus(String(f.admin._id), String(created.orderId), {
+        exceptionReason: 'Integration test exception',
+        status: 'Cooking'
+      }),
       { status: 400 }
     )
     assert.equal((await database.orders.findOne({ _id: created.orderId }))!.payment.status, 'Pending')

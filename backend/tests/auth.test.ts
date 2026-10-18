@@ -588,11 +588,11 @@ test('Admin locks/unlocks with audit, clears temporary lock and cannot revive ol
   )
   assert.equal(audits[0].reason, 'Vi phạm quy định')
   await assert.rejects(users.updateUserStatus(String(admin._id), AccountStatus.LOCKED, String(admin._id), 'Tự khóa'), {
-    status: 403
+    status: 409
   })
 })
 
-test('only Admin can create Customer/Manager; no Admin creation or password leakage', async (t) => {
+test('only Admin can create internal accounts; Customer creation is denied and passwords are private', async (t) => {
   const { account, accounts, audits } = setup(t, UserRole.ADMIN)
   const body = {
     email: 'manager@example.com',
@@ -608,10 +608,10 @@ test('only Admin can create Customer/Manager; no Admin creation or password leak
   assert.match(accounts[1].password, /^\$2[ab]\$/)
   assert.equal(audits[0].action, 'UserCreated')
   assert.equal(JSON.stringify(audits).includes(password), false)
-  await assert.rejects(users.createUser(String(account._id), { ...body, role: UserRole.ADMIN }), { status: 403 })
+  await assert.rejects(users.createUser(String(account._id), { ...body, role: UserRole.CUSTOMER }), { status: 403 })
   account.role = UserRole.MANAGER
   await assert.rejects(users.createUser(String(account._id), body), { status: 403 })
-  const error = await run(createUserValidator, { body: { ...body, role: UserRole.ADMIN } })
+  const error = await run(createUserValidator, { body: { ...body, role: UserRole.CUSTOMER } })
   assert.equal(error.status, 422)
 })
 
@@ -647,9 +647,9 @@ test('user listing filters, paginates and returns only management fields through
   const { access_token } = await login()
   const page = await api('/users?page=2&limit=1', access_token)
   assert.equal(page.status, 200)
-  assert.equal(page.body.result.total, 3)
+  assert.equal(page.body.result.total, 4)
   assert.equal(page.body.result.page, 2)
-  assert.equal(page.body.result.items[0].username, 'axb')
+  assert.equal(page.body.result.items[0].username, 'another')
   assert.deepEqual(
     Object.keys(page.body.result.items[0]).sort(),
     ['_id', 'email', 'username', 'phone', 'role', 'account_status', 'created_at'].sort()
@@ -659,14 +659,14 @@ test('user listing filters, paginates and returns only management fields through
   assert.equal(filtered.body.result.items[0].username, 'a.b')
   const empty = await api('/users?search=missing', access_token)
   assert.deepEqual(empty.body.result, { items: [], page: 1, limit: 20, total: 0 })
-  for (const query of ['page=0', 'page=1.5', 'limit=101', 'role=Admin', 'status=Banned']) {
+  for (const query of ['page=0', 'page=1.5', 'limit=101', 'role=PT', 'status=Banned']) {
     assert.equal((await api(`/users?${query}`, access_token)).status, 422, query)
   }
   // Express dùng simple query parser: key lạ bị bỏ qua, không được biến thành Mongo filter.
   const injection = await api('/users?role[$ne]=Customer', access_token)
   assert.equal(injection.status, 200)
-  assert.equal(injection.body.result.total, 3)
-  assert.ok(injection.body.result.items.every((user: User) => user.role !== UserRole.ADMIN))
+  assert.equal(injection.body.result.total, 4)
+  assert.ok(injection.body.result.items.some((user: User) => user.role === UserRole.ADMIN))
 })
 
 test('role changes revoke old sessions, record reasons and leave repeated requests and Admin accounts unchanged', async (t) => {
@@ -700,8 +700,8 @@ test('role changes revoke old sessions, record reasons and leave repeated reques
   assert.equal(audits.length, 1)
   assert.equal(await access(newTokens.access_token), undefined)
   assert.equal(sessions.length, 2)
-  assert.equal((await api(`/users/${admin._id}/role`, access_token, 'PATCH', roleChange)).status, 403)
-  for (const body of [{ role: 'Admin', reason: 'test' }, { role: 'Manager' }, { role: 'Manager', reason: '   ' }]) {
+  assert.equal((await api(`/users/${admin._id}/role`, access_token, 'PATCH', roleChange)).status, 409)
+  for (const body of [{ role: 'PT', reason: 'test' }, { role: 'Manager' }, { role: 'Manager', reason: '   ' }]) {
     assert.equal((await api(path, access_token, 'PATCH', body)).status, 422)
   }
   assert.equal((await api(`/users/${new ObjectId()}/role`, access_token, 'PATCH', roleChange)).status, 404)
