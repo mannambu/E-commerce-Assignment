@@ -8,6 +8,7 @@ export type OrderStatus =
   | 'Ready'
   | 'Delivering'
   | 'Completed'
+  | 'Failed'
   | 'Cancelled'
   | 'Rejected'
 export type PaymentMethod = 'COD' | 'VNPay' | 'MoMo'
@@ -50,6 +51,20 @@ export interface DeliveryPeriod {
   scheduledAt: Date
   kitchenStaffIds?: ObjectId[] // Manager assigns staff directly to this delivery; no shifts.
   assignedShipperId?: ObjectId
+  dispatch?: { actorId: ObjectId; requestVersion: number; dispatchedAt: Date }
+  deliveryResult?: {
+    status: 'Completed' | 'Failed'
+    actorId: ObjectId
+    recordedAt: Date
+    requestVersion: number
+    reason?: string
+    evidenceUrls?: string[]
+    codCollectedAmount?: number
+    codExpectedAmount?: number
+    codDifference?: number // Actual minus expected; never silently adjust the price.
+    transactionId?: ObjectId
+  }
+  failedAt?: Date // Start of the current Failed period for subsequent Manager resolution/24h job.
   cutoffAt?: Date // Set at checkout using kitchen settings.
   items: OrderItem[]
   status: OrderStatus
@@ -82,6 +97,7 @@ export interface PaymentInfo {
   paidAt?: Date
   paidAmount?: number
   refundedAmount?: number
+  codReconciliationRequired?: boolean
 }
 
 /** Embedded stock hold. Update the order and food together in a DB transaction. */
@@ -105,6 +121,7 @@ export default interface Order {
   status: OrderStatus
   statusHistory: OrderStatusEvent[]
   deliveryAddress: string
+  hasFailedDeliveries?: boolean
   note: string
   payment: PaymentInfo
   inventoryHold: InventoryHold

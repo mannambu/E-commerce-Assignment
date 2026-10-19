@@ -1,4 +1,6 @@
 import { Router } from 'express'
+import { shipperStatusController } from '~/controllers/shipper.controllers'
+import { shipperStatusValidator } from '~/middlewares/shipper.middlewares'
 import {
   assignKitchenController,
   assignShipperController,
@@ -54,6 +56,15 @@ import {
 } from '~/middlewares/weekly-orders.middlewares'
 
 const ordersRouter = Router()
+
+ordersRouter.patch(
+  '/:orderId/deliveries/:deliveryId/shipper-status',
+  accessTokenValidator,
+  requireRoles(UserRole.DELIVERY),
+  deliveryParamsValidator,
+  shipperStatusValidator,
+  wrapRequestHandler(shipperStatusController)
+)
 
 ordersRouter.patch(
   '/:orderId/deliveries/:deliveryId/kitchen-assignment',

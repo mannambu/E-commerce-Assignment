@@ -189,8 +189,7 @@ test('food reviews still require a completed purchase and update the food rating
     () =>
       ({
         findOne: async (filter: Record<string, unknown>) => {
-          assert.equal(filter.status, 'Completed')
-          assert.equal(String(filter['deliveries.items.foodId']), String(foodId))
+          assert.deepEqual(filter.deliveries, { $elemMatch: { status: 'Completed', 'items.foodId': foodId } })
           assert.equal(String(filter.userId), String(reviewerId))
           return hasCompletedOrder ? { _id: new ObjectId() } : null
         }

@@ -14,7 +14,7 @@ export default interface Transaction {
   foodAmount?: number
   shippingAmount?: number
   orderId?: ObjectId // Required for Payment/Refund.
-  deliveryId?: ObjectId // Refund of a single delivery period.
+  deliveryId?: ObjectId // COD collection or refund of a single delivery period.
   userId?: ObjectId
   method?: PaymentMethod
   providerTransactionId?: string

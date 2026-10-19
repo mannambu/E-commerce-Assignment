@@ -573,7 +573,14 @@ class OrdersService {
       const result = await databaseService.orders.updateOne(
         { _id: order._id, status: order.status, version: order.version },
         {
-          $set: { status: 'Cancelled', cancelledBy, cancelledAt, deliveries, inventoryHold: order.inventoryHold },
+          $set: {
+            status: 'Cancelled',
+            cancelledBy,
+            cancelledAt,
+            deliveries,
+            inventoryHold: order.inventoryHold,
+            hasFailedDeliveries: false
+          },
           $push: { statusHistory: { status: 'Cancelled', changedAt: cancelledAt, actorId: user._id } },
           $inc: { version: 1 },
           $currentDate: { updatedAt: true }

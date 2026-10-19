@@ -6,6 +6,7 @@ import { AccountStatus, UserRole } from '~/models/schemas/User.schema'
 import database from '~/services/database.services'
 import { wrapRequestHandler } from '~/utils/handlers'
 import { validate } from '~/utils/validation'
+import { deliveryCodExpected } from '~/utils/delivery'
 
 const workspace = Router()
 workspace.use(accessTokenValidator)
@@ -87,6 +88,15 @@ workspace.get(
           status: day.status,
           packageType: order.packageType,
           version: order.version,
+          hasFailedDeliveries: order.deliveries.some((delivery) => delivery.status === 'Failed'),
+          ...(role !== UserRole.KITCHEN
+            ? {
+                paymentMethod: order.payment.method,
+                codExpectedAmount: deliveryCodExpected(order, day),
+                deliveryResult: day.deliveryResult,
+                failedAt: day.failedAt
+              }
+            : {}),
           ...(role === UserRole.MANAGER || role === UserRole.ADMIN
             ? {
                 kitchenStaffIds: day.kitchenStaffIds || [],
@@ -116,6 +126,10 @@ workspace.get(
             status: 1,
             amount: 1,
             orderId: 1,
+            deliveryId: 1,
+            method: 1,
+            source: 1,
+            createdBy: 1,
             occurredAt: 1,
             description: 1
           }

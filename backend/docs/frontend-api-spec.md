@@ -421,7 +421,7 @@ Body:
 ## 3) Upload Media (`/medias`)
 
 ### POST `/medias/upload-image` (Auth)
-Upload một file ảnh lên hệ thống (được lưu trữ trực tiếp trên Cloudinary). Dùng cho ảnh đại diện, ảnh món ăn hoặc ảnh đính kèm trong review.
+Upload một file ảnh lên hệ thống (được lưu trữ trực tiếp trên Cloudinary). Dùng cho ảnh đại diện, ảnh món ăn, ảnh đính kèm trong review hoặc ảnh minh chứng giao thất bại của shipper. Backend đọc `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` từ `.env`; client chỉ gửi JWT và file.
 
 - **Headers:**
   - `Authorization: Bearer <access_token>`
@@ -439,6 +439,8 @@ Upload một file ảnh lên hệ thống (được lưu trữ trực tiếp tr�
   ]
 }
 ```
+
+Với shipper, lấy URL trong `result[0]` để gửi trong `evidenceUrls` của API `shipper-status`. Ảnh không bắt buộc; không có ảnh thì bỏ trường hoặc gửi `[]`, không cần upload.
 
 ## **4) Foods (/foods)**
 
@@ -727,7 +729,7 @@ Một cart summary có dạng:
 ### **Enum**
 
 * paymentMethod: COD | VNPay | MoMo  
-* orderStatus hiện có: Pending | Confirmed | Cooking | Ready | Delivering | Completed | Cancelled | Rejected. Failed thuộc bước giao hàng tiếp theo.
+* orderStatus hiện có: Pending | Confirmed | Cooking | Ready | Delivering | Completed | Failed | Cancelled | Rejected. Gói có ngày Failed giữ tiến độ các ngày đang xử lý, kèm `hasFailedDeliveries`.
 * paymentStatus: Pending | Paid | Failed | PartiallyRefunded | Refunded
 * packageType: ONE_DAY | WEEKLY_7D  
 * cartType: FOOD | COMBO
@@ -873,7 +875,9 @@ Không chia ca. Đơn lẻ và gói tuần cùng dùng `deliveryId`. Chi tiết 
 | `PATCH /orders/:orderId/deliveries/:deliveryId/kitchen-status` | Bếp được gán | Confirmed → Cooking → Ready; body `{ status, version }`. |
 | `PATCH /orders/:orderId/deliveries/:deliveryId/shipper-assignment` | Manager | Ready; body `{ assignedShipperId, version, reason }`. |
 
-Không trả tiền trong response bếp. Mọi thay đổi ghi audit và thông báo DB cùng transaction; chưa đẩy WebSocket realtime. Luồng shipper nhận hàng/xuất phát/kết quả giao và COD triển khai ở bước tiếp theo.
+Không trả tiền trong response bếp. Mọi thay đổi ghi audit và thông báo DB cùng transaction; chưa đẩy WebSocket realtime.
+
+Shipper được gán dùng `PATCH /orders/:orderId/deliveries/:deliveryId/shipper-status` với `{ status, version }`: Ready → Delivering rồi Completed hoặc Failed. COD Completed bắt buộc `codCollectedAmount`; Failed bắt buộc `reason`, còn `evidenceUrls` tùy chọn (bỏ trường hoặc gửi `[]`; nếu có ảnh, tối đa 10 URL HTTPS hợp lệ). Thu COD từng ngày, ghi thiếu/thừa riêng, không tự sửa giá. Chi tiết và checklist: [shipper-workflow.md](shipper-workflow.md).
 
 ## **7) Admin Dashboard (/admin)**
 
@@ -1121,5 +1125,5 @@ Cart, Tracking, Health Profile, gợi ý thực đơn và tạo/sửa review đ�
 - Backend chưa có báo cáo tài chính/Excel Manager, API liệt kê/xóa riêng phiên theo ID hay API đọc audit log. Có schema/service nội bộ không có nghĩa đã có endpoint public.
 - Frontend quản lý user cần đọc `result.items` và `result.total`, gửi `reason` khi khóa/mở/đổi role. Dashboard Admin phải dùng `orders.byStatus`; response không còn `revenue`. Các trang frontend cũ chưa được chuyển trong đợt backend này.
 - Checkout đã có giữ/trừ kho bằng transaction, idempotency và job hủy online chưa trả sau 15 phút. Manager đã có API xác nhận/từ chối và tạo yêu cầu hoàn. IPN và hoàn tiền thật qua cổng thanh toán chưa tích hợp; không coi Paid thủ công là xác nhận thanh toán.
-- Gói tuần đã có API đổi/hủy ngày và yêu cầu hoàn Pending theo quy tắc hiện có; Manager đã có phân công bếp/shipper, bếp có Confirmed → Cooking → Ready. Luồng duyệt hủy mới, kết quả giao/COD/Failed và WebSocket realtime vẫn cần đồng bộ tiếp. Recommendation/swap hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.
+- Gói tuần đã có API đổi/hủy ngày và yêu cầu hoàn Pending theo quy tắc hiện có; Manager có phân công bếp/shipper, bếp có Confirmed → Cooking → Ready, shipper có nhận/giao và ghi COD/Failed. Luồng duyệt hủy mới, Manager xử lý Failed/đối soát COD, job 24 giờ và WebSocket realtime vẫn cần đồng bộ tiếp. Review đã kiểm tra chính ngày Completed; giới hạn/index mỗi Order–Food cần đồng bộ riêng. Recommendation/swap hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.
 - Reset qua mã email chỉ chạy thực tế sau khi cấu hình SMTP; không cần URL reset hoặc trang frontend để test bằng Postman. Hướng dẫn DB/seed/email ở [auth-setup.md](auth-setup.md), giải thích 12 collection ở [database_schema.md](../../docs/database_schema.md).

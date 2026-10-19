@@ -67,14 +67,14 @@ class TrackingService {
     }
   }
 
-  async recordCaloriesLog(userId: string, payload: CaloriesPayload) {
-    const user = await this.getUserOrThrow(userId)
+  async recordCaloriesLog(userId: string, payload: CaloriesPayload, session?: ClientSession) {
+    const user = await this.getUserOrThrow(userId, session)
     const date = this.normalizeDate(payload.date)
     const calories = Number(payload.caloriesConsumed)
     if (!Number.isFinite(calories) || calories < 0) {
       throw new ErrorWithStatus({ message: 'Calories phải là số không âm', status: HTTP_STATUS.BAD_REQUEST })
     }
-    await this.ensureDay(user, date)
+    await this.ensureDay(user, date, session)
     const mealId = new ObjectId()
     const meal: ConsumedMeal = {
       _id: mealId,
@@ -93,13 +93,14 @@ class TrackingService {
     // Kiểm tra mã và thêm món trong cùng một update, không dùng find rồi push.
     await databaseService.dailyHealthLogs.updateOne(
       { userId: user._id!, date, 'meals.consumptionKey': { $ne: meal.consumptionKey } },
-      { $push: { meals: meal }, $currentDate: { updatedAt: true } }
+      { $push: { meals: meal }, $currentDate: { updatedAt: true } },
+      { session }
     )
-    const day = await databaseService.dailyHealthLogs.findOne({ userId: user._id!, date })
+    const day = await databaseService.dailyHealthLogs.findOne({ userId: user._id!, date }, { session })
     return day!.meals.find((entry) => entry.consumptionKey === meal.consumptionKey)!
   }
 
-  async recordOrderCalories(userId: string, order: Order) {
+  async recordOrderCalories(userId: string, order: Order, session?: ClientSession) {
     const logs: ConsumedMeal[] = []
     for (const delivery of order.deliveries) {
       if (delivery.status !== 'Completed') continue
@@ -108,23 +109,27 @@ class TrackingService {
           ? `meal-plan:${item.mealPlanItemId}`
           : `order:${order._id}:item:${item._id}`
         logs.push(
-          await this.recordCaloriesLog(userId, {
-            date: delivery.date,
-            sourceType: 'Order',
-            sourceId: String(order._id),
-            sourceItemId: String(item._id),
-            consumptionKey,
-            foodName: item.foodName,
-            mealSlot: item.mealSlot,
-            quantity: item.quantity,
-            caloriesConsumed: item.calories * item.quantity,
-            nutritionConsumed: {
-              protein: item.nutrition.protein * item.quantity,
-              carb: item.nutrition.carb * item.quantity,
-              fat: item.nutrition.fat * item.quantity
+          await this.recordCaloriesLog(
+            userId,
+            {
+              date: delivery.date,
+              sourceType: 'Order',
+              sourceId: String(order._id),
+              sourceItemId: String(item._id),
+              consumptionKey,
+              foodName: item.foodName,
+              mealSlot: item.mealSlot,
+              quantity: item.quantity,
+              caloriesConsumed: item.calories * item.quantity,
+              nutritionConsumed: {
+                protein: item.nutrition.protein * item.quantity,
+                carb: item.nutrition.carb * item.quantity,
+                fat: item.nutrition.fat * item.quantity
+              },
+              note: order.note
             },
-            note: order.note
-          })
+            session
+          )
         )
       }
     }

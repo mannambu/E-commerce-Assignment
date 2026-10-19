@@ -866,6 +866,7 @@ test('Admin dashboard exposes operational counts only and rejects Customer/Manag
         Confirmed: 3,
         Cooking: 0,
         Ready: 0,
+        Failed: 0,
         Delivering: 0,
         Completed: 4,
         Cancelled: 0,

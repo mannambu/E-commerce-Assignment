@@ -9,6 +9,7 @@
     "test:roles:integration": "tsx --test tests/integration/roles-accounts.test.ts",
     "test:decisions:integration": "tsx --test tests/integration/order-decisions.test.ts",
     "test:operations:integration": "tsx --test tests/integration/order-operations.test.ts",
+    "test:shipper:integration": "tsx --test tests/integration/shipper.test.ts",
     "test:schema": "tsx --test tests/schema.test.ts",
     "schema:indexes": "tsx scripts/schema-indexes.ts",
     "data:users": "tsx scripts/generate-users-import.ts",

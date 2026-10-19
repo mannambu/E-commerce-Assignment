@@ -103,3 +103,11 @@ export interface KitchenStatusReqBody {
   status: 'Cooking' | 'Ready'
   version: number
 }
+
+export interface ShipperStatusReqBody {
+  status: 'Delivering' | 'Completed' | 'Failed'
+  version: number
+  codCollectedAmount?: number
+  reason?: string
+  evidenceUrls?: string[]
+}

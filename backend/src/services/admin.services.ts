@@ -18,6 +18,7 @@ class AdminService {
       Confirmed: 0,
       Cooking: 0,
       Ready: 0,
+      Failed: 0,
       Delivering: 0,
       Completed: 0,
       Cancelled: 0,

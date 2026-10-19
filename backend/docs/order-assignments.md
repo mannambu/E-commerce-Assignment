@@ -56,7 +56,7 @@ Gói tuần chỉ đổi ngày được chọn; trạng thái tổng vẫn theo 
 
 ## Phạm vi tiếp theo
 
-Chưa triển khai nhận hàng/xuất phát của shipper, kết quả giao, COD thực thu, Failed/giao lại hoặc xử lý quá 24 giờ. Không tạo collection ca, không thay frontend, không sửa chính sách hủy/hoàn hay tích hợp cổng thanh toán trong bước này.
+Nhận hàng/xuất phát, kết quả Completed/Failed và COD thực thu đã có tại [API Shipper](shipper-workflow.md). Giao lại, hủy/hoàn Failed và xử lý quá 24 giờ thuộc bước Manager tiếp theo. Không tạo collection ca, không thay frontend hay tích hợp cổng thanh toán trong bước này.
 
 ## Kiểm thử
 

@@ -36,11 +36,10 @@ class ReviewService {
       })
     }
 
-    // Chỉ khách có đơn hoàn thành chứa món này mới được đánh giá.
+    // Match food and Completed on the same delivery, even while other days are unfinished.
     const completedOrder = await databaseService.orders.findOne({
       userId: new ObjectId(reviewerId),
-      status: 'Completed',
-      'deliveries.items.foodId': foodObjectId,
+      deliveries: { $elemMatch: { status: 'Completed', 'items.foodId': foodObjectId } },
       ...(payload.orderId ? { _id: new ObjectId(payload.orderId) } : {})
     })
     if (!completedOrder) {

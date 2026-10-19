@@ -1,3 +1,4 @@
+import Order, { DeliveryPeriod } from '~/models/schemas/Order.schema'
 import { ErrorWithStatus } from '~/models/Errors'
 import { toLocalDate } from '~/models/schemas/common'
 import { CommerceRules } from '~/services/settings.services'
@@ -35,4 +36,27 @@ export function getKitchenCutoff(scheduledAt: Date, rules: CommerceRules): Date 
     throw new ErrorWithStatus({ message: 'Giờ giao phải sau giờ chốt bếp, hãy chọn lại giờ giao', status: 400 })
   }
   return cutoff
+}
+
+export function validEvidenceUrls(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= 10 &&
+    value.every((entry) => {
+      if (typeof entry !== 'string' || entry.length > 2048) return false
+      try {
+        const url = new URL(entry)
+        return url.protocol === 'https:' && Boolean(url.hostname) && !url.username && !url.password
+      } catch {
+        return false
+      }
+    })
+  )
+}
+
+// Each COD delivery collects its own charge, never another day's shortage or surplus.
+export function deliveryCodExpected(order: Order, day: DeliveryPeriod): number {
+  return order.payment.method === 'COD'
+    ? Math.max(0, day.subtotal + day.shipping.totalFee - (day.cancellation?.creditedAmount || 0))
+    : 0
 }

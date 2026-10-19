@@ -282,6 +282,7 @@ class WeeklyOrdersService {
       order.cancellationReason = 'Đã hủy tất cả ngày giao'
     }
     order.status = status
+    order.hasFailedDeliveries = order.deliveries.some((day) => day.status === 'Failed')
     order.updatedAt = new Date()
     const result = await database.orders.updateOne(
       { _id: order._id, version: order.version },
@@ -290,6 +291,7 @@ class WeeklyOrdersService {
           deliveries: order.deliveries,
           inventoryHold: order.inventoryHold,
           status,
+          hasFailedDeliveries: order.hasFailedDeliveries,
           statusHistory: order.statusHistory,
           cancelledAt: order.cancelledAt,
           cancelledBy: order.cancelledBy,
