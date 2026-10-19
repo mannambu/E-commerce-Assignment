@@ -12,8 +12,8 @@ Thực hiện US-18 trên cấu trúc hiện có: một Cart/người dùng, m�
 | `stock - reservedStock` | Số phần còn có thể đặt |
 | `Order.inventoryHold.items` | Tổng số phần mỗi món của đơn, cộng tất cả ngày/bữa còn hiệu lực |
 
-- Online: `Pending`, `payment.status = Pending`, tăng `reservedStock`, giữ 10 phút. Chưa trừ `stock`.
-- COD: `Confirmed`, `payment.status = Pending`, trừ `stock` ngay; `inventoryHold.status = Committed`.
+- Online: `Pending`, `payment.status = Pending`, tăng `reservedStock`, giữ 15 phút bằng hạn thanh toán. Chưa trừ `stock`.
+- COD: `Pending`, `payment.status = Pending`, trừ `stock` ngay; `inventoryHold.status = Committed`. Chờ Manager xác nhận.
   Chưa đánh dấu đã thu tiền. Không có hạn giữ kho/hạn thanh toán online.
 - IPN sau này: chỉ khi đã verify mới gọi `inventory.commitHold()` để giảm cả `stock` và `reservedStock`.
 - Hết hạn giữ: giảm `reservedStock` đúng một lần, chuyển hold sang `Released`; không cộng thêm `stock`.
@@ -81,15 +81,15 @@ Giỏ hàng vẫn chịu trách nhiệm kiểm tra/gộp dòng trước checkout
 ## Hết hạn và thanh toán lại
 
 Backend khởi động một job quét ngay khi kết nối DB thành công, sau đó mỗi 15 giây, tối đa 100 đơn/lượt.
-Job chỉ xử lý online Pending chưa thu tiền có hold Held đã hết hạn. Mỗi đơn có transaction riêng và ghi AuditLog.
+Job chỉ xử lý online Pending chưa thu tiền đã tới `paymentDueAt`, không có Payment VerifiedIPN thành công. Mỗi đơn được hủy với lý do “Quá hạn thanh toán”, nhả kho, ghi AuditLog và thông báo trong cùng transaction. COD và Pending đã Paid không thuộc job này.
 Nhiều instance cùng quét vẫn chỉ nhả một lần. Một đơn lỗi được ghi log để kiểm tra, không chặn các đơn khác trong lượt.
 Việc nhả vật lý có thể trễ tối đa một chu kỳ quét trong điều kiện tải bình thường.
 
-Để hiển thị đếm ngược, dùng `inventoryHold.expiresAt`; không dùng `paymentDueAt` thay thế:
+Đơn online mới chỉ có một mốc đếm ngược:
 
-- `expiresAt`: hạn giữ hàng 10 phút.
-- `paymentDueAt`: hạn thanh toán online 15 phút, được giữ nguyên suốt đời đơn.
-- Hết 10 phút: Order vẫn Pending nhưng hold Released, chờ giữ lại hàng/thanh toán lại.
+- `expiresAt` bằng `paymentDueAt`: 15 phút, không được retry gia hạn.
+- Hết hạn chưa trả: Order Cancelled, hold Released. Đơn đã hủy không được thanh toán lại để mở lại.
+- Đơn cũ có hold 10 phút được job mới xét theo `paymentDueAt`; nếu đã nhả từ trước mà còn hạn, retry có thể giữ lại kho.
 
 `POST /orders/:orderId/payments/retry` kiểm tra chủ đơn, Pending, chưa trả tiền, còn hạn và chưa chốt lịch giao.
 Nếu kho đã được nhả, service thử giữ lại toàn bộ món còn hiệu lực theo snapshot của đơn.
@@ -105,17 +105,16 @@ Gói đã hủy ngày tiếp tục bị chặn retry để phần thanh toán đ
 | Món trong nhiều ngày | Cộng tổng nhu cầu của cùng Food một lần, không nhân cả giỏ với 7 |
 | Đổi/hủy ngày của gói tuần | Dùng chung `inventory.changeItems()` với checkout, không có thuật toán kho thứ hai |
 | Hủy đơn lẻ | Cập nhật Order, nhả/trả kho và audit trong cùng transaction |
-| Timeline COD | Pending → Confirmed ở lúc đặt; thanh toán vẫn Pending cho tới thu COD |
+| Timeline COD | Đặt ở Pending, Manager chuyển Confirmed; thanh toán vẫn Pending cho tới thu COD |
 | Chế biến đơn lẻ/ngày của gói tuần | Chỉ Confirmed → Cooking, kho phải Committed; online phải có giao dịch VerifiedIPN thành công |
 | Sửa payment thủ công | Endpoint cũ trả 400 cho cả đơn lẻ và tuần để không tách tiền khỏi kho |
 | Admin sửa kho | Update có điều kiện, không thể ghi tồn kho thấp hơn lượng giữ |
 | Form checkout hiện có | Gửi key/version, giữ key khi thử lại; dùng tổng từ backend, bỏ giảm giá 15.000đ tự tính; giao 12:00 giờ Việt Nam |
-| Danh sách đơn khách/Admin | Nhận biết Confirmed; Admin chuyển từ Confirmed sang Cooking thay vì bỏ qua xác nhận |
+| Quyết định Manager | `/orders/:orderId/decision` xác nhận/từ chối toàn đơn Pending; Manager không bắt đầu nấu |
 
 ## Phạm vi dành cho phần thanh toán tiếp theo
 
-- Chưa tích hợp VNPay/MoMo, thu COD, gọi hoàn tiền hoặc job tự **hủy đơn** ở phút 15 (US-19/20).
-  Job ở phần này chỉ **nhả kho**. Sau phút 15, retry bị từ chối nhưng trạng thái đơn chưa tự đổi Cancelled.
+- Chưa tích hợp VNPay/MoMo, thu COD hoặc gọi hoàn tiền thật. Job **hủy đơn và nhả kho** ở phút 15 đã có. Từ chối của Manager tạo yêu cầu hoàn Pending theo [hướng dẫn](manager-order-decisions.md).
 - IPN phải verify chữ ký/số tiền/mã đơn, chống ghi lặp rồi gọi `commitHold()` và ghi Payment + Order
   trong **cùng** `database.withTransaction()`. Không mở route công khai gọi trực tiếp `commitHold()`.
 - Callback đến khi hold đã hết phải kiểm tra/giữ lại hàng. Nếu không còn hàng hoặc quá hạn thanh toán,

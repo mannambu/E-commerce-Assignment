@@ -78,6 +78,28 @@ export interface CancelDeliveryReqBody {
 
 export interface UpdateDeliveryStatusReqBody {
   exceptionReason?: string // Required for Admin intervention; never a normal workflow.
-  status: 'Cooking' | 'Delivering' | 'Completed'
+  status: 'Cooking' | 'Ready' | 'Delivering' | 'Completed'
+  version: number
+}
+export interface ManagerOrderDecisionReqBody {
+  status: 'Confirmed' | 'Rejected'
+  version: number
+  reason?: string
+}
+
+export interface KitchenAssignmentReqBody {
+  kitchenStaffIds: string[]
+  version: number
+  reason: string
+}
+
+export interface ShipperAssignmentReqBody {
+  assignedShipperId: string
+  version: number
+  reason: string
+}
+
+export interface KitchenStatusReqBody {
+  status: 'Cooking' | 'Ready'
   version: number
 }

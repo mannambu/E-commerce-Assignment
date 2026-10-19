@@ -1,7 +1,7 @@
 /** Calendar dates use YYYY-MM-DD in BUSINESS_TIME_ZONE; instants use BSON Date (UTC). */
 export type LocalDate = string
 export const BUSINESS_TIME_ZONE = 'Asia/Ho_Chi_Minh'
-export const STOCK_HOLD_MINUTES = 10
+export const STOCK_HOLD_MINUTES = 15
 export const PAYMENT_TIMEOUT_MINUTES = 15
 export type MealSlot = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack'
 export type Currency = 'VND'

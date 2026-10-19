@@ -1,4 +1,5 @@
 import { adminExceptionReason } from '~/utils/permissions'
+import { aggregateOrderStatus } from '~/utils/order-status'
 import { ClientSession, ObjectId } from 'mongodb'
 import { ErrorWithStatus } from '~/models/Errors'
 import Order, { DeliveryPeriod, OrderItem, OrderStatus } from '~/models/schemas/Order.schema'
@@ -30,15 +31,21 @@ class WeeklyOrdersService {
 
   private canEdit(order: Order, delivery: DeliveryPeriod) {
     return (
-      !['Completed', 'Cancelled'].includes(order.status) &&
+      ['Pending', 'Confirmed'].includes(order.status) &&
       ['Pending', 'Confirmed'].includes(delivery.status) &&
       Boolean(delivery.cutoffAt && delivery.cutoffAt > new Date())
     )
   }
 
   private getAmounts(order: Order) {
-    const creditedAmount = order.deliveries.reduce((sum, day) => sum + (day.cancellation?.creditedAmount || 0), 0)
-    const requested = order.deliveries.reduce((sum, day) => sum + (day.cancellation?.refundAmount || 0), 0)
+    const creditedAmount =
+      order.status === 'Rejected'
+        ? order.grandTotal
+        : order.deliveries.reduce((sum, day) => sum + (day.cancellation?.creditedAmount || 0), 0)
+    const requested =
+      order.status === 'Rejected'
+        ? order.payment.paidAmount || 0
+        : order.deliveries.reduce((sum, day) => sum + (day.cancellation?.refundAmount || 0), 0)
     const refundedAmount =
       order.payment.refundedAmount ??
       (order.payment.status === 'Refunded'
@@ -266,15 +273,8 @@ class WeeklyOrdersService {
     }
   }
 
-  private aggregateStatus(deliveries: DeliveryPeriod[]): OrderStatus {
-    const active = deliveries.filter((day) => day.status !== 'Cancelled')
-    if (!active.length) return 'Cancelled'
-    const sequence: OrderStatus[] = ['Pending', 'Confirmed', 'Cooking', 'Delivering', 'Completed']
-    return sequence[Math.min(...active.map((day) => sequence.indexOf(day.status)))]
-  }
-
   private async saveOrder(order: Order, actor: User, session: ClientSession) {
-    const status = this.aggregateStatus(order.deliveries)
+    const status = aggregateOrderStatus(order.deliveries)
     if (status !== order.status) order.statusHistory.push({ status, changedAt: new Date(), actorId: actor._id })
     if (status === 'Cancelled') {
       order.cancelledAt = new Date()
@@ -491,11 +491,15 @@ class WeeklyOrdersService {
       this.checkVersion(order, payload.version)
       const next: Partial<Record<OrderStatus, OrderStatus>> = {
         Confirmed: 'Cooking',
-        Cooking: 'Delivering',
+        Cooking: 'Ready',
+        Ready: 'Delivering',
         Delivering: 'Completed'
       }
-      if (next[delivery.status] !== payload.status || ['Completed', 'Cancelled'].includes(order.status)) {
-        throw new ErrorWithStatus({ message: 'Chỉ cho phép Confirmed → Cooking → Delivering → Completed', status: 400 })
+      if (next[delivery.status] !== payload.status || ['Completed', 'Cancelled', 'Rejected'].includes(order.status)) {
+        throw new ErrorWithStatus({
+          message: 'Chỉ cho phép Confirmed → Cooking → Ready → Delivering → Completed',
+          status: 400
+        })
       }
       if (delivery.date > toLocalDate(new Date())) {
         throw new ErrorWithStatus({

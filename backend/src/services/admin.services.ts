@@ -17,9 +17,11 @@ class AdminService {
       Pending: 0,
       Confirmed: 0,
       Cooking: 0,
+      Ready: 0,
       Delivering: 0,
       Completed: 0,
-      Cancelled: 0
+      Cancelled: 0,
+      Rejected: 0
     }
     for (const row of orderCounts) {
       if (Object.hasOwn(byStatus, row._id)) byStatus[row._id] = row.count

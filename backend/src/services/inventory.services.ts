@@ -11,7 +11,7 @@ class InventoryService {
   getOrderItems(order: Order): StockItem[] {
     const quantities = new Map<string, StockItem>()
     for (const day of order.deliveries) {
-      if (day.status === 'Cancelled') continue
+      if (['Cancelled', 'Rejected'].includes(day.status)) continue
       for (const item of day.items) {
         const key = String(item.foodId)
         const current = quantities.get(key) || { foodId: item.foodId, quantity: 0 }
@@ -159,25 +159,74 @@ class InventoryService {
         order.payment.method === 'COD' ||
         !['Pending', 'Failed'].includes(order.payment.status) ||
         (order.payment.paidAmount || 0) > 0 ||
-        order.inventoryHold.status !== 'Held' ||
-        !order.inventoryHold.expiresAt ||
-        order.inventoryHold.expiresAt > now
+        !order.paymentDueAt ||
+        order.paymentDueAt > now
       )
         return false
-      await this.releaseHold(order, session, now)
+      // Never cancel a verified payment even if legacy payment summary fields are inconsistent.
+      if (
+        await database.transactions.findOne(
+          { orderId, kind: 'Payment', status: 'Succeeded', source: 'VerifiedIPN' },
+          { session }
+        )
+      )
+        return false
+      if (order.deliveries.some((day) => !['Pending', 'Cancelled'].includes(day.status))) return false
+      const released = await this.releaseHold(order, session, now)
+      if (order.inventoryHold.status === 'Committed') return false
+      const reason = 'Quá hạn thanh toán'
+      const statusHistory = [...order.statusHistory, { status: 'Cancelled' as const, changedAt: now, reason }]
+      const deliveries = order.deliveries.map((day) =>
+        day.status !== 'Pending'
+          ? day
+          : {
+              ...day,
+              status: 'Cancelled' as const,
+              statusHistory: [...day.statusHistory, { status: 'Cancelled' as const, changedAt: now, reason }],
+              cancellation: { reason, cancelledAt: now, cancelledBy: 'System' as const }
+            }
+      )
       const result = await database.orders.updateOne(
-        { _id: order._id, version: order.version, 'inventoryHold.status': 'Held' },
-        { $set: { inventoryHold: order.inventoryHold, updatedAt: now }, $inc: { version: 1 } },
+        { _id: order._id, version: order.version, status: 'Pending' },
+        {
+          $set: {
+            inventoryHold: order.inventoryHold,
+            updatedAt: now,
+            status: 'Cancelled',
+            statusHistory,
+            deliveries,
+            cancelledAt: now,
+            cancelledBy: 'System',
+            cancellationReason: reason
+          },
+          $inc: { version: 1 }
+        },
         { session }
       )
       if (!result.matchedCount) throw new ErrorWithStatus({ message: 'Đơn đã thay đổi khi nhả kho', status: 409 })
       await database.auditLogs.insertOne(
         {
           actorRole: 'System',
-          action: 'StockReleased',
+          action: 'OrderCancelled',
           entityType: 'Order',
           entityId: orderId,
-          reason: 'Hết 10 phút giữ kho; đơn vẫn giữ hạn thanh toán ban đầu',
+          before: { status: 'Pending' },
+          after: { status: 'Cancelled', stockReleased: released },
+          reason,
+          createdAt: now
+        },
+        { session }
+      )
+      await database.notifications.insertOne(
+        {
+          userId: order.userId,
+          type: 'Order',
+          priority: 'Normal',
+          title: 'Đơn đã hết hạn thanh toán',
+          message: `Đơn ${order.orderCode} đã hủy do quá hạn thanh toán. Bạn có thể đặt lại.`,
+          entityType: 'Order',
+          entityId: orderId,
+          eventKey: `payment-timeout:${orderId}`,
           createdAt: now
         },
         { session }
@@ -192,10 +241,9 @@ class InventoryService {
         status: 'Pending',
         'payment.method': { $ne: 'COD' },
         'payment.status': { $in: ['Pending', 'Failed'] },
-        'inventoryHold.status': 'Held',
-        'inventoryHold.expiresAt': { $lte: now }
+        paymentDueAt: { $lte: now }
       })
-      .sort({ 'inventoryHold.expiresAt': 1 })
+      .sort({ paymentDueAt: 1 })
       .limit(100)
       .toArray()
     let released = 0

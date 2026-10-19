@@ -7,6 +7,8 @@ export type AuditAction =
   | 'AccountUnlocked'
   | 'RoleChanged'
   | 'OrderStatusChanged'
+  | 'KitchenAssigned'
+  | 'ShipperAssigned'
   | 'OrderCancelled'
   | 'DeliverySwapped'
   | 'DeliveryCancelled'

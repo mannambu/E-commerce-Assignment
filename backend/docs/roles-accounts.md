@@ -56,7 +56,8 @@ Response: `{ "message": "...", "result": { "items": [], "total": 0, "page": 1, "
 
 ## 3. Dữ liệu công việc và ngoại lệ
 
-- `GET /workspace/orders`: tối đa 100 đơn gần nhất khớp bộ lọc, trả từng ngày giao. Manager/Admin đọc danh sách; bếp lọc `deliveries.kitchenStaffIds` và trạng thái Confirmed/Cooking; giao hàng lọc `deliveries.assignedShipperId` và trạng thái Ready/Delivering/Failed. Hai trường gán nhân viên là dữ liệu chuẩn bị cho module điều phối; chưa có API gán trong đợt này.
+- `GET /workspace/orders`: tối đa 100 đơn gần nhất khớp bộ lọc, trả từng ngày giao. Manager/Admin đọc danh sách và mã nhân viên được gán; bếp lọc `deliveries.kitchenStaffIds` và trạng thái Confirmed/Cooking; giao hàng lọc `deliveries.assignedShipperId` và trạng thái Ready/Delivering/Failed. Manager gán trực tiếp qua [API phân công](order-assignments.md), không chia ca. Failed mới có bộ lọc, chưa có luồng ghi kết quả thất bại.
+- `GET /workspace/staff`: Manager chọn nhân viên bếp hoặc giao hàng Active; chỉ trả ID, username, email, role. Không thay thế API quản lý tài khoản của Admin.
 - `GET /workspace/transactions`: tối đa 100 giao dịch gần nhất, chỉ đọc; gồm ID, loại, trạng thái, số tiền, mã đơn, thời điểm, mô tả. Không phải báo cáo doanh thu đầy đủ hoặc file Excel.
 - Các API Admin sửa trạng thái đơn/ngày, hủy đơn/ngày và đổi món ngày cần thêm `"exceptionReason": "Lý do can thiệp"` vào body hiện có. Lý do không cho phép bỏ qua cutoff, version, thanh toán, tồn kho hay quy tắc chuyển trạng thái.
 
@@ -64,12 +65,12 @@ Response: `{ "message": "...", "result": { "items": [], "total": 0, "page": 1, "
 
 | FR | Phần chưa có trong backend hiện tại |
 | --- | --- |
-| AUTH-016 | Luồng Manager xác nhận/từ chối Pending, duyệt hủy, gán/đổi shipper, xử lý Failed và đối soát. |
-| AUTH-020 | Luồng bếp thao tác theo ca, Confirmed → Cooking → Ready. Hiện mới có giới hạn truy cập và danh sách được gán. |
+| AUTH-016 | Manager xác nhận/từ chối **toàn đơn Pending** và gán bếp/đổi shipper đã có: xem [API quyết định](manager-order-decisions.md), [API phân công](order-assignments.md). Còn duyệt hủy, xử lý Failed và đối soát. |
+| AUTH-020 | Đã có Confirmed → Cooking → Ready cho bếp được gán đúng ngày giao. Quyết định mới bỏ ca; chưa có WebSocket realtime. |
 | AUTH-021 | Nhận/xuất phát/giao đơn được gán, COD thực thu, thất bại kèm lý do/minh chứng. Hiện mới có giới hạn truy cập và danh sách được gán. |
 | AUTH-022, PTL-006 | Báo cáo tài chính tổng hợp và đọc file Excel đã xuất. Sổ giao dịch chỉ là bước đọc dữ liệu ban đầu. |
 
-Luồng đơn cũ vẫn có Confirmed → Cooking → Delivering → Completed. Checkout/IPN và chính sách hủy cũng chưa được đồng bộ trong đợt tài khoản này. Không dùng các API ngoại lệ Admin để thay thế quy trình vận hành mới. Việc ẩn nút/menu, chuyển trang và đưa người dùng về đăng nhập thuộc frontend, không được sửa theo phạm vi yêu cầu hiện tại.
+Checkout COD đã đổi sang Pending, trừ kho ngay và không có hạn chờ; online giữ 15 phút bằng hạn thanh toán, quá hạn chưa trả thì job hủy/nhả kho. Manager xác nhận hoặc từ chối qua `/orders/:orderId/decision`. Bếp đã có API riêng Confirmed → Cooking → Ready; Manager gán/đổi shipper tại Ready. Luồng giao và Failed triển khai sau. IPN và hoàn tiền thật để bước tích hợp cổng riêng; từ chối đã thu mới tạo yêu cầu Refund Pending. Không dùng các API ngoại lệ Admin để thay thế quy trình vận hành mới. Frontend ngoài phạm vi.
 
 ## 5. Chạy kiểm thử
 

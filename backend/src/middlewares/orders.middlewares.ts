@@ -7,7 +7,7 @@ const PAYMENT_METHODS = ['COD', 'VNPay', 'MoMo']
 const PACKAGE_TYPES = ['ONE_DAY', 'WEEKLY_7D']
 const CART_TYPES = ['FOOD', 'COMBO']
 const PAYMENT_STATUSES = ['Pending', 'Paid', 'Failed']
-const ORDER_NEXT_STATUSES = ['Cooking', 'Delivering', 'Completed']
+const ORDER_NEXT_STATUSES = ['Cooking', 'Ready', 'Delivering', 'Completed']
 
 export const quoteOrderValidator = validate(
   checkSchema(
@@ -97,6 +97,28 @@ export const checkoutIdentityValidator = validate(
 )
 
 export const createOrderValidator = quoteOrderValidator
+
+export const managerOrderDecisionValidator = validate(
+  checkSchema(
+    {
+      status: { isIn: { options: [['Confirmed', 'Rejected']] } },
+      version: { isInt: { options: { min: 0, max: Number.MAX_SAFE_INTEGER } }, toInt: true },
+      reason: {
+        custom: {
+          options: (value, { req }) =>
+            value === undefined
+              ? req.body.status !== 'Rejected'
+              : typeof value === 'string' &&
+                value.trim().length <= 500 &&
+                (req.body.status !== 'Rejected' || value.trim().length > 0),
+          errorMessage: 'Lý do phải là chuỗi tối đa 500 ký tự; không được bỏ trống khi từ chối'
+        },
+        customSanitizer: { options: (value) => (typeof value === 'string' ? value.trim() : value) }
+      }
+    },
+    ['body']
+  )
+)
 
 export const orderIdParamValidator = validate(
   checkSchema(

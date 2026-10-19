@@ -1,7 +1,15 @@
 import { ObjectId } from 'mongodb'
 import { LocalDate, MealSlot, NutritionSnapshot } from './common'
 
-export type OrderStatus = 'Pending' | 'Confirmed' | 'Cooking' | 'Delivering' | 'Completed' | 'Cancelled'
+export type OrderStatus =
+  | 'Pending'
+  | 'Confirmed'
+  | 'Cooking'
+  | 'Ready'
+  | 'Delivering'
+  | 'Completed'
+  | 'Cancelled'
+  | 'Rejected'
 export type PaymentMethod = 'COD' | 'VNPay' | 'MoMo'
 export type PaymentStatus = 'Pending' | 'Paid' | 'Failed' | 'PartiallyRefunded' | 'Refunded'
 export type PackageType = 'ONE_DAY' | 'WEEKLY_7D'
@@ -40,7 +48,7 @@ export interface DeliveryPeriod {
   _id: ObjectId
   date: LocalDate
   scheduledAt: Date
-  kitchenStaffIds?: ObjectId[] // Staff assigned to the kitchen shift for this delivery.
+  kitchenStaffIds?: ObjectId[] // Manager assigns staff directly to this delivery; no shifts.
   assignedShipperId?: ObjectId
   cutoffAt?: Date // Set at checkout using kitchen settings.
   items: OrderItem[]
@@ -108,6 +116,15 @@ export default interface Order {
   cancelledBy?: CancelledBy
   cancelledAt?: Date
   cancellationReason?: string
+  managerDecision?: {
+    status: 'Confirmed' | 'Rejected'
+    actorId: ObjectId
+    reason: string
+    decidedAt: Date
+    requestVersion: number
+    refundTransactionId?: ObjectId
+    refundAmount?: number
+  }
   version: number
   createdAt: Date
   updatedAt: Date

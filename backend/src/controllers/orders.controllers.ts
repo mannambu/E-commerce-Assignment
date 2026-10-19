@@ -11,6 +11,12 @@ import {
 } from '~/models/requests/CartOrder.request'
 import { TokenPayload } from '~/models/requests/User.request'
 import ordersService from '~/services/orders.services'
+import orderDecisions from '~/services/order-decisions.services'
+
+export const managerOrderDecisionController = async (req: Request<{ orderId: string }>, res: Response) => {
+  const result = await orderDecisions.decide(req.decoded_authorization!.user_id, req.params.orderId, req.body)
+  return res.json({ message: result.replayed ? 'Yêu cầu đã được xử lý' : 'Đã ghi nhận quyết định của Manager', result })
+}
 
 export const quoteOrderController = async (
   req: Request<ParamsDictionary, Record<string, never>, QuoteOrderReqBody>,

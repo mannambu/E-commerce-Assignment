@@ -51,11 +51,11 @@ Ngày ví dụ cần thay bằng ngày bắt đầu trong giỏ thực tế. Gi�
 
 Quote trả `deliveries[]`, giá từng ngày, `pricing`, `cancellationPolicy`, `targetCaloriesSnapshot`. Khi một món thiếu kho/ngừng bán, quote/create trả 400 với `issues[]` và `replacements[]`: dòng giỏ, ngày bị ảnh hưởng và tối đa năm món thay thế đã lọc dị ứng, dinh dưỡng, kho. Nếu không tìm được món thì danh sách rỗng kèm thông báo. Khách chủ động sửa giỏ bằng API cart rồi quote lại; không tự thay món. Trước checkout giá món thay thế có thể khác, vì tổng giá sẽ được tính lại.
 
-COD tạo gói và các ngày ở `Confirmed`, thanh toán vẫn `Pending`. Online tạo ở `Pending`; phần IPN sau này phải xác nhận thanh toán rồi chuyển các ngày còn hiệu lực sang `Confirmed`.
+COD tạo gói và các ngày ở `Pending`, thanh toán vẫn `Pending`, kho trừ ngay và không có hạn chờ Manager. Online cũng tạo Pending; IPN sau này ghi Paid/chốt kho nhưng giữ Pending. Manager xác nhận/từ chối toàn gói qua [API quyết định](manager-order-decisions.md).
 
 ## API từng ngày
 
-Các endpoint bên dưới bắt buộc JWT. Customer chỉ sửa đơn của mình; Admin có quyền vận hành. Manager chỉ đọc danh sách/chi tiết đơn. `itemId` là `_id` dòng trong `deliveries[].items[]`, không phải `foodId`.
+Các endpoint bên dưới bắt buộc JWT. Customer chỉ sửa đơn của mình; Admin can thiệp ngoại lệ phải có `exceptionReason` và audit. Manager có API quyết định toàn đơn Pending và [phân công từng ngày](order-assignments.md) riêng. `itemId` là `_id` dòng trong `deliveries[].items[]`, không phải `foodId`.
 
 | Method | Path | Dùng để |
 | --- | --- | --- |
@@ -91,7 +91,7 @@ Món đổi phải đang bán, đủ kho, cùng đơn giá trong OrderItem, calo
 
 Response đổi món có `calories`, `nutritionTotals` (calories/protein/carb/fat), `calorieDifference`, `targetCalories`, `targetDifference`, `warnings` và Order mới. Macro thay đổi được báo để frontend hiển thị, không tự chặn chỉ vì macro đổi.
 
-Admin chuyển từng ngày theo `Confirmed → Cooking → Delivering → Completed`; không nhảy bước, quay ngược hay xử lý ngày giao tương lai. Online chỉ vào Cooking khi payment đã Paid/PartiallyRefunded và có Payment Transaction Succeeded từ VerifiedIPN. Hoàn thành một ngày cập nhật theo dõi calo cho ngày đó. Gói chỉ Completed khi các ngày chưa hủy đều Completed, hoặc Cancelled khi cả bảy ngày đã hủy.
+Admin chuyển từng ngày theo `Confirmed → Cooking → Ready → Delivering → Completed`; không nhảy bước, quay ngược hay xử lý ngày giao tương lai. Online chỉ vào Cooking khi payment đã Paid/PartiallyRefunded và có Payment Transaction Succeeded từ VerifiedIPN. Bếp được phân công có API vận hành riêng `kitchen-status` cho Confirmed → Cooking → Ready, không cần lý do ngoại lệ Admin. Hoàn thành một ngày cập nhật theo dõi calo cho ngày đó. Gói chỉ Completed khi các ngày chưa hủy đều Completed, hoặc Cancelled khi cả bảy ngày đã hủy.
 
 Hai API cũ hủy/chuyển trạng thái toàn đơn trả 400 cho gói tuần; dùng các endpoint ngày bên trên.
 
@@ -127,7 +127,7 @@ Preview hủy trả `foodCredit`, `shippingCredit`, `creditedAmount`, `refundAmo
 ## Phần nối tiếp
 
 - Đợt này triển khai backend; frontend cần màn hình lịch, đổi món, preview xác nhận hủy và cấu hình giờ chốt.
-- Checkout đã có transaction, idempotency, giữ kho online 10 phút và trừ kho COD; xem [phần 6](checkout-inventory.md). Quote vẫn không giữ hàng.
+- Checkout đã có transaction, idempotency, giữ kho online 15 phút và trừ kho COD; xem [phần 6](checkout-inventory.md). Quote vẫn không giữ hàng.
 - Chưa tích hợp IPN, thu COD, worker hết hạn thanh toán hay gọi cổng hoàn tiền. Refund Pending cần được xử lý trong phần thanh toán/đối soát, sau đó ghi tiền thực thu/hoàn và trạng thái tương ứng. Không đánh dấu đã hoàn chỉ vì khách hủy ngày.
 - API sửa payment-status thủ công bị chặn cho cả gói tuần và đơn lẻ. Retry chỉ cho online Pending, chưa trả, còn hạn và chưa hủy ngày; giữ lại hàng nếu hold đã Released. Đơn đã hủy ngày cần đối soát lại số tiền. Phần IPN sắp tới phải xử lý cả callback đến muộn sau khi hủy và lấy số phải thu từ khoản thực tế sau giảm.
 - Gói tuần cũ thiếu `cutoffAt`/`cancellationPolicy` không được tự đổi/hủy theo giả định mới; cần đối soát/migration có chủ đích. Đợt này không chạy migration hay sửa DB đang dùng.

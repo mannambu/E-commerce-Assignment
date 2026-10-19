@@ -298,7 +298,7 @@ class OrdersService {
         status: HTTP_STATUS.BAD_REQUEST
       })
     }
-    const initialStatus: OrderStatus = payload.paymentMethod === 'COD' ? 'Confirmed' : 'Pending'
+    const initialStatus: OrderStatus = 'Pending'
     const deliveries: DeliveryPeriod[] = schedule.map((scheduledAt, index) => {
       const date = dates[index]
       const lines = cart.items.filter(
@@ -326,13 +326,7 @@ class OrdersService {
           mealPlanItemId: item.mealPlanItemId
         })),
         status: initialStatus,
-        statusHistory:
-          initialStatus === 'Confirmed'
-            ? [
-                { status: 'Pending', changedAt: now },
-                { status: 'Confirmed', changedAt: now }
-              ]
-            : [{ status: 'Pending', changedAt: now }],
+        statusHistory: [{ status: 'Pending', changedAt: now }],
         subtotal: lines.reduce((sum, item) => sum + item.lineTotal, 0),
         shipping:
           index === 0 ? { ...shippingBreakdown } : { ...shippingBreakdown, baseFee: 0, extraFee: 0, totalFee: 0 },
@@ -538,7 +532,7 @@ class OrdersService {
       }
 
       if (user.role === UserRole.ADMIN) {
-        if (order.status === 'Completed' || order.status === 'Cancelled') {
+        if (['Completed', 'Cancelled', 'Rejected'].includes(order.status)) {
           throw new ErrorWithStatus({
             message: USERS_MESSAGES.ORDER_CAN_NOT_BE_CANCELLED,
             status: HTTP_STATUS.BAD_REQUEST
@@ -634,7 +628,8 @@ class OrdersService {
 
   private canTransition(current: OrderStatus, next: Exclude<OrderStatus, 'Pending' | 'Cancelled'>) {
     if (current === 'Confirmed' && next === 'Cooking') return true
-    if (current === 'Cooking' && next === 'Delivering') return true
+    if (current === 'Cooking' && next === 'Ready') return true
+    if (current === 'Ready' && next === 'Delivering') return true
     if (current === 'Delivering' && next === 'Completed') return true
     return false
   }

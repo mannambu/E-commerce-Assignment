@@ -91,14 +91,14 @@ test('checkout and inventory on an isolated MongoDB replica set', { timeout: 180
   }
 
   await t.test(
-    'online checkout holds the aggregate once, snapshots every day, clears cart and records 10/15 minute deadlines',
+    'online checkout holds the aggregate once, snapshots every day, clears cart and records one fifteen-minute deadline',
     async () => {
       const f = await fixture(true)
       await database.carts.updateOne({ _id: f.cart._id }, { $set: { 'items.0.quantity': 2 } })
       const result = await orders.createOrder(f.userId, f.payload)
       assert.equal(result.inventoryHold.status, 'Held')
       assert.equal(result.inventoryHold.items[0].quantity, 8)
-      assert.equal(result.inventoryHold.expiresAt!.getTime() - result.createdAt.getTime(), 600000)
+      assert.equal(result.inventoryHold.expiresAt!.getTime() - result.createdAt.getTime(), 900000)
       assert.equal(result.paymentDueAt!.getTime() - result.createdAt.getTime(), 900000)
       assert.equal(result.subtotal, 400000)
       assert.equal(result.shippingFee, 20000)
@@ -116,18 +116,18 @@ test('checkout and inventory on an isolated MongoDB replica set', { timeout: 180
     }
   )
 
-  await t.test('COD confirms and deducts stock immediately for both single and weekly orders', async () => {
+  await t.test('COD deducts stock immediately but stays Pending for Manager for both order types', async () => {
     for (const isWeekly of [false, true]) {
       const f = await fixture(isWeekly)
       const result = await orders.createOrder(f.userId, { ...f.payload, paymentMethod: 'COD' })
-      assert.equal(result.status, 'Confirmed')
+      assert.equal(result.status, 'Pending')
       assert.equal(result.payment.status, 'Pending')
       assert.equal(result.inventoryHold.status, 'Committed')
       assert.equal(result.paymentDueAt, undefined)
       assert.equal(result.inventoryHold.expiresAt, undefined)
       assert.deepEqual(
         result.statusHistory.map((event) => event.status),
-        ['Pending', 'Confirmed']
+        ['Pending']
       )
       const food = await database.foods.findOne({ _id: f.food._id })
       assert.equal(food!.stock, isWeekly ? 93 : 99)
@@ -238,7 +238,7 @@ test('checkout and inventory on an isolated MongoDB replica set', { timeout: 180
     assert.equal((await database.foods.findOne({ _id: f.food._id }))!.reservedStock, 0)
   })
 
-  await t.test('overlapping expiry workers release once and never cancel the order at ten minutes', async () => {
+  await t.test('overlapping expiry workers cancel and release once at fifteen minutes', async () => {
     const f = await fixture()
     const result = await orders.createOrder(f.userId, f.payload)
     const deadline = result.inventoryHold.expiresAt!
@@ -249,11 +249,11 @@ test('checkout and inventory on an isolated MongoDB replica set', { timeout: 180
     ])
     assert.equal(outcomes.filter(Boolean).length, 1)
     const updated = await database.orders.findOne({ _id: result.orderId })
-    assert.equal(updated!.status, 'Pending')
+    assert.equal(updated!.status, 'Cancelled')
     assert.equal(updated!.inventoryHold.status, 'Released')
     assert.equal(updated!.paymentDueAt!.getTime(), result.paymentDueAt!.getTime())
     assert.equal((await database.foods.findOne({ _id: f.food._id }))!.reservedStock, 0)
-    assert.equal(await database.auditLogs.countDocuments({ action: 'StockReleased' }), 1)
+    assert.equal(await database.auditLogs.countDocuments({ action: 'OrderCancelled' }), 1)
   })
 
   await t.test(
@@ -280,14 +280,14 @@ test('checkout and inventory on an isolated MongoDB replica set', { timeout: 180
     }
   )
 
-  await t.test('retry fails without overselling when released stock belongs to another order', async () => {
+  await t.test('expired order cannot retry or reopen after another order reserves the stock', async () => {
     const f = await fixture(false, 1)
     const created = await orders.createOrder(f.userId, f.payload)
     await inventory.releaseExpiredHold(created.orderId, created.inventoryHold.expiresAt!)
     const other = new ObjectId()
     await database.carts.insertOne(new Cart({ ...f.cart, _id: new ObjectId(), userId: other }))
     await orders.createOrder(String(other), f.payload)
-    await assert.rejects(orders.retryPayment(f.userId, String(created.orderId), {}), { status: 409 })
+    await assert.rejects(orders.retryPayment(f.userId, String(created.orderId), {}), { status: 400 })
     assert.equal((await database.orders.findOne({ _id: created.orderId }))!.inventoryHold.status, 'Released')
     assert.equal((await database.foods.findOne({ _id: f.food._id }))!.reservedStock, 1)
   })
@@ -333,12 +333,12 @@ test('checkout and inventory on an isolated MongoDB replica set', { timeout: 180
   await t.test('stock commit and expiry compete atomically, without releasing a paid order', async () => {
     const f = await fixture()
     const created = await orders.createOrder(f.userId, f.payload)
-    await Promise.all([
+    await Promise.allSettled([
       database.withTransaction(async (session) => {
         const order = (await database.orders.findOne({ _id: created.orderId }, { session }))!
         await inventory.commitHold(order, session)
         order.payment.status = 'Paid'
-        order.status = 'Confirmed'
+        order.status = 'Pending'
         await database.orders.updateOne(
           { _id: order._id },
           {
@@ -351,10 +351,11 @@ test('checkout and inventory on an isolated MongoDB replica set', { timeout: 180
       inventory.releaseExpiredHold(created.orderId, created.inventoryHold.expiresAt!)
     ])
     const order = (await database.orders.findOne({ _id: created.orderId }))!
-    assert.equal(order.inventoryHold.status, 'Committed')
-    assert.equal(order.payment.status, 'Paid')
+    const paid = order.payment.status === 'Paid'
+    assert.equal(order.status, paid ? 'Pending' : 'Cancelled')
+    assert.equal(order.inventoryHold.status, paid ? 'Committed' : 'Released')
     const food = (await database.foods.findOne({ _id: f.food._id }))!
-    assert.equal(food.stock, 99)
+    assert.equal(food.stock, paid ? 99 : 100)
     assert.equal(food.reservedStock, 0)
     assert.equal(await inventory.releaseExpiredHold(created.orderId, new Date(Date.now() + 3600000)), false)
   })

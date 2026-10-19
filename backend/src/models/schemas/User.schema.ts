@@ -56,6 +56,7 @@ export interface UserType {
   account_status?: AccountStatus
   lockReason?: string
   adminGuardVersion?: number
+  assignmentVersion?: number
   loginAttempts?: number
   locked_until?: Date
   created_at?: Date
@@ -82,6 +83,7 @@ export default class User implements UserType {
   account_status: AccountStatus
   lockReason?: string
   adminGuardVersion?: number
+  assignmentVersion: number
   loginAttempts: number
   locked_until?: Date
   created_at?: Date
@@ -107,6 +109,7 @@ export default class User implements UserType {
     this.account_status = user.account_status ?? AccountStatus.ACTIVE
     this.lockReason = user.lockReason
     this.adminGuardVersion = user.adminGuardVersion ?? 0
+    this.assignmentVersion = user.assignmentVersion ?? 0
     this.loginAttempts = user.loginAttempts ?? 0
     this.locked_until = user.locked_until
     this.forgot_password_token = user.forgot_password_token ?? ''

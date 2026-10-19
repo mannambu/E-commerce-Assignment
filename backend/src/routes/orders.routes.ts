@@ -1,5 +1,16 @@
 import { Router } from 'express'
 import {
+  assignKitchenController,
+  assignShipperController,
+  kitchenStatusController
+} from '~/controllers/order-operations.controllers'
+import {
+  kitchenAssignmentValidator,
+  shipperAssignmentValidator,
+  kitchenStatusValidator
+} from '~/middlewares/order-operations.middlewares'
+import {
+  managerOrderDecisionController,
   cancelOrderController,
   createOrderController,
   getAllOrdersController,
@@ -11,6 +22,7 @@ import {
   updatePaymentStatusController
 } from '~/controllers/orders.controllers'
 import {
+  managerOrderDecisionValidator,
   createOrderValidator,
   checkoutIdentityValidator,
   orderIdParamValidator,
@@ -42,6 +54,40 @@ import {
 } from '~/middlewares/weekly-orders.middlewares'
 
 const ordersRouter = Router()
+
+ordersRouter.patch(
+  '/:orderId/deliveries/:deliveryId/kitchen-assignment',
+  accessTokenValidator,
+  requireRoles(UserRole.MANAGER),
+  deliveryParamsValidator,
+  kitchenAssignmentValidator,
+  wrapRequestHandler(assignKitchenController)
+)
+ordersRouter.patch(
+  '/:orderId/deliveries/:deliveryId/shipper-assignment',
+  accessTokenValidator,
+  requireRoles(UserRole.MANAGER),
+  deliveryParamsValidator,
+  shipperAssignmentValidator,
+  wrapRequestHandler(assignShipperController)
+)
+ordersRouter.patch(
+  '/:orderId/deliveries/:deliveryId/kitchen-status',
+  accessTokenValidator,
+  requireRoles(UserRole.KITCHEN),
+  deliveryParamsValidator,
+  kitchenStatusValidator,
+  wrapRequestHandler(kitchenStatusController)
+)
+
+ordersRouter.patch(
+  '/:orderId/decision',
+  accessTokenValidator,
+  requireRoles(UserRole.MANAGER),
+  orderIdParamValidator,
+  managerOrderDecisionValidator,
+  wrapRequestHandler(managerOrderDecisionController)
+)
 
 ordersRouter.get(
   '/:orderId/deliveries/:deliveryId/items/:itemId/alternatives',
@@ -171,7 +217,7 @@ ordersRouter.patch(
  * Method: PATCH
  * Header: { Authorization: Bearer <access_token> }
  * Params: { orderId: string }
- * Body: { status: 'Cooking' | 'Delivering' | 'Completed' }
+ * Body: { status: 'Cooking' | 'Ready' | 'Delivering' | 'Completed', exceptionReason: string }
  */
 ordersRouter.patch(
   '/:orderId/status',

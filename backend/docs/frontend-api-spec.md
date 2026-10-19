@@ -727,7 +727,7 @@ Một cart summary có dạng:
 ### **Enum**
 
 * paymentMethod: COD | VNPay | MoMo  
-* orderStatus: Pending | Confirmed | Cooking | Delivering | Completed | Cancelled
+* orderStatus hiện có: Pending | Confirmed | Cooking | Ready | Delivering | Completed | Cancelled | Rejected. Failed thuộc bước giao hàng tiếp theo.
 * paymentStatus: Pending | Paid | Failed | PartiallyRefunded | Refunded
 * packageType: ONE_DAY | WEEKLY_7D  
 * cartType: FOOD | COMBO
@@ -780,8 +780,8 @@ Body giống /orders/quote, thêm `cartVersion` lấy từ `result.cart.version`
 * Tạo Order, giữ/trừ kho, khóa MealPlan nguồn và xóa giỏ theo version trong cùng transaction. Giỏ bị sửa ở tab khác trả 409; không mất món mới thêm.
 * Tạo mới trả 201 với `result.replayed = false`. Gửi lại cùng key/body trả 200 với đơn cũ và `replayed = true`. Cùng key nhưng khác nội dung trả 409.
 * Order trả `deliveries[].items[]`; mỗi item có `foodId`, `foodName`, `quantity`, `price`, `calories`, `nutrition` đã chốt lúc đặt. Không còn `order.items` hoặc `order.deliverySchedule`.
-* Online giữ kho 10 phút: `inventoryHold.status = Held`, dùng `expiresAt` đếm ngược. Job nhả kho chuyển hold Released, Order vẫn Pending. `paymentDueAt` là hạn thanh toán 15 phút riêng biệt.
-* Cả đơn lẻ và tuần COD tạo ở `Confirmed` (payment vẫn Pending), kho Committed. Online ở Pending chờ IPN. Gói tuần lưu `cutoffAt` từng ngày, chính sách hủy và target calo tại lúc đặt.
+* Online giữ kho 15 phút: `inventoryHold.status = Held`, `expiresAt` bằng `paymentDueAt`. Hết hạn chưa có IPN thành công, job chuyển Cancelled và nhả kho. Pending đã Paid không bị job hủy.
+* Cả đơn lẻ và tuần COD tạo ở `Pending` (payment vẫn Pending), kho Committed, không có hạn chờ Manager. Online cũng Pending; IPN sau này ghi Paid/chốt kho mà không tự Confirmed. Gói tuần lưu `cutoffAt` từng ngày, chính sách hủy và target calo tại lúc đặt.
 * Xem [checkout-inventory.md](checkout-inventory.md) cho lỗi thiếu hàng, transaction, retry và ranh giới với phần IPN/tự hủy đơn.
 * Response gói tuần có `amounts` (tiền sau giảm/đã thu/đã hoàn/chờ hoàn/còn phải trả), tổng `waivedShippingFee`; mỗi ngày có thêm `grandTotal`, `nutritionTotals`, `canSwap`, `canCancel`. `grandTotal` gốc không giảm khi hủy ngày; UI dùng `amounts.payableTotal`/`amountDue` để hiển thị số thực tế.
 
@@ -809,6 +809,12 @@ Lấy chi tiết order, response HTTP 200 dạng `{ "message": "...", "result": 
 * Admin can thiệp phải gửi `exceptionReason` (1–500 ký tự); vẫn không hủy được Completed hoặc Cancelled và phải qua các kiểm tra nghiệp vụ hiện có. Hệ thống ghi lý do vào audit.
 * Manager không được hủy (403 ngay tại middleware). API này chỉ dùng cho đơn lẻ; gói tuần trả 400 và phải hủy từng ngày qua API mới bên dưới.
 
+### **PATCH /orders/:orderId/decision (Manager)**
+
+Xác nhận toàn đơn Pending: `{ "status": "Confirmed", "version": 0 }`. Từ chối: `{ "status": "Rejected", "version": 0, "reason": "Bếp quá tải" }`. Online phải có Payment VerifiedIPN thành công, đủ tiền và kho Committed. COD đã trừ kho, xác nhận không trừ lần hai.
+
+Từ chối trả kho và tạo Refund Pending cho khoản đã thu còn cần hoàn (gồm ship), không đánh dấu đã hoàn tiền. Ghi audit và bản ghi thông báo cùng transaction. Version cũ/xung đột trả 409; cùng request đã xử lý trả 200 với `result.replayed: true`. Admin không gọi API này. Xem [hướng dẫn kiểm tra](manager-order-decisions.md).
+
 ### **PATCH /orders/:orderId/status**
 
 Body:
@@ -816,8 +822,8 @@ Body:
 { "status": "Cooking", "exceptionReason": "Xử lý ngoại lệ đã xác minh" }
 ```
 
-* Chỉ Admin can thiệp ngoại lệ có lý do và audit; thiếu `exceptionReason` trả 403. Đây chưa phải API vận hành Manager/bếp/giao hàng theo v2.0.
-* Đơn lẻ theo Confirmed → Cooking → Delivering → Completed; kho phải Committed, online cần giao dịch VerifiedIPN thành công. Gói tuần trả 400 tại endpoint này; dùng trạng thái từng ngày.
+* Chỉ Admin can thiệp ngoại lệ có lý do và audit; thiếu `exceptionReason` trả 403. Manager dùng `/decision` để xác nhận/từ chối Pending; phân công và thao tác bếp dùng [API riêng](order-assignments.md).
+* Đơn lẻ theo Confirmed → Cooking → Ready → Delivering → Completed; kho phải Committed, online cần giao dịch VerifiedIPN thành công. Gói tuần trả 400 tại endpoint này; dùng trạng thái từng ngày.
 
 ### **POST /orders/:orderId/payments/retry (Customer)**
 
@@ -852,9 +858,22 @@ Body:
 | PATCH | `/orders/:orderId/deliveries/:deliveryId/status` | Admin |
 | GET, PATCH | `/admin/commerce-settings` | Admin |
 
-Đổi món gửi `{ "foodId": "...", "version": 0 }`; hủy gửi `{ "reason": "...", "version": 0 }`; trạng thái gửi `{ "status": "Cooking", "version": 0 }`. Admin phải thêm `exceptionReason` vào mọi body thay đổi này; thiếu lý do trả 403. Version cũ trả 409. Manager hiện chỉ đọc Order; luồng vận hành mới chưa triển khai.
+Đổi món gửi `{ "foodId": "...", "version": 0 }`; hủy gửi `{ "reason": "...", "version": 0 }`; trạng thái gửi `{ "status": "Cooking", "version": 0 }`. Admin phải thêm `exceptionReason` vào mọi body thay đổi này; thiếu lý do trả 403. Version cũ trả 409. Manager dùng API `/decision` cho toàn đơn Pending và API phân công riêng từng ngày bên dưới.
 
-Đổi/hủy chỉ trước cutoff của ngày Pending/Confirmed. Đổi món cùng giá snapshot, kiểm tra calo/dị ứng/kho; hủy xem preview trước xác nhận. Ngày đã trả tạo yêu cầu Refund **Pending**, chưa tự hoàn tiền. Trạng thái ngày theo `Confirmed → Cooking → Delivering → Completed`, chỉ xử lý từ ngày giao, online phải có IPN xác thực. Chính sách hủy, ví dụ và hướng dẫn UI đầy đủ ở [weekly-orders.md](weekly-orders.md).
+Đổi/hủy chỉ trước cutoff của ngày Pending/Confirmed. Đổi món cùng giá snapshot, kiểm tra calo/dị ứng/kho; hủy xem preview trước xác nhận. Ngày đã trả tạo yêu cầu Refund **Pending**, chưa tự hoàn tiền. Trạng thái ngày theo `Confirmed → Cooking → Ready → Delivering → Completed`, chỉ xử lý từ ngày giao, online phải có IPN xác thực. Chính sách hủy, ví dụ và hướng dẫn UI đầy đủ ở [weekly-orders.md](weekly-orders.md).
+
+### Phân công trực tiếp và bếp
+
+Không chia ca. Đơn lẻ và gói tuần cùng dùng `deliveryId`. Chi tiết body, response và checklist: [order-assignments.md](order-assignments.md).
+
+| API | Quyền | Điều kiện |
+| --- | --- | --- |
+| `GET /workspace/staff?role=Kitchen%20Staff` | Manager | Chọn nhân viên Active; đổi role sang Delivery Staff khi gán shipper. |
+| `PATCH /orders/:orderId/deliveries/:deliveryId/kitchen-assignment` | Manager | Confirmed; body `{ kitchenStaffIds, version, reason }`. |
+| `PATCH /orders/:orderId/deliveries/:deliveryId/kitchen-status` | Bếp được gán | Confirmed → Cooking → Ready; body `{ status, version }`. |
+| `PATCH /orders/:orderId/deliveries/:deliveryId/shipper-assignment` | Manager | Ready; body `{ assignedShipperId, version, reason }`. |
+
+Không trả tiền trong response bếp. Mọi thay đổi ghi audit và thông báo DB cùng transaction; chưa đẩy WebSocket realtime. Luồng shipper nhận hàng/xuất phát/kết quả giao và COD triển khai ở bước tiếp theo.
 
 ## **7) Admin Dashboard (/admin)**
 
@@ -1080,7 +1099,8 @@ Response:
 | Quote/tạo đơn, retry thanh toán | Đơn của mình | Không | Không | Không |
 | `/orders/all` và chi tiết đầy đủ | Chỉ chi tiết đơn mình | Có | Có | Không |
 | `/workspace/orders` | Không | Có | Có | Chỉ phần được gán; giới hạn trường |
-| Sửa/hủy đơn hoặc ngày giao qua API hiện có | Theo điều kiện hiện có | Ngoại lệ có lý do/audit | Chưa có luồng vận hành mới | Chưa có thao tác bếp/giao mới |
+| `/orders/:orderId/decision` | Không | Không | Xác nhận/từ chối toàn đơn Pending | Không |
+| Sửa/hủy ngày giao qua API hiện có | Theo điều kiện hiện có | Ngoại lệ có lý do/audit | Chưa có thao tác riêng ngày | Chưa có thao tác bếp/giao mới |
 | Sửa payment-status thủ công | Không | Không | Không | Không |
 | Sổ giao dịch `/workspace/transactions` | Không | Có | Có | Không |
 | Báo cáo tổng hợp/Excel | Chưa có | Chưa có | Chưa có | Không |
@@ -1100,6 +1120,6 @@ Cart, Tracking, Health Profile, gợi ý thực đơn và tạo/sửa review đ�
 - Frontend hiện vẫn cần cập nhật các trang/route/API PT cũ, guard vai trò, trang reset email và giao diện Admin tạo/khóa user.
 - Backend chưa có báo cáo tài chính/Excel Manager, API liệt kê/xóa riêng phiên theo ID hay API đọc audit log. Có schema/service nội bộ không có nghĩa đã có endpoint public.
 - Frontend quản lý user cần đọc `result.items` và `result.total`, gửi `reason` khi khóa/mở/đổi role. Dashboard Admin phải dùng `orders.byStatus`; response không còn `revenue`. Các trang frontend cũ chưa được chuyển trong đợt backend này.
-- Checkout chưa hoàn thiện giữ/trừ kho bằng transaction, idempotency, xác thực IPN, job hết hạn và hoàn tiền. Không coi việc trả trạng thái Paid thủ công là xác nhận từ cổng thanh toán.
-- Chưa có API hủy/đổi món/hoàn tiền riêng từng ngày của gói tuần. Recommendation/swap hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.
+- Checkout đã có giữ/trừ kho bằng transaction, idempotency và job hủy online chưa trả sau 15 phút. Manager đã có API xác nhận/từ chối và tạo yêu cầu hoàn. IPN và hoàn tiền thật qua cổng thanh toán chưa tích hợp; không coi Paid thủ công là xác nhận thanh toán.
+- Gói tuần đã có API đổi/hủy ngày và yêu cầu hoàn Pending theo quy tắc hiện có; Manager đã có phân công bếp/shipper, bếp có Confirmed → Cooking → Ready. Luồng duyệt hủy mới, kết quả giao/COD/Failed và WebSocket realtime vẫn cần đồng bộ tiếp. Recommendation/swap hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.
 - Reset qua mã email chỉ chạy thực tế sau khi cấu hình SMTP; không cần URL reset hoặc trang frontend để test bằng Postman. Hướng dẫn DB/seed/email ở [auth-setup.md](auth-setup.md), giải thích 12 collection ở [database_schema.md](../../docs/database_schema.md).

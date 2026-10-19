@@ -351,9 +351,9 @@ test('weekly quote uses each day menu, rejects cutoff/mismatched days and persis
   assert.ok(quote.deliveries.every((day) => day.cutoffAt! < day.scheduledAt))
   const result = await orders.createOrder(f.userId, f.payload)
   const created = f.data.orders[1] as unknown as Order
-  assert.equal(result.status, 'Confirmed')
+  assert.equal(result.status, 'Pending')
   assert.equal(created.payment.status, 'Pending')
-  assert.ok(created.deliveries.every((day) => day.status === 'Confirmed'))
+  assert.ok(created.deliveries.every((day) => day.status === 'Pending'))
   assert.deepEqual(created.cancellationPolicy, DEFAULT_COMMERCE_RULES.cancellationPolicy)
   const oldCutoff = created.deliveries[0].cutoffAt!.getTime()
   await settings.updateCommerceRules(String(f.admin._id), { kitchenCutoffTime: '18:00', kitchenCutoffDaysBefore: 1 })
@@ -661,11 +661,16 @@ test('daily status affects only that day; future dates and unverified online pay
   await weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, {
     exceptionReason: 'Integration test exception',
     version: 1,
-    status: 'Delivering'
+    status: 'Ready'
   })
   await weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, {
     exceptionReason: 'Integration test exception',
     version: 2,
+    status: 'Delivering'
+  })
+  await weekly.updateDeliveryStatus(adminId, f.orderId, f.deliveryId, {
+    exceptionReason: 'Integration test exception',
+    version: 3,
     status: 'Completed'
   })
   assert.equal(f.order.deliveries[0].status, 'Completed')

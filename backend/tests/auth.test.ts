@@ -859,7 +859,19 @@ test('Admin dashboard exposes operational counts only and rejects Customer/Manag
   assert.deepEqual(response.body.result, {
     users: { customers: 0 },
     products: { foods: 5 },
-    orders: { total: 9, byStatus: { Pending: 2, Confirmed: 3, Cooking: 0, Delivering: 0, Completed: 4, Cancelled: 0 } }
+    orders: {
+      total: 9,
+      byStatus: {
+        Pending: 2,
+        Confirmed: 3,
+        Cooking: 0,
+        Ready: 0,
+        Delivering: 0,
+        Completed: 4,
+        Cancelled: 0,
+        Rejected: 0
+      }
+    }
   })
   for (const role of [UserRole.MANAGER, UserRole.CUSTOMER]) {
     account.role = role

@@ -33,7 +33,7 @@ export const cancelDeliveryValidator = validate(
 )
 export const deliveryStatusValidator = validate(
   checkSchema({
-    status: { in: ['body'], isString: true, isIn: { options: [['Cooking', 'Delivering', 'Completed']] } },
+    status: { in: ['body'], isString: true, isIn: { options: [['Cooking', 'Ready', 'Delivering', 'Completed']] } },
     version
   })
 )

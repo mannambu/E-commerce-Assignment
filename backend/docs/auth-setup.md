@@ -135,6 +135,7 @@ Import [Password-Reset.postman_collection.json](../postman/Password-Reset.postma
 | Can thiệp đơn hiện có | Admin phải có `exceptionReason` và audit; không bỏ qua quy tắc nghiệp vụ. API sửa thanh toán thủ công luôn bị từ chối. CRUD món vẫn chỉ Admin. |
 | `GET /workspace/orders` | Manager/Admin xem danh sách; bếp/giao hàng chỉ xem phần được gán với trường dữ liệu giới hạn. |
 | `GET /workspace/transactions` | Admin/Manager xem tối đa 100 giao dịch gần nhất; chưa phải báo cáo/Excel đầy đủ. |
+| `PATCH /orders/:orderId/decision` | Manager xác nhận/từ chối toàn đơn Pending theo version; từ chối bắt buộc lý do, trả kho và tạo yêu cầu hoàn khi đã thu. Xem [hướng dẫn](manager-order-decisions.md). |
 | Giỏ hàng, tracking, sức khỏe/thực đơn, tạo/sửa review | Chỉ Customer; dữ liệu thuộc chính người gọi. |
 | `GET /admin/dashboard-stats` | Admin xem số khách, món đang bán, tổng đơn và `orders.byStatus`; không trả trường doanh thu. |
 | `GET /foods` | Công khai. Chỉ phiên Admin hợp lệ được xem cả món ẩn; token bị thu hồi/hết hạn hoặc tài khoản bị khóa chỉ xem danh mục công khai. |
