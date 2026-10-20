@@ -5,9 +5,6 @@ import { Collection, ObjectId } from 'mongodb'
 import { Request, RequestHandler, Response } from 'express'
 import jwt from 'jsonwebtoken'
 import User, { AccountStatus, UserRole } from '../src/models/schemas/User.schema'
-import Review from '../src/models/schemas/Review.schema'
-import Food from '../src/models/schemas/Food.schema'
-import Order from '../src/models/schemas/Order.schema'
 import Session from '../src/models/schemas/Session.schema'
 import { TokenType } from '../src/constants/enums'
 
@@ -154,7 +151,14 @@ test('review validation only accepts food for both creation and listing', async 
   for (const targetType of ['Food', 'UnsupportedTarget']) {
     const targetId = new ObjectId().toString()
     const createError = await runValidator(reviewValidators.createReviewValidator, {
-      body: { targetType, targetId, rating: 5, comment: 'Good food' }
+      body: {
+        targetType,
+        targetId,
+        orderId: new ObjectId().toString(),
+        deliveryId: new ObjectId().toString(),
+        rating: 5,
+        comment: 'Good food'
+      }
     })
     const listError = await runValidator(reviewValidators.getReviewsValidator, { params: { targetType, targetId } })
     if (targetType === 'Food') {
@@ -167,53 +171,21 @@ test('review validation only accepts food for both creation and listing', async 
   }
 })
 
-test('food reviews still require a completed purchase and update the food rating', async (t) => {
-  const foodId = new ObjectId()
-  const reviewerId = new ObjectId()
-  let hasCompletedOrder = false
-  let ratingUpdated = false
-  t.mock.getter(
-    database,
-    'foods',
-    () =>
-      ({
-        findOne: async () => ({ _id: foodId, isActive: true }),
-        updateOne: async () => {
-          ratingUpdated = true
-        }
-      }) as unknown as Collection<Food>
-  )
-  t.mock.getter(
-    database,
-    'orders',
-    () =>
-      ({
-        findOne: async (filter: Record<string, unknown>) => {
-          assert.deepEqual(filter.deliveries, { $elemMatch: { status: 'Completed', 'items.foodId': foodId } })
-          assert.equal(String(filter.userId), String(reviewerId))
-          return hasCompletedOrder ? { _id: new ObjectId() } : null
-        }
-      }) as unknown as Collection<Order>
-  )
-  t.mock.getter(
-    database,
-    'reviews',
-    () =>
-      ({
-        findOne: async () => null,
-        insertOne: async () => ({ insertedId: new ObjectId() }),
-        aggregate: () => ({ toArray: async () => [{ averageRating: 5 }] })
-      }) as unknown as Collection<Review>
-  )
-
-  const payload = { foodId: foodId.toString(), rating: 5, comment: 'Good food' }
-  await assert.rejects(reviews.createReview(reviewerId.toString(), payload), { status: 403 })
-  assert.equal(ratingUpdated, false)
-  hasCompletedOrder = true
-  const review = await reviews.createReview(reviewerId.toString(), payload)
-  assert.equal(String(review.foodId), String(foodId))
-  assert.ok(review.orderId)
-  assert.equal('targetType' in review, false)
-  assert.equal(review.verifiedPurchase, true)
-  assert.equal(ratingUpdated, true)
+test('review service rejects missing delivery identity and malformed content before accessing DB', async () => {
+  const payload = {
+    foodId: String(new ObjectId()),
+    orderId: String(new ObjectId()),
+    deliveryId: String(new ObjectId()),
+    rating: 5,
+    comment: 'Good food'
+  }
+  for (const field of ['foodId', 'orderId', 'deliveryId'] as const)
+    await assert.rejects(reviews.createReview(String(new ObjectId()), { ...payload, [field]: '' }), { status: 400 })
+  for (const change of [
+    { rating: 0 },
+    { rating: 5.5 },
+    { comment: '  ' },
+    { images: ['http://example.com/photo.jpg'] }
+  ])
+    await assert.rejects(reviews.createReview(String(new ObjectId()), { ...payload, ...change }), { status: 400 })
 })

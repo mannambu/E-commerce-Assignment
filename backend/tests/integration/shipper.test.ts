@@ -219,6 +219,7 @@ test('Shipper HTTP, transactions and completed-day side effects', { timeout: 180
     await assert.rejects(
       reviews.createReview(uid(UserRole.CUSTOMER), {
         orderId: String(order._id),
+        deliveryId: String(order.deliveries[1]._id),
         foodId: String(order.deliveries[1].items[0].foodId),
         rating: 5,
         comment: 'Cannot review before delivery'
@@ -227,6 +228,7 @@ test('Shipper HTTP, transactions and completed-day side effects', { timeout: 180
     )
     const review = await reviews.createReview(uid(UserRole.CUSTOMER), {
       orderId: String(order._id),
+      deliveryId: String(order.deliveries[0]._id),
       foodId: String(order.deliveries[0].items[0].foodId),
       rating: 5,
       comment: 'Delivered'

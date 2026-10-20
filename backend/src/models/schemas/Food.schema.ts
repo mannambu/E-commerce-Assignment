@@ -44,6 +44,7 @@ export default class Food implements FoodType {
   reservedStock: number
   rating: number
   reviewCount: number
+  reviewVersion: number // Serializes rating changes independently of catalogue edits.
   version: number
   description: string
   images: string[]
@@ -65,6 +66,7 @@ export default class Food implements FoodType {
     this.reservedStock = food.reservedStock ?? 0
     this.rating = food.rating ?? 0
     this.reviewCount = food.reviewCount ?? 0
+    this.reviewVersion = 0
     this.version = food.version ?? 0
     this.description = food.description
     this.images = food.images

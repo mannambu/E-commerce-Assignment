@@ -1028,20 +1028,23 @@ Body:
 ```json
 {  
   "foodId": "<food_id>",
-  "orderId": "<completed_order_id>",
+  "orderId": "<order_id>",
+  "deliveryId": "<completed_delivery_id>",
   "rating": 5,  
   "comment": "Rất ngon",  
   "images": ["https://..."]  
 }
 ```
 
-* Chỉ người có đơn Completed chứa món mới được đánh giá; mỗi đơn một đánh giá. Nên gửi `orderId` để chọn đúng lần mua.
-* Body cũ `targetType: Food` + `targetId` vẫn được nhận; DB chỉ lưu `foodId` và `orderId`.
-* Sau khi tạo/sửa/xóa, backend tính lại rating món từ những đánh giá đang hiển thị.
+* Chỉ Customer sở hữu đơn được đánh giá món thuộc đúng ngày giao `Completed`; không đợi toàn gói tuần hoàn tất. Bắt buộc `orderId`, `deliveryId`, `foodId`.
+* Mỗi bộ **đơn + ngày giao + món** có một đánh giá, kể cả đánh giá đã bị ẩn. Cùng món ở hai ngày được đánh giá riêng; số lượng hoặc bữa lặp cùng ngày không nhân review.
+* Body cũ `targetType: Food` + `targetId` vẫn được nhận thay `foodId`; không thay thế `orderId`/`deliveryId`. Nếu truyền cả hai ID món thì chúng phải giống nhau.
+* Sau tạo/sửa/ẩn, backend tính lại `Food.rating` và `Food.reviewCount` từ đánh giá hiển thị trong cùng transaction. Không còn đánh giá hiển thị thì cả hai bằng 0.
 
 ### **GET /reviews/:targetType/:targetId**
 
 * targetType: Food
+* Query tùy chọn: `rating=1..5`, `hasImages=true|false`, `page=1`, `limit=20` (tối đa 100). Chỉ trả đánh giá hiển thị, mới nhất trước.
 
 Response:
 ```json
@@ -1053,7 +1056,7 @@ Response:
 
 ### **PATCH /reviews/:review_id (Auth)**
 
-Sửa đánh giá. Kích hoạt tự động tính lại Rating.
+Chỉ Customer là tác giả được sửa trong 7 × 24 giờ từ lúc tạo. Chỉ nhận `rating`, `comment`, `images`, ít nhất một field. Không đổi đơn/ngày/món/tác giả hoặc tự bỏ ẩn. Đủ 7 ngày trả 409; sửa của người khác trả 403.
 
 Body (Các trường là tùy chọn):
 ```json
@@ -1071,16 +1074,21 @@ Response:
 }
 ```
 
-### **DELETE /reviews/:review_id (Auth, Admin hoặc Owner)**
+### **PATCH /reviews/:review_id/hide (Auth, Admin)**
 
-Xóa đánh giá. Kích hoạt tự động tính lại Rating.
+Ẩn đánh giá, bắt buộc body `{ "reason": "Lý do vi phạm" }` dài 1–500 ký tự sau trim. Lưu audit và thông báo tác giả; tính lại điểm trong cùng transaction. Owner và các vai trò khác không có quyền ẩn.
+
+`DELETE /reviews/:review_id` giữ làm alias cho thao tác ẩn này, cũng bắt buộc lý do; không xóa bản ghi.
 
 Response:
 ```json
 {
-  "message": "Xóa đánh giá thành công (Dành cho Admin)"
+  "message": "Đã ẩn đánh giá và thông báo lý do cho tác giả",
+  "changed": true
 }
 ```
+
+Gọi ẩn lại trả `changed: false`, không nhân audit/thông báo. Xem [hướng dẫn review và migration](reviews-workflow.md) trước khi dùng database có index cũ.
 
 ## **10) Gợi ý tích hợp frontend (quan trọng)**
 
@@ -1120,7 +1128,7 @@ Response:
 | Sổ giao dịch `/workspace/transactions` | Không | Có | Có | Không |
 | Báo cáo tổng hợp/Excel | Chưa có | Chưa có | Chưa có | Không |
 
-Cart, Tracking, Health Profile, gợi ý thực đơn và tạo/sửa review đã được giới hạn Customer ở backend. `/users/me`, đăng xuất và upload dùng chung cho các vai trò có phiên hợp lệ. Danh mục món và danh sách review vẫn công khai. Customer chỉ được sửa review của mình; Admin được xóa review theo API hiện tại.
+Cart, Tracking, Health Profile, gợi ý thực đơn và tạo/sửa review đã được giới hạn Customer ở backend. `/users/me`, đăng xuất và upload dùng chung cho các vai trò có phiên hợp lệ. Danh mục món và danh sách review vẫn công khai. Customer chỉ sửa review của mình trong 7 ngày; Admin ẩn review có lý do, audit và thông báo.
 
 ### **Form và dữ liệu đã đổi schema**
 
@@ -1136,5 +1144,5 @@ Cart, Tracking, Health Profile, gợi ý thực đơn và tạo/sửa review đ�
 - Backend chưa có báo cáo tài chính/Excel Manager, API liệt kê/xóa riêng phiên theo ID hay API đọc audit log. Có schema/service nội bộ không có nghĩa đã có endpoint public.
 - Frontend quản lý user cần đọc `result.items` và `result.total`, gửi `reason` khi khóa/mở/đổi role. Dashboard Admin phải dùng `orders.byStatus`; response không còn `revenue`. Các trang frontend cũ chưa được chuyển trong đợt backend này.
 - Checkout đã có giữ/trừ kho bằng transaction, idempotency và job hủy online chưa trả sau 15 phút. Manager đã có API xác nhận/từ chối và tạo yêu cầu hoàn. IPN và hoàn tiền thật qua cổng thanh toán chưa tích hợp; không coi Paid thủ công là xác nhận thanh toán.
-- Gói tuần đã có API hủy ngày; món cố định sau checkout, không có chức năng đổi. Customer COD tự hủy chưa thu hoặc yêu cầu Manager duyệt phần đã thu. Manager có phân công bếp/shipper, bếp có Confirmed → Cooking → Ready, shipper có nhận/giao và ghi COD/Failed. Manager xử lý Failed/đối soát và job 24 giờ đã có cho COD. Luồng hủy online, tích hợp cổng thanh toán và WebSocket realtime vẫn cần đồng bộ tiếp. Review đã kiểm tra chính ngày Completed; giới hạn/index mỗi Order–Food cần đồng bộ riêng. Gợi ý/lựa chọn thực đơn trước checkout hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.
+- Gói tuần đã có API hủy ngày; món cố định sau checkout, không có chức năng đổi. Customer COD tự hủy chưa thu hoặc yêu cầu Manager duyệt phần đã thu. Manager có phân công bếp/shipper, bếp có Confirmed → Cooking → Ready, shipper có nhận/giao và ghi COD/Failed. Manager xử lý Failed/đối soát và job 24 giờ đã có cho COD. Luồng hủy online, tích hợp cổng thanh toán và WebSocket realtime vẫn cần đồng bộ tiếp. Review đã có khóa Order–Delivery–Food, sửa trong 7 ngày, lọc sao/ảnh và Admin ẩn có lý do; database cũ cần chạy migration review trước khi dùng. Gợi ý/lựa chọn thực đơn trước checkout hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.
 - Reset qua mã email chỉ chạy thực tế sau khi cấu hình SMTP; không cần URL reset hoặc trang frontend để test bằng Postman. Hướng dẫn DB/seed/email ở [auth-setup.md](auth-setup.md), giải thích 12 collection ở [database_schema.md](../../docs/database_schema.md).

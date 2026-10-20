@@ -1,13 +1,14 @@
 import { Router } from 'express'
 import {
   createReviewController,
-  deleteReviewController,
+  hideReviewController,
   getReviewsController,
   updateReviewController
 } from '~/controllers/reviews.controllers'
 import {
   createReviewValidator,
   getReviewsValidator,
+  hideReviewValidator,
   reviewIdParamValidator,
   updateReviewValidator
 } from '~/middlewares/reviews.middlewares'
@@ -24,6 +25,8 @@ const reviewsRouter = Router()
  * Body: {
  *   targetType: 'Food',
  *   targetId: string,
+ *   orderId: string,
+ *   deliveryId: string,
  *   rating: number,
  *   comment: string,
  *   images?: string[]
@@ -65,17 +68,28 @@ reviewsRouter.patch(
 )
 
 /**
- * Description. Delete a review
+ * Description. Hide a review with a mandatory reason; never delete the record.
  * Path: /:review_id
  * Method: DELETE
  * Header: { Authorization: Bearer <access_token> }
+ * Body: { reason: string }
  */
 reviewsRouter.delete(
   '/:review_id',
   accessTokenValidator,
   isAdminValidator,
   reviewIdParamValidator,
-  wrapRequestHandler(deleteReviewController)
+  hideReviewValidator,
+  wrapRequestHandler(hideReviewController)
+)
+
+reviewsRouter.patch(
+  '/:review_id/hide',
+  accessTokenValidator,
+  isAdminValidator,
+  reviewIdParamValidator,
+  hideReviewValidator,
+  wrapRequestHandler(hideReviewController)
 )
 
 export default reviewsRouter

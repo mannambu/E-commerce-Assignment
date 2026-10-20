@@ -77,7 +77,7 @@ export function getSchemaIndexPlan(env: NodeJS.ProcessEnv = process.env): Schema
     {
       collection: env.DB_REVIEWS_COLLECTION || 'reviews',
       indexes: [
-        { key: { orderId: 1 }, name: 'one_review_per_order', unique: true },
+        { key: { orderId: 1, deliveryId: 1, foodId: 1 }, name: 'one_review_per_delivery_food', unique: true },
         { key: { foodId: 1, isHidden: 1, rating: 1, createdAt: -1 }, name: 'food_reviews' }
       ]
     },

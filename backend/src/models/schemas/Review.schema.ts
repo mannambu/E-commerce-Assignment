@@ -5,6 +5,7 @@ export default interface Review {
   reviewerId: ObjectId
   foodId: ObjectId
   orderId: ObjectId
+  deliveryId: ObjectId // Business key: order + delivery + food, including hidden reviews.
   rating: number
   comment: string
   images: string[]

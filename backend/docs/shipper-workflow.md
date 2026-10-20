@@ -62,7 +62,7 @@ Manager/Admin đọc `deliveryResult` của từng ngày trên workspace hoặc 
 
 ## Phần còn lại
 
-Manager xử lý Failed → Ready hoặc hủy/yêu cầu hoàn, job đủ 24 giờ và ghi nhận thu bù/trả lại đã có cho COD: xem [hướng dẫn Manager](manager-cod-operations.md). Thông báo hiện lưu DB cùng transaction, chưa đẩy WebSocket. Review đã sửa điều kiện ngày Completed; giới hạn một review mỗi Order hiện có chưa đổi sang mỗi cặp Order–Food, cần đồng bộ riêng cùng index. Không coi các FR này đã hoàn tất toàn bộ.
+Manager xử lý Failed → Ready hoặc hủy/yêu cầu hoàn, job đủ 24 giờ và ghi nhận thu bù/trả lại đã có cho COD: xem [hướng dẫn Manager](manager-cod-operations.md). Thông báo hiện lưu DB cùng transaction, chưa đẩy WebSocket. Review kiểm tra chính ngày Completed và giới hạn một review cho mỗi bộ Order–Delivery–Food; có sửa trong 7 ngày, Admin ẩn có lý do, audit và thông báo. Database cũ cần chuyển dữ liệu/index theo [hướng dẫn review](reviews-workflow.md).
 
 ## Chạy kiểm thử
 

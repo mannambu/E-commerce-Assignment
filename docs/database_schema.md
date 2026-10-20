@@ -21,7 +21,7 @@ Service tracking, giỏ hàng, đơn, đánh giá, dashboard nhật ký và seed
 | `meal_plans` | Thực đơn 1/7 ngày, các bữa, hồ sơ sức khỏe đã dùng để gợi ý | Khách có thể dùng thực đơn mà chưa mua hàng. |
 | `orders` | Một/bảy kỳ giao, món trong từng kỳ, snapshot giá/dinh dưỡng, thanh toán, giữ kho | Là bản chốt việc mua hàng. Không đọc lại giá Food để tính tiền đơn cũ. |
 | `daily_health_logs` | Một người/ngày: cân nặng, món đã ăn, target ngày, mọi lần đổi hồ sơ | Thay HealthProfileHistory, WeightLog và CalorieLog bằng một nhật ký dễ truy vấn theo ngày. |
-| `reviews` | reviewerId, foodId, orderId, sao, nhận xét, ảnh, thông tin ẩn | Đọc theo món và kiểm tra mua hàng. Một review/đơn theo US-26. |
+| `reviews` | reviewerId, foodId, orderId, deliveryId, sao, nhận xét, ảnh, thông tin ẩn | Một review/đơn/ngày giao/món theo FR-REV-001–005, kể cả review ẩn. Chỉ ngày Completed đủ điều kiện. |
 | `notifications` | Người nhận, khẩn/thường/tin tức, nội dung, readAt, eventKey | Thông báo tăng theo thời gian, cần phân trang và đồng bộ riêng. |
 | `transactions` | Các khoản Payment/Refund/Expense, số tiền, mã cổng, đối soát | Nguồn cho báo cáo tài chính. Một đơn có thể có nhiều lần thu/hoàn. |
 | `audit_logs` | Ai làm gì, đối tượng nào, lúc nào, lý do và dữ liệu thay đổi | Kiểm tra thao tác quản trị. Không chứa mật khẩu, token hoặc bí mật cổng thanh toán. |
@@ -103,7 +103,7 @@ Order không còn các mảng lưu song song `items`, `deliverySchedule`, `shipp
 | InventoryReservation riêng | Order.inventoryHold |
 | Analytics | Tính báo cáo từ dữ liệu gốc khi cần; có thể thêm cache khi dữ liệu lớn |
 | ReportExport | Chỉ bổ sung khi cần job xuất file lớn theo US-29; xuất file vẫn chưa được triển khai |
-| Review.targetType/targetId | Review.foodId và orderId |
+| Review.targetType/targetId | Review.foodId, orderId và deliveryId |
 | User.notifications/weightTracking/calorieTracking | Collection chuyên trách tương ứng |
 | Food.description + details | description |
 | Food.isCombo | Chế độ mua của Cart/Order |
@@ -117,7 +117,7 @@ Order không còn các mảng lưu song song `items`, `deliverySchedule`, `shipp
 - `POST /cart/items` nhận thêm cartType, deliveryDate, mealSlot, mealPlanId, mealPlanItemId. Với COMBO, deliveryDate bắt buộc.
 - PATCH/DELETE `/cart/items/:lineId` dùng `_id` dòng. foodId cũ chỉ được chấp nhận nếu xác định đúng một dòng; nhiều ngày/bữa trả lỗi rõ ràng.
 - Cart hỗ trợ đổi chế độ khi rỗng, thêm nhiều dòng trong một lần, sửa ngày/bữa và kiểm tra version để tránh ghi đè từ thiết bị khác. Xem [quy tắc và API cart](../backend/docs/cart.md).
-- Tạo review nhận foodId và orderId. Body targetId/targetType=Food vẫn được nhận ở controller để tương thích; DB chỉ ghi foodId. Nên gửi orderId để chọn đúng lần mua.
+- Tạo review bắt buộc foodId, orderId và deliveryId; xác minh Customer là chủ đơn và món thuộc đúng ngày Completed. Body targetId/targetType=Food vẫn được nhận thay foodId. Unique index là `{ orderId: 1, deliveryId: 1, foodId: 1 }`; xem [migration review](../backend/docs/reviews-workflow.md) cho database đã có dữ liệu/index cũ.
 - Tracking trả ngày YYYY-MM-DD; lịch sử calo có target của từng ngày, entries là các món đã ăn.
 - Food không lưu details/isCombo; request cập nhật chỉ nhận các trường thuộc schema.
 
@@ -146,7 +146,7 @@ Không tự chuyển hoặc xóa dữ liệu DB đang dùng. Thiết kế mới 
 
 Biến mới: DB_SESSIONS_COLLECTION, DB_DAILY_HEALTH_LOGS_COLLECTION, DB_SETTINGS_COLLECTION. Các biến DB_REFRESH_TOKENS_COLLECTION, DB_CALORIE_LOGS_COLLECTION, DB_ANALYTICS_COLLECTION không còn được backend sử dụng.
 
-Nếu cần giữ dữ liệu cũ, phải chuyển trên bản sao trước: hợp nhất giỏ theo người dùng; nhóm món Order theo ngày giao; gộp log theo user/ngày và tránh cộng trùng nguồn cũ; chuyển lịch sử hồ sơ từng lần; chuyển review sang foodId/orderId (xử lý review cũ không xác định được đơn); chuyển phiên hoặc yêu cầu đăng nhập lại. Sau khi kiểm tra mới tạo unique index và chuyển ứng dụng. Không chạy trực tiếp code mới với dữ liệu Order/Cart/Tracking cũ.
+Nếu cần giữ dữ liệu cũ, phải chuyển trên bản sao trước: hợp nhất giỏ theo người dùng; nhóm món Order theo ngày giao; gộp log theo user/ngày và tránh cộng trùng nguồn cũ; chuyển lịch sử hồ sơ từng lần; chuyển review sang foodId/orderId/deliveryId (xử lý review cũ không xác định được đơn/ngày theo hướng dẫn migration review); chuyển phiên hoặc yêu cầu đăng nhập lại. Sau khi kiểm tra mới tạo unique index và chuyển ứng dụng. Không chạy trực tiếp code mới với dữ liệu Order/Cart/Tracking cũ.
 
 ## Nghiệp vụ còn thiếu
 
@@ -154,5 +154,5 @@ Nếu cần giữ dữ liệu cũ, phải chuyển trên bản sao trước: h�
 - Checkout đã có transaction ACID, idempotency, giữ kho online 10 phút, COD Confirmed/trừ kho, job nhả hold và kết nối đổi/hủy ngày. Xem [checkout-inventory.md](../backend/docs/checkout-inventory.md). IPN, thu COD/hoàn tiền và job tự hủy đơn 15 phút thuộc phần thanh toán tiếp theo.
 - Công thức tính target hiện được đưa vào utils/health.ts để dùng chung; quy tắc điều chỉnh theo phần trăm và sàn BMR của US-08 chưa được thay trong đợt schema.
 - MealPlan đã có cấu trúc lưu; API recommendation hiện chưa lưu thực đơn/swap vào collection.
-- Manager đã có quyền đọc đơn; AuditLog đã ghi việc tạo và khóa/mở user. Báo cáo Manager, sổ Transaction, audit nghiệp vụ khác, API Settings, WebSocket, ẩn review kèm thông báo và Excel còn cần triển khai. Dashboard tài chính Admin cũ chưa tách khỏi vận hành và chưa đọc sổ Transaction.
+- Manager đã có quyền đọc đơn; AuditLog đã ghi việc tạo và khóa/mở user. Review đã có ẩn kèm lý do, audit và thông báo DB. Báo cáo Manager, sổ Transaction, audit nghiệp vụ khác, API Settings, WebSocket và Excel cần rà soát riêng theo luồng hiện tại. Dashboard tài chính Admin cũ chưa tách khỏi vận hành và chưa đọc sổ Transaction.
 - Ngoài test mock, `npm run test:checkout:integration` kiểm tra transaction và unique index trên MongoDB replica set tạm, không dùng DB dự án.

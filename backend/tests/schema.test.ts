@@ -47,13 +47,13 @@ test('local dates respect Vietnam midnight and reject invalid calendar dates', (
   assert.throws(() => toLocalDate('not-a-date'))
 })
 
-test('index plan enforces one cart, one daily log and one review per order without deleting orders by TTL', () => {
+test('index plan enforces one cart, one daily log and one review per order-delivery-food without deleting orders by TTL', () => {
   const plan = getSchemaIndexPlan({})
   assert.equal(plan.length, 12)
   for (const [collection, key] of [
     ['carts', { userId: 1 }],
     ['daily_health_logs', { userId: 1, date: 1 }],
-    ['reviews', { orderId: 1 }]
+    ['reviews', { orderId: 1, deliveryId: 1, foodId: 1 }]
   ] as const) {
     const index = plan.find((item) => item.collection === collection)!.indexes.find((item) => item.unique)
     assert.deepEqual(index?.key, key)
