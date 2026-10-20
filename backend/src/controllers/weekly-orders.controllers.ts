@@ -40,7 +40,7 @@ export const cancelDeliveryController = async (req: Request<DeliveryParams>, res
     req.params.deliveryId,
     req.body
   )
-  res.json({ message: 'Đã hủy ngày giao; yêu cầu hoàn tiền (nếu có) đang chờ xử lý', result })
+  res.json({ message: 'Đã xử lý đề nghị hủy; xem kết quả để biết đã hủy hay đang chờ duyệt', result })
 }
 
 export const updateDeliveryStatusController = async (req: Request<DeliveryParams>, res: Response) => {

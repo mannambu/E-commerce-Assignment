@@ -8,9 +8,29 @@ import { wrapRequestHandler } from '~/utils/handlers'
 import { validate } from '~/utils/validation'
 import { deliveryCodExpected } from '~/utils/delivery'
 import managerOperations from '~/services/manager-operations.services'
+import cancellations from '~/services/cancellation.services'
 
 const workspace = Router()
 workspace.use(accessTokenValidator)
+workspace.get(
+  '/cancellation-requests',
+  requireRoles(UserRole.MANAGER),
+  validate(
+    checkSchema({
+      page: { in: ['query'], optional: true, isString: { bail: true }, isInt: { options: { min: 1, max: 1000000 } } },
+      limit: { in: ['query'], optional: true, isString: { bail: true }, isInt: { options: { min: 1, max: 100 } } }
+    })
+  ),
+  wrapRequestHandler(async (req, res) => {
+    res.set('Cache-Control', 'private, no-store').json({
+      result: await cancellations.pending(
+        req.decoded_authorization!.user_id,
+        Number(req.query.page || 1),
+        Number(req.query.limit || 20)
+      )
+    })
+  })
+)
 
 workspace.get(
   '/cod-issues',

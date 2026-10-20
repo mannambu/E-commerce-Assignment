@@ -783,7 +783,7 @@ Body giống /orders/quote, thêm `cartVersion` lấy từ `result.cart.version`
 * Tạo mới trả 201 với `result.replayed = false`. Gửi lại cùng key/body trả 200 với đơn cũ và `replayed = true`. Cùng key nhưng khác nội dung trả 409.
 * Order trả `deliveries[].items[]`; mỗi item có `foodId`, `foodName`, `quantity`, `price`, `calories`, `nutrition` đã chốt lúc đặt. Không còn `order.items` hoặc `order.deliverySchedule`.
 * Online giữ kho 15 phút: `inventoryHold.status = Held`, `expiresAt` bằng `paymentDueAt`. Hết hạn chưa có IPN thành công, job chuyển Cancelled và nhả kho. Pending đã Paid không bị job hủy.
-* Cả đơn lẻ và tuần COD tạo ở `Pending` (payment vẫn Pending), kho Committed, không có hạn chờ Manager. Online cũng Pending; IPN sau này ghi Paid/chốt kho mà không tự Confirmed. Gói tuần lưu `cutoffAt` từng ngày, chính sách hủy và target calo tại lúc đặt.
+* Cả đơn lẻ và tuần COD tạo ở `Pending` (payment vẫn Pending), kho Committed, không có hạn chờ Manager. Cả hai lưu `cutoffAt` theo cùng cấu hình chốt bếp. Online cũng Pending; IPN sau này ghi Paid/chốt kho mà không tự Confirmed. Gói tuần lưu chính sách hủy và target calo tại lúc đặt.
 * Xem [checkout-inventory.md](checkout-inventory.md) cho lỗi thiếu hàng, transaction, retry và ranh giới với phần IPN/tự hủy đơn.
 * Response gói tuần có `amounts` (tiền sau giảm/đã thu/đã hoàn/chờ hoàn/còn phải trả), tổng `waivedShippingFee`; mỗi ngày có thêm `grandTotal`, `nutritionTotals`, `canSwap`, `canCancel`. `grandTotal` gốc không giảm khi hủy ngày; UI dùng `amounts.payableTotal`/`amountDue` để hiển thị số thực tế.
 
@@ -795,7 +795,7 @@ Customer lấy đơn của mình, sắp xếp mới nhất trước. Admin/Manag
 
 Lấy toàn bộ đơn trên hệ thống, sắp xếp `createdAt` giảm dần. Response HTTP **200** dạng `{ "message": "Lấy danh sách tất cả đơn hàng thành công", "result": [] }`; Customer gọi trả 403. Hiện chưa có query lọc hoặc phân trang cho danh sách này.
 
-Manager dùng endpoint này cho giao diện xem đơn, không được gọi API sửa trạng thái/thanh toán hay hủy đơn.
+Manager dùng endpoint này để xem đơn; quyết định đơn, duyệt yêu cầu hủy và đối soát phải qua các API vận hành riêng.
 
 ### **GET /orders/:orderId**
 
@@ -807,9 +807,9 @@ Lấy chi tiết order, response HTTP 200 dạng `{ "message": "...", "result": 
 
 ### **PATCH /orders/:orderId/cancel**
 
-* Customer hủy đơn lẻ Pending hoặc COD Confirmed chưa chế biến. Nhả/trả kho và cập nhật đơn trong cùng transaction.
+* Customer COD gửi `{ version, reason }`, dùng được cho đơn lẻ và toàn bộ các ngày còn lại của gói tuần. Chỉ Pending/Confirmed chưa nấu và trước cutoff; phần chưa thu tự hủy, phần đã thu chờ Manager duyệt. Response `{ result: { orderId, orderStatus, version, request, changed } }`, đọc `request.status` để biết Pending hay Approved.
 * Admin can thiệp phải gửi `exceptionReason` (1–500 ký tự); vẫn không hủy được Completed hoặc Cancelled và phải qua các kiểm tra nghiệp vụ hiện có. Hệ thống ghi lý do vào audit.
-* Manager không được hủy (403 ngay tại middleware). API này chỉ dùng cho đơn lẻ; gói tuần trả 400 và phải hủy từng ngày qua API mới bên dưới.
+* Manager không gọi endpoint này; dùng API duyệt yêu cầu. Luồng online/Admin hiện có vẫn không hủy toàn gói qua endpoint này. Chi tiết: [cod-cancellation-workflow.md](cod-cancellation-workflow.md).
 
 ### **PATCH /orders/:orderId/decision (Manager)**
 
@@ -862,7 +862,9 @@ Body:
 
 Đổi món gửi `{ "foodId": "...", "version": 0 }`; hủy gửi `{ "reason": "...", "version": 0 }`; trạng thái gửi `{ "status": "Cooking", "version": 0 }`. Admin phải thêm `exceptionReason` vào mọi body thay đổi này; thiếu lý do trả 403. Version cũ trả 409. Manager dùng API `/decision` cho toàn đơn Pending và API phân công riêng từng ngày bên dưới.
 
-Đổi/hủy chỉ trước cutoff của ngày Pending/Confirmed. Đổi món cùng giá snapshot, kiểm tra calo/dị ứng/kho; hủy xem preview trước xác nhận. Ngày đã trả tạo yêu cầu Refund **Pending**, chưa tự hoàn tiền. Trạng thái ngày theo `Confirmed → Cooking → Ready → Delivering → Completed`, chỉ xử lý từ ngày giao, online phải có IPN xác thực. Chính sách hủy, ví dụ và hướng dẫn UI đầy đủ ở [weekly-orders.md](weekly-orders.md).
+Đổi/hủy chỉ trước cutoff của ngày Pending/Confirmed. Đổi món cùng giá snapshot, kiểm tra calo/dị ứng/kho; hủy xem preview trước xác nhận. Customer COD đã trả phải chờ Manager duyệt, sau duyệt mới tạo Refund **Pending**; chưa tự hoàn tiền. Preview COD dùng `lines[]` và `requiresApproval`. Trạng thái ngày theo `Confirmed → Cooking → Ready → Delivering → Completed`, chỉ xử lý từ ngày giao, online phải có IPN xác thực. Chính sách hủy, ví dụ ở [weekly-orders.md](weekly-orders.md) và [luồng hủy COD](cod-cancellation-workflow.md).
+
+Luồng hủy COD bổ sung `POST/GET /orders/:orderId/cancellation-requests`, `PATCH /orders/:orderId/cancellation-requests/:requestId` (Manager Approve/Reject) và `GET /workspace/cancellation-requests` (Manager, phân trang). Body và checklist tại [cod-cancellation-workflow.md](cod-cancellation-workflow.md).
 
 ### Phân công trực tiếp và bếp
 
@@ -1134,5 +1136,5 @@ Cart, Tracking, Health Profile, gợi ý thực đơn và tạo/sửa review đ�
 - Backend chưa có báo cáo tài chính/Excel Manager, API liệt kê/xóa riêng phiên theo ID hay API đọc audit log. Có schema/service nội bộ không có nghĩa đã có endpoint public.
 - Frontend quản lý user cần đọc `result.items` và `result.total`, gửi `reason` khi khóa/mở/đổi role. Dashboard Admin phải dùng `orders.byStatus`; response không còn `revenue`. Các trang frontend cũ chưa được chuyển trong đợt backend này.
 - Checkout đã có giữ/trừ kho bằng transaction, idempotency và job hủy online chưa trả sau 15 phút. Manager đã có API xác nhận/từ chối và tạo yêu cầu hoàn. IPN và hoàn tiền thật qua cổng thanh toán chưa tích hợp; không coi Paid thủ công là xác nhận thanh toán.
-- Gói tuần đã có API đổi/hủy ngày và yêu cầu hoàn Pending theo quy tắc hiện có; Manager có phân công bếp/shipper, bếp có Confirmed → Cooking → Ready, shipper có nhận/giao và ghi COD/Failed. Manager xử lý Failed/đối soát và job 24 giờ đã có cho COD. Luồng duyệt hủy thông thường, tích hợp cổng thanh toán và WebSocket realtime vẫn cần đồng bộ tiếp. Review đã kiểm tra chính ngày Completed; giới hạn/index mỗi Order–Food cần đồng bộ riêng. Recommendation/swap hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.
+- Gói tuần đã có API đổi/hủy ngày; Customer COD tự hủy chưa thu hoặc yêu cầu Manager duyệt phần đã thu. Manager có phân công bếp/shipper, bếp có Confirmed → Cooking → Ready, shipper có nhận/giao và ghi COD/Failed. Manager xử lý Failed/đối soát và job 24 giờ đã có cho COD. Luồng hủy online, tích hợp cổng thanh toán và WebSocket realtime vẫn cần đồng bộ tiếp. Review đã kiểm tra chính ngày Completed; giới hạn/index mỗi Order–Food cần đồng bộ riêng. Recommendation/swap hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.
 - Reset qua mã email chỉ chạy thực tế sau khi cấu hình SMTP; không cần URL reset hoặc trang frontend để test bằng Postman. Hướng dẫn DB/seed/email ở [auth-setup.md](auth-setup.md), giải thích 12 collection ở [database_schema.md](../../docs/database_schema.md).

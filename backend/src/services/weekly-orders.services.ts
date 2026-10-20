@@ -15,6 +15,7 @@ import database from './database.services'
 import tracking from './tracking.services'
 import inventory from './inventory.services'
 import { CartSummaryItem } from './cart.services'
+import cancellations from './cancellation.services'
 
 class WeeklyOrdersService {
   private dayNutrition(delivery: DeliveryPeriod) {
@@ -83,7 +84,19 @@ class WeeklyOrdersService {
             order.inventoryHold.status === 'Held' &&
             (!order.inventoryHold.expiresAt || order.inventoryHold.expiresAt <= new Date())
           ),
-        canCancel: this.canEdit(order, day) && Boolean(order.cancellationPolicy)
+        // COD preview decides self-cancel vs Manager approval from the per-day ledger.
+        canCancel:
+          order.payment.method === 'COD'
+            ? !['Cancelled', 'Completed', 'Rejected'].includes(order.status) &&
+              ['Pending', 'Confirmed'].includes(day.status) &&
+              Boolean(day.cutoffAt && day.cutoffAt > new Date()) &&
+              order.inventoryHold.status === 'Committed' &&
+              !order.cancellationRequests?.some(
+                (request) =>
+                  request.status === 'Pending' &&
+                  (request.scope === 'Order' || request.deliveryIds.some((key) => key.equals(day._id)))
+              )
+            : this.canEdit(order, day) && Boolean(order.cancellationPolicy)
       }))
     }
   }
@@ -401,12 +414,17 @@ class WeeklyOrdersService {
   }
 
   async previewCancellation(userId: string, orderId: string, deliveryId: string) {
-    const { order, delivery } = await this.getContext(userId, orderId, deliveryId)
+    const { actor, order, delivery } = await this.getContext(userId, orderId, deliveryId)
+    if (actor.role === UserRole.CUSTOMER && order.payment.method === 'COD')
+      return cancellations.preview(userId, orderId, deliveryId)
     this.checkEditable(order, delivery)
     return this.cancellationQuote(order, delivery)
   }
 
   async cancelDelivery(userId: string, orderId: string, deliveryId: string, payload: CancelDeliveryReqBody) {
+    const context = await this.getContext(userId, orderId, deliveryId)
+    if (context.actor.role === UserRole.CUSTOMER && context.order.payment.method === 'COD')
+      return cancellations.submit(userId, orderId, payload, deliveryId)
     return database.withTransaction(async (session) => {
       const { actor, order, delivery } = await this.getContext(userId, orderId, deliveryId, session)
       const exceptionReason = adminExceptionReason(actor.role, payload.exceptionReason)

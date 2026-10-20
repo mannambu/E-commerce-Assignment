@@ -494,9 +494,9 @@ Bảy dòng là bảy kỳ giao, mỗi kỳ chứa các món của bốn bữa, 
 
 - Ưu tiên: Should (nên có); Nguồn: US-30; Xác minh: kiểm thử.
 
-**FR-ORD-012** — Hệ thống phải thu phí ship cả gói một lần tại ngày 1 và hiển thị miễn phí ngày 2–7. Hủy riêng một ngày không hoàn riêng phí ship; hủy toàn gói hợp lệ trước lần giao ngày đầu tiên hoàn cả phí ship đã thu.
+**FR-ORD-012** — Hệ thống phải thu phí ship cả gói một lần tại ngày 1 và hiển thị miễn phí ngày 2–7. Với COD, khi hủy hợp lệ ngày 1, miễn khoản ship ghi trên ngày đó; đã thu thì khoản ship được đưa vào yêu cầu hoàn. Không chuyển phí ship sang ngày khác. Hủy ngày 2–7 không phát sinh thêm khoản hoàn ship. Hủy toàn gói hợp lệ trước lần giao ngày đầu tiên hoàn cả phí ship đã thu.
 
-Ship thuộc gói, không chia thành khoản hoàn riêng theo ngày. Khi hoàn toàn gói phải trừ phần đã hoàn trước đó để không hoàn lặp.
+Quyết định cập nhật ngày 20/10/2026 cho COD thay quy tắc giữ phí ship khi hủy riêng ngày đầu. Giữ giá/ship gốc để đối chiếu; ghi khoản giảm và số thực hoàn riêng. Khi hoàn toàn gói phải trừ phần đã hoàn hoặc đang chờ hoàn trước đó để không hoàn lặp. Phương thức online được đồng bộ ở bước thanh toán riêng.
 
 - Ưu tiên: Should (nên có); Nguồn: US-30; Xác minh: kiểm thử.
 
@@ -527,6 +527,8 @@ Thanh toán lưu riêng. Với gói tuần, chế biến/giao/hủy áp dụng t
 **FR-ORD-017** — Hệ thống phải cho Khách hàng tự hủy đơn/ngày giao của mình khi chưa trả tiền, đang Pending hoặc Confirmed, chưa Cooking và còn trước cutoff áp dụng; giải phóng/trả phần kho chưa chế biến đúng một lần và ghi lý do Khách tự hủy.
 
 Các điều kiện phải đồng thời đúng; chưa thanh toán không tạo quyền hủy sau chốt hoặc sau bắt đầu nấu. Gói tuần chỉ hủy cả ngày; đúng thời điểm cutoff được tính là đã chốt.
+
+Đơn COD lẻ dùng chung cấu hình cutoff chốt bếp với gói tuần, mặc định 20:00 hôm trước và cho Admin cấu hình. Khoản đã thu để phân biệt tự hủy/yêu cầu duyệt được xác định trên phần giao bị hủy; tiền đã thu của ngày khác không biến ngày chưa thu thành ngày đã thanh toán.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-18, US-28; Xác minh: kiểm thử.
 
@@ -958,7 +960,7 @@ Khi khoảng ngày không có dữ liệu, WF-25 hiển thị số 0 kèm gợi 
 | --- | --- | --- |
 | 1. Hai bước | FR-PAY-003/004, FR-ORD-019 | Tiền riêng; Manager xác nhận; bếp bắt đầu nấu; từ chối đã thu thì hoàn. Giữ IPN chốt kho từ đặc tả trước. |
 | 2. Hủy đã trả | FR-AUTH-016, FR-ORD-017/018 | Chưa trả tự hủy, đã trả duyệt; đồng thời chưa nấu/trước cutoff. |
-| 3. Hủy ngày | FR-ORD-011/012/015/026 | Chỉ cả ngày; không hoàn riêng ship; toàn gói hợp lệ trước giao ngày đầu hoàn ship. Thay xác nhận cũ hủy từng món. |
+| 3. Hủy ngày | FR-ORD-011/012/015/026 | Chỉ cả ngày. COD: hủy ngày đầu miễn/hoàn phí ship của ngày đó, không chuyển sang ngày khác (chốt 20/10/2026). Toàn gói hợp lệ trước giao ngày đầu hoàn ship, chống hoàn lặp. |
 | 4. Sau cutoff | FR-ORD-013/015/017/018/025 | Không hủy thông thường; đổi một lần trong ngày; khiếu nại 24 giờ sau nhận. |
 | 5. Failed | FR-ORD-010/016/023/024 | Giao lại qua Ready; 24 giờ chưa xử lý tự hủy/hoàn. |
 | 6. Nội bộ | FR-PTL-001/002, FR-ADM-015 | Bốn vai trò nội bộ, Active ngay; danh sách đủ năm vai trò. |
@@ -983,7 +985,7 @@ CĐ là vấn đề cần quyết định, không phải yêu cầu mới đã d
 
 | Mã | Cần chốt | Ảnh hưởng |
 | --- | --- | --- |
-| CĐ-01 | COD Pending chờ Manager giữ/trừ kho lúc nào, có hạn chờ không? Cutoff đơn lẻ dùng cùng cấu hình ngày giao hay chính sách riêng? | Checkout, kho, xác nhận/hủy đơn lẻ. |
+| CĐ-01 — đã chốt cho COD | Trừ kho ngay khi đặt COD, không có hạn chờ Manager. Đơn COD lẻ dùng chung cấu hình cutoff chốt bếp với gói tuần (mặc định 20:00 hôm trước; chốt 20/10/2026). | Checkout, kho, xác nhận/hủy đơn lẻ. |
 | CĐ-02 | Đổi sau cutoff kết thúc ở trạng thái nào; ai thực hiện/duyệt khi đã nấu; một lần được đổi bao nhiêu món? | Gói tuần, bếp, kho. |
 | CĐ-03 | Hoàn ngày Failed/Rejected xử lý ship gói thế nào, có khác khách tự hủy ngày không? | Hoàn tự động/đối soát; không tự áp chính sách hủy thường vào ngoại lệ. |
 | CĐ-04 | Gói lẫn Completed và Cancelled/Rejected tổng hợp trạng thái nào? Doanh thu/số đơn tính theo gói hay ngày, giá vốn/hoàn thuộc kỳ nào? | Trạng thái tổng, FR-FIN-001; không trì hoãn review/calo ngày. |

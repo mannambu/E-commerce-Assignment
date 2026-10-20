@@ -65,7 +65,7 @@ Response: `{ "message": "...", "result": { "items": [], "total": 0, "page": 1, "
 
 | FR | Phần chưa có trong backend hiện tại |
 | --- | --- |
-| AUTH-016 | Manager xác nhận/từ chối **toàn đơn Pending** và gán bếp/đổi shipper đã có: xem [API quyết định](manager-order-decisions.md), [API phân công](order-assignments.md). Đã có [xử lý Failed và đối soát COD](manager-cod-operations.md); luồng duyệt yêu cầu hủy thông thường còn riêng. |
+| AUTH-016 | Manager xác nhận/từ chối **toàn đơn Pending** và gán bếp/đổi shipper đã có: xem [API quyết định](manager-order-decisions.md), [API phân công](order-assignments.md). Đã có [xử lý Failed/đối soát COD](manager-cod-operations.md) và [duyệt hủy COD thông thường](cod-cancellation-workflow.md). |
 | AUTH-020 | Đã có Confirmed → Cooking → Ready cho bếp được gán đúng ngày giao. Quyết định mới bỏ ca; chưa có WebSocket realtime. |
 | AUTH-021 | Đã có nhận/xuất phát, giao thành công với COD thực thu và Failed với lý do bắt buộc, ảnh tùy chọn cho đúng ngày được gán. Xem [API Shipper](shipper-workflow.md) và [Manager xử lý Failed/đối soát COD](manager-cod-operations.md). |
 | AUTH-022, PTL-006 | Báo cáo tài chính tổng hợp và đọc file Excel đã xuất. Sổ giao dịch chỉ là bước đọc dữ liệu ban đầu. |

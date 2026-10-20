@@ -23,6 +23,25 @@ export interface OrderStatusEvent {
   reason?: string
 }
 
+export interface CancellationRequest {
+  _id: ObjectId
+  scope: 'Order' | 'Delivery'
+  deliveryId?: ObjectId
+  deliveryIds: ObjectId[]
+  requestedBy: ObjectId
+  requestedAt: Date
+  requestVersion: number
+  reason: string
+  status: 'Pending' | 'Approved' | 'Rejected'
+  automatic: boolean
+  decision?: {
+    actorId: ObjectId
+    decidedAt: Date
+    requestVersion: number
+    reason: string
+  }
+}
+
 /** Price and nutrition snapshots are per serving. */
 export interface OrderItem {
   _id: ObjectId
@@ -103,6 +122,7 @@ export interface DeliveryPeriod {
   waivedShippingFee: number
   refundedAmount: number
   cancellation?: {
+    kind?: 'CustomerCancellation'
     reason: string
     cancelledAt: Date
     cancelledBy: CancelledBy
@@ -162,6 +182,7 @@ export default interface Order {
   cancelledBy?: CancelledBy
   cancelledAt?: Date
   cancellationReason?: string
+  cancellationRequests?: CancellationRequest[]
   managerDecision?: {
     status: 'Confirmed' | 'Rejected'
     actorId: ObjectId

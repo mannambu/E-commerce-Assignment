@@ -58,6 +58,10 @@ export function getSchemaIndexPlan(env: NodeJS.ProcessEnv = process.env): Schema
           key: { 'payment.method': 1, 'deliveries.status': 1, 'deliveries.failedAt': 1 },
           name: 'failed_delivery_timeout'
         },
+        {
+          key: { 'payment.method': 1, 'cancellationRequests.status': 1, 'cancellationRequests.requestedAt': 1 },
+          name: 'pending_cancellation_requests'
+        },
         { key: { 'inventoryHold.status': 1, 'inventoryHold.expiresAt': 1 }, name: 'release_stock' },
         { key: { 'deliveries.date': 1, 'deliveries.status': 1 }, name: 'delivery_schedule' }
       ]

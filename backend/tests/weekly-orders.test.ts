@@ -18,6 +18,7 @@ import Order from '../src/models/schemas/Order.schema'
 import Transaction from '../src/models/schemas/Transaction.schema'
 import Settings from '../src/models/schemas/Settings.schema'
 import AuditLog from '../src/models/schemas/AuditLog.schema'
+import Notification from '../src/models/schemas/Notification.schema'
 import { toLocalDate } from '../src/models/schemas/common'
 import { getKitchenCutoff, parseDeliveryStart } from '../src/utils/delivery'
 import { TokenType } from '../src/constants/enums'
@@ -153,13 +154,14 @@ function setup(t: TestContext) {
     createdAt: now,
     updatedAt: now
   }
-  const data: Record<'users' | 'foods' | 'orders' | 'settings' | 'transactions' | 'audits', Doc[]> = {
+  const data: Record<'users' | 'foods' | 'orders' | 'settings' | 'transactions' | 'audits' | 'notifications', Doc[]> = {
     users: [customer, admin, manager].map((user) => copy(user) as unknown as Doc),
     foods: [food, alternative].map((food) => copy(food) as unknown as Doc),
     orders: [copy(order) as unknown as Doc],
     settings: [],
     transactions: [],
-    audits: []
+    audits: [],
+    notifications: []
   }
   const collections = {
     users: collection(data.users),
@@ -167,7 +169,8 @@ function setup(t: TestContext) {
     orders: collection(data.orders),
     settings: collection(data.settings),
     transactions: collection(data.transactions),
-    audits: collection(data.audits)
+    audits: collection(data.audits),
+    notifications: collection(data.notifications)
   }
   t.mock.getter(database, 'users', () => collections.users as unknown as Collection<User>)
   t.mock.getter(database, 'foods', () => collections.foods as unknown as Collection<Food>)
@@ -175,6 +178,7 @@ function setup(t: TestContext) {
   t.mock.getter(database, 'settings', () => collections.settings as unknown as Collection<Settings>)
   t.mock.getter(database, 'transactions', () => collections.transactions as unknown as Collection<Transaction>)
   t.mock.getter(database, 'auditLogs', () => collections.audits as unknown as Collection<AuditLog>)
+  t.mock.getter(database, 'notifications', () => collections.notifications as unknown as Collection<Notification>)
   // Serialize and roll back the in-memory writes. This verifies service behavior, not MongoDB isolation.
   let gate = Promise.resolve()
   t.mock.method(database, 'withTransaction', async (fn: (session: ClientSession) => Promise<unknown>) => {
@@ -491,7 +495,7 @@ test('cutoff is inclusive; customers cannot edit other accounts and Manager has 
   })
   f.order.deliveries[0].cutoffAt = new Date()
   await assert.rejects(weekly.cancelDelivery(f.userId, f.orderId, f.deliveryId, { version: 0, reason: 'Test' }), {
-    status: 400
+    status: 409
   })
   await assert.rejects(
     weekly.swapItem(f.userId, f.orderId, f.deliveryId, f.itemId, { foodId: String(f.alternative._id), version: 0 }),
@@ -501,9 +505,12 @@ test('cutoff is inclusive; customers cannot edit other accounts and Manager has 
 
 test('cancelling unpaid first day reduces amount due, keeps original snapshots and never shifts shipping to another day', async (t) => {
   const f = setup(t)
+  f.order.inventoryHold = { status: 'Committed', items: [{ foodId: f.food._id!, quantity: 7 }] }
+  f.data.foods[0].stock = 93
   const preview = await weekly.previewCancellation(f.userId, f.orderId, f.deliveryId)
-  assert.equal(preview.creditedAmount, 70000)
-  assert.equal(preview.refundAmount, 0)
+  assert.ok('lines' in preview)
+  assert.equal(preview.lines[0].creditedAmount, 70000)
+  assert.equal(preview.lines[0].refundAmount, 0)
   await weekly.cancelDelivery(f.userId, f.orderId, f.deliveryId, { reason: 'Không nhận ngày đầu', version: 0 })
   const view = weekly.describeOrder(f.order)
   assert.ok('amounts' in view)
@@ -511,7 +518,7 @@ test('cancelling unpaid first day reduces amount due, keeps original snapshots a
   assert.equal(f.order.grandTotal, 370000)
   assert.equal(f.order.deliveries[0].shipping.totalFee, 20000)
   assert.ok(f.order.deliveries.slice(1).every((day) => day.shipping.totalFee === 0))
-  assert.equal(f.data.foods[0].stock, 100)
+  assert.equal(f.data.foods[0].stock, 94)
   assert.equal(f.data.transactions.length, 0)
   assert.equal(f.order.status, 'Confirmed')
 })
@@ -557,6 +564,7 @@ test('cancelling all seven days totals original payment once and closes the pack
 
 test('held and committed inventory are released exactly once per cancelled day', async (t) => {
   const f = setup(t)
+  f.order.payment.method = 'VNPay' // Held stock is an online-only state; COD is committed at checkout.
   f.order.inventoryHold = { status: 'Held', items: [{ foodId: f.food._id!, quantity: 7 }], expiresAt: futureDate(1) }
   f.data.foods[0].reservedStock = 7
   await weekly.cancelDelivery(f.userId, f.orderId, f.deliveryId, { version: 0, reason: 'Hủy một ngày' })
@@ -564,6 +572,7 @@ test('held and committed inventory are released exactly once per cancelled day',
   assert.equal(f.data.foods[0].stock, 100)
   assert.equal(f.order.inventoryHold.items[0].quantity, 6)
   f.order.inventoryHold.status = 'Committed'
+  f.order.payment.method = 'COD'
   f.data.foods[0].reservedStock = 0
   f.data.foods[0].stock = 94
   await weekly.cancelDelivery(f.userId, f.orderId, String(f.order.deliveries[1]._id), {
@@ -596,6 +605,8 @@ test('swap transfers existing inventory holds; a failed refund write rolls back 
 
 test('different concurrent day edits require fresh order version; no lost edits', async (t) => {
   const f = setup(t)
+  f.order.inventoryHold = { status: 'Committed', items: [{ foodId: f.food._id!, quantity: 7 }] }
+  f.data.foods[0].stock = 93
   const outcomes = await Promise.allSettled(
     [0, 1].map((index) =>
       weekly.cancelDelivery(f.userId, f.orderId, String(f.order.deliveries[index]._id), {
@@ -752,6 +763,8 @@ test('request validation requires version/reason, valid cutoff and finite nonneg
 
 test('HTTP routes enforce settings Admin-only, Manager read-only and customer ownership of daily changes', async (t) => {
   const f = setup(t)
+  f.order.inventoryHold = { status: 'Committed', items: [{ foodId: f.food._id!, quantity: 7 }] }
+  f.data.foods[0].stock = 93
   t.mock.method(
     users,
     'validateSession',
@@ -807,7 +820,8 @@ test('HTTP routes enforce settings Admin-only, Manager read-only and customer ow
     200
   )
   const preview = await call(f.customer, dayPath + '/cancellation')
-  assert.equal(preview.body.result.creditedAmount, 70000)
+  assert.equal(preview.status, 200)
+  assert.equal(preview.body.result.lines[0].creditedAmount, 70000)
   assert.equal(
     (await call(f.customer, dayPath + '/cancel', 'POST', { version: 1, reason: 'Hủy ngày đầu' })).status,
     200

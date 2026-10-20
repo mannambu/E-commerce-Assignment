@@ -125,6 +125,7 @@ test('checkout and inventory on an isolated MongoDB replica set', { timeout: 180
       assert.equal(result.inventoryHold.status, 'Committed')
       assert.equal(result.paymentDueAt, undefined)
       assert.equal(result.inventoryHold.expiresAt, undefined)
+      assert.ok(result.deliveries.every((day) => day.cutoffAt instanceof Date && day.cutoffAt < day.scheduledAt))
       assert.deepEqual(
         result.statusHistory.map((event) => event.status),
         ['Pending']
@@ -298,8 +299,14 @@ test('checkout and inventory on an isolated MongoDB replica set', { timeout: 180
       for (const method of ['VNPay', 'COD'] as const) {
         const f = await fixture()
         const created = await orders.createOrder(f.userId, { ...f.payload, paymentMethod: method })
-        await orders.cancelOrder(f.userId, String(created.orderId))
-        await assert.rejects(orders.cancelOrder(f.userId, String(created.orderId)), { status: 400 })
+        await orders.cancelOrder(f.userId, String(created.orderId), undefined, 0, 'Không nhận đơn')
+        if (method === 'COD') {
+          const replay = await orders.cancelOrder(f.userId, String(created.orderId), undefined, 0, 'Không nhận đơn')
+          assert.ok('result' in replay)
+          assert.equal(replay.result.changed, false)
+        } else {
+          await assert.rejects(orders.cancelOrder(f.userId, String(created.orderId)), { status: 400 })
+        }
         const food = await database.foods.findOne({ _id: f.food._id })
         assert.equal(food!.stock, 100)
         assert.equal(food!.reservedStock, 0)

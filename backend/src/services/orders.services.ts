@@ -21,6 +21,7 @@ import trackingService from '~/services/tracking.services'
 import settingsService from '~/services/settings.services'
 import weeklyOrders from '~/services/weekly-orders.services'
 import inventory from '~/services/inventory.services'
+import cancellations from './cancellation.services'
 import { getKitchenCutoff, parseDeliveryStart } from '~/utils/delivery'
 
 const COMBO_FREE_KM = 5
@@ -268,11 +269,14 @@ class OrdersService {
       throw new ErrorWithStatus({ message: 'Ngày giao đã qua, hãy chọn lại ngày', status: HTTP_STATUS.BAD_REQUEST })
     }
     const schedule = this.buildDeliverySchedule(deliveryDate, packageType)
-    const rules = packageType === 'WEEKLY_7D' ? await settingsService.getCommerceRules(session) : undefined
+    const rules =
+      packageType === 'WEEKLY_7D' || payload.paymentMethod === 'COD'
+        ? await settingsService.getCommerceRules(session)
+        : undefined
     const cutoffs = rules ? schedule.map((date) => getKitchenCutoff(date, rules)) : []
     if (cutoffs.some((cutoff) => cutoff <= now)) {
       throw new ErrorWithStatus({
-        message: 'Đã quá giờ chốt bếp của ngày đầu, hãy chọn gói bắt đầu muộn hơn',
+        message: 'Đã quá giờ chốt bếp, hãy chọn ngày giao muộn hơn',
         status: 400
       })
     }
@@ -490,7 +494,14 @@ class OrdersService {
     return weeklyOrders.describeOrder(order)
   }
 
-  async cancelOrder(userId: string, orderId: string, reason?: string) {
+  async cancelOrder(userId: string, orderId: string, reason?: string, version?: number, customerReason?: string) {
+    const actor = await this.getRequestUser(userId)
+    if (actor.role === UserRole.CUSTOMER) {
+      const order = await databaseService.orders.findOne({ _id: new ObjectId(orderId), userId: actor._id })
+      if (order?.payment.method === 'COD') {
+        return { result: await cancellations.submit(userId, orderId, { version: version!, reason: customerReason! }) }
+      }
+    }
     return databaseService.withTransaction(async (session) => {
       const user = await this.getRequestUser(userId, session)
       const exceptionReason = adminExceptionReason(user.role, reason)

@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import cancellationRouter from './cancellation.routes'
 import {
   resolveFailureController,
   reconcileCODController,
@@ -62,6 +63,7 @@ import {
 } from '~/middlewares/weekly-orders.middlewares'
 
 const ordersRouter = Router()
+ordersRouter.use(cancellationRouter)
 
 ordersRouter.patch(
   '/:orderId/deliveries/:deliveryId/failure-resolution',

@@ -93,7 +93,7 @@ Response đổi món có `calories`, `nutritionTotals` (calories/protein/carb/fa
 
 Admin chuyển từng ngày theo `Confirmed → Cooking → Ready → Delivering → Completed`; không nhảy bước, quay ngược hay xử lý ngày giao tương lai. Online chỉ vào Cooking khi payment đã Paid/PartiallyRefunded và có Payment Transaction Succeeded từ VerifiedIPN. Bếp được phân công có API vận hành riêng `kitchen-status` cho Confirmed → Cooking → Ready, không cần lý do ngoại lệ Admin. Hoàn thành một ngày cập nhật theo dõi calo cho ngày đó. Gói chỉ Completed khi các ngày chưa hủy đều Completed, hoặc Cancelled khi cả bảy ngày đã hủy.
 
-Hai API cũ hủy/chuyển trạng thái toàn đơn trả 400 cho gói tuần; dùng các endpoint ngày bên trên.
+API chuyển trạng thái toàn đơn vẫn trả 400 cho gói tuần. Customer COD có thể dùng `PATCH /orders/:orderId/cancel` với `{ version, reason }` để hủy toàn bộ các ngày còn lại khi tất cả đủ điều kiện. Hủy phần đã thu COD phải chờ Manager duyệt; xem [luồng hủy COD](cod-cancellation-workflow.md).
 
 ## Khoản giảm, khoản đã trả và khoản chờ hoàn
 
@@ -110,7 +110,7 @@ Hai API cũ hủy/chuyển trạng thái toàn đơn trả 400 cho gói tuần; 
 
 Ví dụ bảy ngày, mỗi ngày 50.000đ, ship ngày đầu 20.000đ: giá gốc 370.000đ. Hủy ngày đầu trước cutoff giảm 70.000đ, `payableTotal = 300000`. Nếu chưa trả thì `amountDue = 300000`, không tạo refund; nếu đã trả đủ thì `amountDue = 0` và tạo một Refund Transaction **Pending** 70.000đ.
 
-Preview hủy trả `foodCredit`, `shippingCredit`, `creditedAmount`, `refundAmount`, `remainingPayable`, `refundStatus`, chính sách, cutoff và version để hiển thị trước nút xác nhận. `cancellation.refundAmount` là khoản yêu cầu hoàn; không đồng nghĩa `delivery.refundedAmount` hay `payment.refundedAmount` đã tăng.
+Preview Customer COD trả `requiresApproval` và `lines[]` chứa khoản giảm/hoàn của từng ngày; xem [API hiện hành](cod-cancellation-workflow.md). Preview online/Admin hiện có vẫn trả `foodCredit`, `shippingCredit`, `creditedAmount`, `refundAmount`, `remainingPayable`, `refundStatus`, chính sách, cutoff và version. `cancellation.refundAmount` là khoản yêu cầu hoàn; không đồng nghĩa `delivery.refundedAmount` hay `payment.refundedAmount` đã tăng.
 
 Đổi/hủy lưu Order, điều chỉnh kho đã giữ/trừ, AuditLog và yêu cầu hoàn tiền trong cùng MongoDB transaction. `NotReserved` không được cộng trả hàng vì chưa từng giữ/trừ. `Held` điều chỉnh reservedStock; `Committed` điều chỉnh stock. Cần MongoDB replica set/Atlas để chạy transaction.
 
@@ -130,5 +130,5 @@ Preview hủy trả `foodCredit`, `shippingCredit`, `creditedAmount`, `refundAmo
 - Checkout đã có transaction, idempotency, giữ kho online 15 phút và trừ kho COD; xem [phần 6](checkout-inventory.md). Quote vẫn không giữ hàng.
 - Thu COD theo ngày đã có trong [API Shipper](shipper-workflow.md); [API Manager](manager-cod-operations.md) xử lý ngày COD Failed và ghi nhận tiền thực tế thu bù/trả lại. Hủy ngày Failed bỏ cả tiền món và phí ship của ngày, không chuyển phí sang ngày khác, không trả món đã nấu về kho. Job hết hạn thanh toán và job COD Failed 24 giờ đã có; IPN và gọi cổng hoàn tiền chưa tích hợp. Không đánh dấu đã hoàn chỉ vì tạo yêu cầu Refund Pending.
 - API sửa payment-status thủ công bị chặn cho cả gói tuần và đơn lẻ. Retry chỉ cho online Pending, chưa trả, còn hạn và chưa hủy ngày; giữ lại hàng nếu hold đã Released. Đơn đã hủy ngày cần đối soát lại số tiền. Phần IPN sắp tới phải xử lý cả callback đến muộn sau khi hủy và lấy số phải thu từ khoản thực tế sau giảm.
-- Gói tuần cũ thiếu `cutoffAt`/`cancellationPolicy` không được tự đổi/hủy theo giả định mới; cần đối soát/migration có chủ đích. Đợt này không chạy migration hay sửa DB đang dùng.
+- Gói tuần COD phải có cutoff hợp lệ và kho Committed; sổ tiền phải phân bổ đúng ngày. Chính sách hủy COD áp dụng quyết định 20/10/2026, không dùng snapshot cũ để cho tự hủy phần đã thu. Luồng online/Admin vẫn kiểm tra snapshot chính sách hiện có. Không chạy migration hay sửa DB đang dùng.
 - Test phần 5 dùng kho giả lập/HTTP cục bộ; phần 6 bổ sung MongoDB replica set thật tạm thời để kiểm tra checkout và đổi/hủy ngày cùng kho. Chưa kiểm thử cổng thanh toán.

@@ -77,7 +77,13 @@ export const getMyOrderDetailController = async (req: Request<{ orderId: string 
 
 export const cancelOrderController = async (req: Request<{ orderId: string }>, res: Response) => {
   const decoded = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-  const result = await ordersService.cancelOrder(decoded.user_id, req.params.orderId, req.body?.exceptionReason)
+  const result = await ordersService.cancelOrder(
+    decoded.user_id,
+    req.params.orderId,
+    req.body?.exceptionReason,
+    req.body?.version,
+    req.body?.reason
+  )
 
   return res.status(HTTP_STATUS.OK).json(result)
 }
