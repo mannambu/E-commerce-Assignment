@@ -14,12 +14,6 @@ export const deliveryParamsValidator = validate(
     itemId: { in: ['params'], optional: true, isMongoId: true }
   })
 )
-export const swapDeliveryValidator = validate(
-  checkSchema({
-    foodId: { in: ['body'], isString: true, isMongoId: true },
-    version
-  })
-)
 export const cancelDeliveryValidator = validate(
   checkSchema({
     reason: {

@@ -64,12 +64,6 @@ export interface UpdatePaymentStatusReqBody {
   transactionId?: string
 }
 
-export interface SwapDeliveryItemReqBody {
-  exceptionReason?: string // Required for Admin intervention; never a normal workflow.
-  foodId: string
-  version: number
-}
-
 export interface CancelDeliveryReqBody {
   exceptionReason?: string // Required for Admin intervention; never a normal workflow.
   reason: string

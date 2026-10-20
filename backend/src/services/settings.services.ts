@@ -11,7 +11,7 @@ export const DEFAULT_COMMERCE_RULES: CommerceRules = {
   kitchenCutoffDaysBefore: 1,
   cancellationPolicy: {
     description:
-      'Đổi/hủy trước giờ chốt bếp. Hoàn 100% tiền món và phí giao đã thu của ngày hủy; các ngày còn lại giữ ưu đãi ship.',
+      'Món trong đơn cố định sau khi đặt. Hủy trước giờ chốt bếp theo điều kiện thanh toán; hoàn 100% tiền món và phí giao đã thu của ngày hủy, các ngày còn lại giữ ưu đãi ship.',
     refundBeforeCutoffPercent: 100,
     refundAfterCutoffPercent: 0,
     refundShippingFee: true

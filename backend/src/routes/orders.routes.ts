@@ -49,15 +49,12 @@ import {
 import { UserRole } from '~/models/schemas/User.schema'
 import { wrapRequestHandler } from '~/utils/handlers'
 import {
-  getDeliveryAlternativesController,
-  swapDeliveryItemController,
   previewDeliveryCancellationController,
   cancelDeliveryController,
   updateDeliveryStatusController
 } from '~/controllers/weekly-orders.controllers'
 import {
   deliveryParamsValidator,
-  swapDeliveryValidator,
   cancelDeliveryValidator,
   deliveryStatusValidator
 } from '~/middlewares/weekly-orders.middlewares'
@@ -132,21 +129,6 @@ ordersRouter.patch(
   wrapRequestHandler(managerOrderDecisionController)
 )
 
-ordersRouter.get(
-  '/:orderId/deliveries/:deliveryId/items/:itemId/alternatives',
-  accessTokenValidator,
-  requireRoles(UserRole.CUSTOMER, UserRole.ADMIN),
-  deliveryParamsValidator,
-  wrapRequestHandler(getDeliveryAlternativesController)
-)
-ordersRouter.patch(
-  '/:orderId/deliveries/:deliveryId/items/:itemId',
-  accessTokenValidator,
-  requireRoles(UserRole.CUSTOMER, UserRole.ADMIN),
-  deliveryParamsValidator,
-  swapDeliveryValidator,
-  wrapRequestHandler(swapDeliveryItemController)
-)
 ordersRouter.get(
   '/:orderId/deliveries/:deliveryId/cancellation',
   accessTokenValidator,

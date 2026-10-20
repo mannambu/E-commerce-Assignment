@@ -398,21 +398,17 @@ test('weekly shortage reports the affected date and safe alternatives before pay
   assert.equal(f.data.orders.length, 1)
 })
 
-test('Admin daily swap and cancellation require and audit the actual exception reason', async (t) => {
+test('Admin cancellation still requires and audits the exception reason', async (t) => {
   const f = setup(t)
   const adminId = String(f.admin._id)
-  const swap = { foodId: String(f.alternative._id), version: 0 }
-  await assert.rejects(weekly.swapItem(adminId, f.orderId, f.deliveryId, f.itemId, swap), { status: 403 })
   await assert.rejects(
     weekly.cancelDelivery(adminId, f.orderId, f.deliveryId, { version: 0, reason: 'Cancellation' }),
     { status: 403 }
   )
   assert.equal(f.data.audits.length, 0)
   assert.equal(f.order.version, 0)
-  await weekly.swapItem(adminId, f.orderId, f.deliveryId, f.itemId, { ...swap, exceptionReason: '  Correct item  ' })
-  assert.equal(f.data.audits[0].reason, 'Correct item')
   await weekly.cancelDelivery(adminId, f.orderId, f.deliveryId, {
-    version: 1,
+    version: 0,
     reason: 'Cancellation',
     exceptionReason: 'Customer complaint'
   })
@@ -420,65 +416,6 @@ test('Admin daily swap and cancellation require and audit the actual exception r
   assert.equal(audit.reason, 'Customer complaint')
   assert.equal(audit.before.status, 'Confirmed')
   assert.equal(f.order.deliveries[0].cancellation!.reason, 'Customer complaint')
-})
-
-test('alternatives respect current allergies, same snapshot price, nutrition and available stock; swap changes only the chosen day', async (t) => {
-  const f = setup(t)
-  const alternatives = await weekly.getAlternatives(f.userId, f.orderId, f.deliveryId, f.itemId)
-  assert.equal(alternatives.alternatives.length, 1)
-  const before = copy(f.order)
-  const swapped = await weekly.swapItem(f.userId, f.orderId, f.deliveryId, f.itemId, {
-    foodId: String(f.alternative._id),
-    version: 0
-  })
-  assert.equal(f.order.deliveries[0].items[0].foodName, f.alternative.name)
-  assert.deepEqual(f.order.deliveries.slice(1), before.deliveries.slice(1))
-  assert.equal(f.order.grandTotal, before.grandTotal)
-  assert.equal(f.order.version, 1)
-  assert.equal(swapped.calories, 420)
-  assert.equal(swapped.calorieDifference, 20)
-  assert.equal(swapped.targetDifference, 20)
-  assert.deepEqual(swapped.nutritionTotals, { calories: 420, protein: 30, carb: 40, fat: 13 })
-  assert.deepEqual(swapped.warnings, [])
-  assert.equal(f.data.audits[0].action, 'DeliverySwapped')
-  await assert.rejects(
-    weekly.swapItem(f.userId, f.orderId, f.deliveryId, f.itemId, { foodId: String(f.food._id), version: 0 }),
-    { status: 409 }
-  )
-})
-
-test('swap validation rejects allergy, price/calorie/day-target mismatch, shortage and expired inventory holds', async (t) => {
-  const f = setup(t)
-  const candidate = () => f.data.foods[1]
-  const trySwap = () =>
-    weekly.swapItem(f.userId, f.orderId, f.deliveryId, f.itemId, { foodId: String(f.alternative._id), version: 0 })
-  f.data.users[0].healthProfile = { allergies: ['ĐẬU PHỘNG'] }
-  candidate().ingredients = [{ name: 'Sốt đậu phộng', allergyTags: [] }]
-  await assert.rejects(trySwap(), { status: 400 })
-  candidate().ingredients = []
-  f.data.users[0].healthProfile = { allergies: ['ăn chay'] }
-  await assert.rejects(trySwap(), { status: 400 })
-  candidate().tags = ['vegan']
-  assert.equal((await weekly.getAlternatives(f.userId, f.orderId, f.deliveryId, f.itemId)).alternatives.length, 1)
-  f.data.users[0].healthProfile = { allergies: [] }
-  candidate().price = 60000
-  await assert.rejects(trySwap(), { status: 400 })
-  candidate().price = 50000
-  candidate().calories = 470
-  await assert.rejects(trySwap(), { status: 400 })
-  candidate().calories = 445 // Trong ±15% món, nhưng vượt ±10% tổng ngày.
-  await assert.rejects(trySwap(), { status: 400 })
-  candidate().calories = 420
-  f.order.targetCaloriesSnapshot = 1000
-  await assert.rejects(trySwap(), { status: 400 })
-  delete f.order.targetCaloriesSnapshot
-  candidate().stock = 0
-  await assert.rejects(trySwap(), { status: 400 })
-  candidate().stock = 100
-  f.order.inventoryHold = { status: 'Held', items: [], expiresAt: new Date(Date.now() - 1) }
-  await assert.rejects(trySwap(), { status: 409 })
-  assert.equal(f.order.version, 0)
-  assert.equal(f.data.audits.length, 0)
 })
 
 test('cutoff is inclusive; customers cannot edit other accounts and Manager has no write access', async (t) => {
@@ -497,10 +434,6 @@ test('cutoff is inclusive; customers cannot edit other accounts and Manager has 
   await assert.rejects(weekly.cancelDelivery(f.userId, f.orderId, f.deliveryId, { version: 0, reason: 'Test' }), {
     status: 409
   })
-  await assert.rejects(
-    weekly.swapItem(f.userId, f.orderId, f.deliveryId, f.itemId, { foodId: String(f.alternative._id), version: 0 }),
-    { status: 400 }
-  )
 })
 
 test('cancelling unpaid first day reduces amount due, keeps original snapshots and never shifts shipping to another day', async (t) => {
@@ -583,21 +516,17 @@ test('held and committed inventory are released exactly once per cancelled day',
   assert.equal(f.order.inventoryHold.items[0].quantity, 5)
 })
 
-test('swap transfers existing inventory holds; a failed refund write rolls back inventory/order/audit', async (t) => {
+test('a failed refund write rolls back cancellation inventory/order/audit', async (t) => {
   const f = setup(t)
   f.order.inventoryHold = { status: 'Held', items: [{ foodId: f.food._id!, quantity: 7 }], expiresAt: futureDate(1) }
   f.data.foods[0].reservedStock = 7
-  await weekly.swapItem(f.userId, f.orderId, f.deliveryId, f.itemId, { foodId: String(f.alternative._id), version: 0 })
-  assert.equal(f.data.foods[0].reservedStock, 6)
-  assert.equal(f.data.foods[1].reservedStock, 1)
-  assert.equal(f.order.inventoryHold.items.length, 2)
   f.order.payment = { method: 'VNPay', status: 'Paid', paidAmount: 370000 }
   const before = copy(f.data)
   t.mock.method(f.collections.transactions, 'insertOne', async () => {
     throw new Error('Ledger unavailable')
   })
   await assert.rejects(
-    weekly.cancelDelivery(f.userId, f.orderId, f.deliveryId, { version: 1, reason: 'Hủy ngày' }),
+    weekly.cancelDelivery(f.userId, f.orderId, f.deliveryId, { version: 0, reason: 'Hủy ngày' }),
     /Ledger unavailable/
   )
   assert.deepEqual(f.data, before)
@@ -747,7 +676,6 @@ test('request validation requires version/reason, valid cutoff and finite nonneg
     undefined
   )
   assert.ok(await run(validators.cancelDeliveryValidator, { body: { reason: 'Hủy ngày' } }))
-  assert.ok(await run(validators.swapDeliveryValidator, { body: { foodId: 'bad', version: 0 } }))
   assert.ok(
     await run(validators.commerceSettingsValidator, {
       body: { kitchenCutoffTime: '25:00', kitchenCutoffDaysBefore: 2 }
@@ -761,7 +689,7 @@ test('request validation requires version/reason, valid cutoff and finite nonneg
   )
 })
 
-test('HTTP routes enforce settings Admin-only, Manager read-only and customer ownership of daily changes', async (t) => {
+test('HTTP removes order meal changes for every role while retaining settings and cancellation', async (t) => {
   const f = setup(t)
   f.order.inventoryHold = { status: 'Committed', items: [{ foodId: f.food._id!, quantity: 7 }] }
   f.data.foods[0].stock = 93
@@ -795,7 +723,12 @@ test('HTTP routes enforce settings Admin-only, Manager read-only and customer ow
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined
     })
-    return { status: response.status, body: await response.json() }
+    return {
+      status: response.status,
+      body: response.headers.get('content-type')?.includes('application/json')
+        ? await response.json()
+        : await response.text()
+    }
   }
   const dayPath = `/orders/${f.orderId}/deliveries/${f.deliveryId}`
   for (const actor of [f.customer, f.manager]) {
@@ -813,17 +746,53 @@ test('HTTP routes enforce settings Admin-only, Manager read-only and customer ow
   )
   assert.equal((await call(f.manager, dayPath + '/cancel', 'POST', { version: 0, reason: 'Hủy ngày' })).status, 403)
   assert.equal((await call(f.manager, `/orders/${f.orderId}`)).status, 200)
-  assert.equal((await call(f.customer, dayPath + `/items/${f.itemId}/alternatives`)).status, 200)
-  assert.equal(
-    (await call(f.customer, dayPath + `/items/${f.itemId}`, 'PATCH', { foodId: String(f.alternative._id), version: 0 }))
-      .status,
-    200
+  const beforeDisabledCalls = copy(f.data)
+  const staff = [UserRole.KITCHEN, UserRole.DELIVERY].map(
+    (role) =>
+      new User({
+        _id: new ObjectId(),
+        email: `${role}@test.local`,
+        password: 'unused',
+        role
+      })
   )
+  f.data.users.push(...staff.map((user) => copy(user) as unknown as Doc))
+  for (const actor of [f.customer, f.admin, f.manager, ...staff]) {
+    for (const packageType of ['ONE_DAY', 'WEEKLY_7D'] as const) {
+      f.order.packageType = packageType
+      assert.equal((await call(actor, dayPath + `/items/${f.itemId}/alternatives`)).status, 404)
+      assert.equal(
+        (
+          await call(actor, dayPath + `/items/${f.itemId}`, 'PATCH', {
+            foodId: String(f.alternative._id),
+            version: 0,
+            exceptionReason: 'Cannot bypass disabled feature'
+          })
+        ).status,
+        404
+      )
+      assert.equal(
+        (
+          await call(actor, `/orders/${f.orderId}/swap-requests`, 'POST', {
+            version: 0,
+            changes: [{ deliveryId: f.deliveryId, itemId: f.itemId, foodId: String(f.alternative._id) }]
+          })
+        ).status,
+        404
+      )
+    }
+  }
+  f.order.packageType = 'WEEKLY_7D'
+  assert.deepEqual(f.data.orders, beforeDisabledCalls.orders)
+  assert.deepEqual(f.data.foods, beforeDisabledCalls.foods)
+  assert.deepEqual(f.data.audits, beforeDisabledCalls.audits)
+  const view = weekly.describeOrder(f.order)
+  assert.ok(view.deliveries.every((day) => !('canSwap' in day)))
   const preview = await call(f.customer, dayPath + '/cancellation')
   assert.equal(preview.status, 200)
   assert.equal(preview.body.result.lines[0].creditedAmount, 70000)
   assert.equal(
-    (await call(f.customer, dayPath + '/cancel', 'POST', { version: 1, reason: 'Hủy ngày đầu' })).status,
+    (await call(f.customer, dayPath + '/cancel', 'POST', { version: 0, reason: 'Hủy ngày đầu' })).status,
     200
   )
 })

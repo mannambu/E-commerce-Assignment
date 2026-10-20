@@ -14,7 +14,7 @@ Tham chiếu: `docs/func_request_ver2.0.md`, AUTH-005/007/016–022 và PTL-001�
 | PTL-005 | Tạo/khóa/mở/đổi quyền và các can thiệp đơn hiện có được ghi audit cùng transaction. | Kiểm tra actor, entity, before/after, reason, createdAt trong collection audit. Không ghi mật khẩu/token. |
 | AUTH-017/018 | API kiểm tra JWT, phiên, tài khoản và role tại server. Sai vai trò → 403; phiên/claim bị sửa hoặc thu hồi → 401. | Dùng token nhân viên gọi `/users`, `/cart`, sửa món hoặc tạo đơn → 403. |
 | AUTH-020/021 (giới hạn truy cập) | Bếp/giao hàng không đọc API đơn đầy đủ; chỉ đọc suất giao được gán qua `/workspace/orders`. Bếp không nhận địa chỉ hay trường tiền. | Gán các suất khác nhau cho hai nhân viên; mỗi người chỉ thấy phần mình. Chưa được gán → danh sách rỗng. |
-| AUTH-022, PTL-006 (ngoại lệ) | Admin gọi API sửa trạng thái/hủy/đổi món hiện có phải có `exceptionReason`; vẫn kiểm tra điều kiện nghiệp vụ cũ. | Thiếu lý do → 403, không đổi dữ liệu; lý do hợp lệ được lưu trong audit. |
+| AUTH-022, PTL-006 (ngoại lệ) | Admin gọi API sửa trạng thái/hủy hiện có phải có `exceptionReason`; vẫn kiểm tra điều kiện nghiệp vụ. Không có quyền đổi món trong đơn. | Thiếu lý do → 403, không đổi dữ liệu; lý do hợp lệ được lưu trong audit. |
 | AUTH-022, PTL-006 (đọc tài chính) | Admin/Manager đọc sổ giao dịch thực tế qua `/workspace/transactions`. | Admin/Manager → 200; Customer/bếp/giao hàng → 403. |
 
 ## 2. API quản lý tài khoản
@@ -59,7 +59,7 @@ Response: `{ "message": "...", "result": { "items": [], "total": 0, "page": 1, "
 - `GET /workspace/orders`: tối đa 100 đơn gần nhất khớp bộ lọc, trả từng ngày giao. Manager/Admin đọc danh sách và mã nhân viên được gán; bếp lọc `deliveries.kitchenStaffIds` và trạng thái Confirmed/Cooking; giao hàng lọc `deliveries.assignedShipperId` và trạng thái Ready/Delivering/Failed. Manager gán trực tiếp qua [API phân công](order-assignments.md), không chia ca. Shipper có [API ghi kết quả](shipper-workflow.md), tiền COD cần thu theo ngày và kết quả Failed với lý do bắt buộc, ảnh tùy chọn.
 - `GET /workspace/staff`: Manager chọn nhân viên bếp hoặc giao hàng Active; chỉ trả ID, username, email, role. Không thay thế API quản lý tài khoản của Admin.
 - `GET /workspace/transactions`: tối đa 100 giao dịch gần nhất, chỉ đọc; gồm ID, loại, trạng thái, số tiền, mã đơn, thời điểm, mô tả. Không phải báo cáo doanh thu đầy đủ hoặc file Excel.
-- Các API Admin sửa trạng thái đơn/ngày, hủy đơn/ngày và đổi món ngày cần thêm `"exceptionReason": "Lý do can thiệp"` vào body hiện có. Lý do không cho phép bỏ qua cutoff, version, thanh toán, tồn kho hay quy tắc chuyển trạng thái.
+- Các API Admin sửa trạng thái đơn/ngày và hủy đơn/ngày cần thêm `"exceptionReason": "Lý do can thiệp"` vào body hiện có. Lý do không cho phép bỏ qua cutoff, version, thanh toán, tồn kho hay quy tắc chuyển trạng thái; không mở lại chức năng đổi món đã bỏ.
 
 ## 4. Phần còn phụ thuộc — chưa nghiệm thu đủ FR
 

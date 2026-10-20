@@ -3,7 +3,7 @@
 Cập nhật ngày 17/10/2026 theo [phan-hoi-2.md](e:/261/QLDAPM/phan-hoi-2.md) và các xác nhận trực tiếp của chủ yêu cầu. Giữ tên tệp func_request_ver2.0.md; tên SRS v2.2/v2.3 trong phản hồi là thông tin tài liệu nguồn, không phải tuyên bố phát hành một bản SRS đầy đủ mới.
 
 - Câu có mã FR là điều khoản chức năng để triển khai/kiểm thử theo mức ưu tiên ghi kèm. Diễn giải phải thống nhất với FR, không tự tạo quyền hoặc ngoại lệ.
-- Chủ yêu cầu đã xác nhận thay quyết định trước: chỉ hủy cả ngày của gói tuần, không hủy từng món; sau cutoff không tiếp nhận hủy thông thường nhưng được đổi món một lần theo FR-ORD-013.
+- Quyết định mới nhất ngày 20/10/2026: món trong đơn ngày và gói tuần cố định sau khi đặt; bỏ chức năng đổi món, yêu cầu/duyệt đổi và bộ đếm lượt đổi. Quyết định này thay toàn bộ ngoại lệ đổi trước/sau cutoff và giới hạn 4 lượt đã thảo luận. Chỉ hủy cả ngày gói tuần theo điều kiện hủy, không hủy từng món.
 - Đánh giá theo từng món trong ngày giao Completed. Giữ reset bằng mã email theo FR-AUTH-014/015.
 - Lựa chọn triển khai, tham chiếu ngoài và điểm chưa chốt được tách ở cuối tài liệu. Đặc tả không chứng minh code/API đã hoàn thành.
 - Múi giờ nghiệp vụ: Asia/Ho_Chi_Minh. Cutoff mặc định 20:00 ngày trước ngày giao, Admin được cấu hình; “trước/sau chốt” dùng cutoff áp dụng cho ngày giao, không phải hằng số bất biến.
@@ -298,7 +298,7 @@ Chu kỳ kế tiếp bắt đầu 00:00 thứ Hai tiếp theo; không tự sửa
 
 _Mục tiêu là khách mở Thực đơn hôm nay là ăn được ngay đúng mục tiêu mà không phải tự tính calo hay tự nhớ dị ứng. Màn hình WF-08 gồm header Target và phần trăm bám sát, tab Hôm nay/Cả tuần, nhãn Đã lọc dị ứng, 3 thanh macro ngày, 4 bữa sáng/trưa/tối/phụ kèm calo và nút Đổi món, nút Thêm cả ngày vào giỏ và Đặt cả tuần._
 
-_Khách mở WF-08 ngày/tuần. Engine lọc tuyệt đối dị ứng, ghép bốn bữa hướng tới ±10% Target và macro 30/40/30 ±5 điểm %, mỗi món lặp tối đa hai lần/tuần. Đổi món hiển thị 3–5 lựa chọn trong ±15% calo món gốc, lọc dị ứng và xếp theo calo/macro; tổng ngày ngoài ngưỡng mềm ±10% cần cảnh báo và xác nhận giữ. Thiếu món hiển thị gần đúng/quá ít món hợp, không nới dị ứng. Checkout khóa sửa thực đơn gốc; gói tuần có đổi riêng theo FR-ORD-013, gồm một lần sau cutoff._
+_Khách mở WF-08 ngày/tuần. Engine lọc tuyệt đối dị ứng, ghép bốn bữa hướng tới ±10% Target và macro 30/40/30 ±5 điểm %, mỗi món lặp tối đa hai lần/tuần. Trước khi đặt, lựa chọn món thay thế hiển thị 3–5 món trong ±15% calo món gốc, lọc dị ứng và xếp theo calo/macro; tổng ngày ngoài ngưỡng mềm ±10% cần cảnh báo và xác nhận giữ. Thiếu món hiển thị gần đúng/quá ít món hợp, không nới dị ứng. Sau checkout khóa sửa món trong đơn, không có ngoại lệ đổi cho gói tuần._
 
 **FR-MNU-001** — Hệ thống phải gợi ý thực đơn ngày gồm sáng, trưa, tối, phụ, hướng tới tổng năng lượng ±10% Target; đây là ngưỡng mềm. Ngoài ngưỡng phải hiển thị chênh lệch/cảnh báo và cho Khách hàng xác nhận giữ lựa chọn.
 
@@ -354,9 +354,9 @@ Khi không còn món thay nào phù hợp ràng buộc thì hiển thị thông 
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-11; Xác minh: kiểm thử.
 
-**FR-MNU-010** — Hệ thống phải khóa sửa món trực tiếp trên thực đơn đã đặt hàng; riêng gói tuần được đổi món của ngày giao qua luồng FR-ORD-013.
+**FR-MNU-010** — Hệ thống phải khóa sửa món trên thực đơn đã đặt hàng và giữ cố định món trong đơn ngày/gói tuần sau checkout theo FR-ORD-013.
 
-Đây là ngoại lệ trên ngày giao của gói tuần, không mở lại thực đơn đã đặt để sửa tùy ý và không mở swap đơn lẻ sau checkout.
+Không có quyền đổi món sau checkout cho Customer, Manager hoặc Admin. Lựa chọn thực đơn/giỏ trước khi đặt không sửa các món đã lưu trong đơn.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-11; Xác minh: kiểm thử.
 
@@ -422,9 +422,9 @@ Khi món bị Admin ẩn hoặc xóa thì hiển thị Không còn bán cho thao
 
 _WF-14 lưu giỏ server lẻ/tuần, món/bữa/ngày/số lượng/giá/ship tạm tính, dòng thiếu hàng chặn checkout. WF-15 tạo Pending, thanh toán hiển thị riêng với tiến trình sáu bước gồm Ready. WF-26 là một đơn gói bảy ngày, mỗi ngày bốn bữa, đúng 28 bữa khi mua; trạng thái riêng từng ngày. Ship gói thu một lần ngày đầu, các ngày sau miễn theo FR-ORD-012._
 
-_Khách chọn món, xem lịch/chính sách rồi đặt với idempotency key; tạo Pending và xử lý kho trong ACID. Gói tuần đủ bảy ngày/bốn bữa mỗi ngày, báo thiếu món và lựa chọn thay trước thanh toán. Online IPN ghi Paid nhưng vẫn chờ Manager; COD cũng chờ Manager. Manager chuyển Confirmed để bếp tiếp nhận, không trực tiếp bắt đầu nấu. Hủy/đổi ngày theo FR-ORD-013/015/017/018._
+_Khách chọn món, xem lịch/chính sách rồi đặt với idempotency key; tạo Pending và xử lý kho trong ACID. Gói tuần đủ bảy ngày/bốn bữa mỗi ngày, báo thiếu món và lựa chọn thay trước thanh toán. Online IPN ghi Paid nhưng vẫn chờ Manager; COD cũng chờ Manager. Manager chuyển Confirmed để bếp tiếp nhận, không trực tiếp bắt đầu nấu. Món cố định theo FR-ORD-013; hủy ngày theo FR-ORD-015/017/018._
 
-_Online chưa trả có mốc chung 15 phút giữ kho/thanh toán; Pending đã Paid chờ Manager không bị job quá hạn hủy. Hủy thông thường phải chưa Cooking và trước cutoff: chưa trả tự hủy, đã trả Manager duyệt. Gói chỉ hủy cả ngày; sau cutoff không hủy nhưng đổi một lần trong ngày theo FR-ORD-013. Failed xử lý riêng; chỉ chuyển trạng thái theo bảng hợp lệ._
+_Online chưa trả có mốc chung 15 phút giữ kho/thanh toán; Pending đã Paid chờ Manager không bị job quá hạn hủy. Hủy thông thường phải chưa Cooking và trước cutoff: chưa trả tự hủy, đã trả Manager duyệt. Gói chỉ hủy cả ngày; sau cutoff không hủy thông thường. Món trong đơn không được đổi trước hay sau cutoff. Failed xử lý riêng; chỉ chuyển trạng thái theo bảng hợp lệ._
 
 _Luồng chính Pending, Confirmed, Cooking, Ready, Delivering, Completed; Rejected kết thúc từ chối, Cancelled kết thúc hủy, Failed chờ xử lý. Checkout tranh hàng cuối/gửi lại phải chống vượt kho/trùng đơn. Hủy ngày hợp lệ hoàn tiền các bữa đã thu trong 3–5 ngày làm việc, không hoàn riêng ship; toàn gói trước giao ngày đầu hoàn cả ship. Ngày Completed mở review từng món/cộng calo ngay; trạng thái tổng gói phục vụ theo dõi/thống kê riêng._
 
@@ -500,9 +500,9 @@ Quyết định cập nhật ngày 20/10/2026 cho COD thay quy tắc giữ phí 
 
 - Ưu tiên: Should (nên có); Nguồn: US-30; Xác minh: kiểm thử.
 
-**FR-ORD-013** — Hệ thống phải cho đặt khung giờ giao cố định cho cả gói. Trước cutoff từng ngày được đổi món ngày đó; sau cutoff không tiếp nhận hủy thông thường và chỉ được đổi món một lần trong ngày giao đó, không thay đổi số tiền ngày/gói. Cutoff mặc định 20:00 hôm trước, Admin được cấu hình theo FR-ADM-015.
+**FR-ORD-013** — Hệ thống phải cho đặt khung giờ giao cố định cho cả gói. Món trong đơn ngày và gói tuần được cố định sau khi đặt, không cho đổi món kể cả khi Pending/Confirmed hoặc còn trước cutoff. Không có yêu cầu/duyệt đổi, giới hạn lượt đổi hay bộ đếm đổi món. Cutoff mặc định 20:00 hôm trước, Admin được cấu hình theo FR-ADM-015, tiếp tục dùng để kiểm tra quyền hủy.
 
-Không chuyển món sang ngày khác. Vẫn kiểm tra dị ứng, kho và cảnh báo calo. Thời điểm cuối được đổi sau cutoff so với Cooking/Ready/Delivering cần chốt tại CĐ-02. Cùng đơn giá và giờ giao mặc định 12:00 của weekly-orders.md chưa phải điều khoản SRS.
+Không chuyển món sang ngày khác hoặc thay dòng món trong đơn. Việc kiểm tra dị ứng, kho và lựa chọn món thay thế trước checkout vẫn áp dụng. Quyết định ngày 20/10/2026 thay quy tắc đổi món trước/sau cutoff trước đây; CĐ-02 không còn áp dụng.
 
 - Ưu tiên: Should (nên có); Nguồn: US-30; Xác minh: kiểm thử.
 
@@ -514,7 +514,7 @@ Khi một ngày trong combo thiếu món thì gắn cờ kèm món thay thế tr
 
 **FR-ORD-015** — Hệ thống chỉ hỗ trợ hủy toàn bộ một ngày giao trong gói tuần, không hủy lẻ món. Ngày hủy phải chưa Cooking và còn trước cutoff; chưa trả tự hủy theo FR-ORD-017, đã trả yêu cầu Manager duyệt theo FR-ORD-018. Hủy hợp lệ giảm 100% tiền các bữa của ngày đó; phần đã thu được hoàn trong 3–5 ngày làm việc. Ship theo FR-ORD-012.
 
-Chưa thu thì giảm số phải trả, không tạo khoản hoàn giả. Hủy toàn gói phải thỏa điều kiện của các ngày liên quan; trước giao ngày đầu hoàn cả ship đã thu. Ngày hủy Cancelled, không cộng calo; hủy cả bảy ngày thì gói Cancelled. Hiển thị chính sách trước xác nhận. Sau cutoff chỉ đổi theo FR-ORD-013; Failed là ngoại lệ riêng theo FR-ORD-023.
+Chưa thu thì giảm số phải trả, không tạo khoản hoàn giả. Hủy toàn gói phải thỏa điều kiện của các ngày liên quan; trước giao ngày đầu hoàn cả ship đã thu. Ngày hủy Cancelled, không cộng calo; hủy cả bảy ngày thì gói Cancelled. Hiển thị chính sách trước xác nhận. Sau cutoff không hủy thông thường và không đổi món; Failed là ngoại lệ riêng theo FR-ORD-023.
 
 - Ưu tiên: Should (nên có); Nguồn: US-30; Xác minh: kiểm thử.
 
@@ -912,7 +912,7 @@ Mọi lần Manager duyệt hủy, gán đổi shipper, xử lý Failed và ch�
 
 **FR-ADM-015** — Hệ thống phải giới hạn Admin ở quản trị: tạo/phân quyền Manager, Kitchen Staff, Delivery Staff hoặc Admin; chỉnh cutoff và tham số nghiệp vụ. Cutoff mặc định 20:00 ngày trước giao, được cấu hình thay vì cố định trong code. Can thiệp đơn chỉ như ngoại lệ vượt quyền Manager có lý do/audit.
 
-Customer tự đăng ký; Manager không tạo tài khoản/sửa cấu hình. Dùng cutoff nhất quán cho đổi/hủy và công bố chính sách; snapshot cutoff của đơn đang có được ghi ở mục lựa chọn triển khai.
+Customer tự đăng ký; Manager không tạo tài khoản/sửa cấu hình. Dùng cutoff nhất quán cho hủy và công bố chính sách; snapshot cutoff của đơn đang có được ghi ở mục lựa chọn triển khai.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-28; Xác minh: kiểm thử.
 
@@ -961,11 +961,11 @@ Khi khoảng ngày không có dữ liệu, WF-25 hiển thị số 0 kèm gợi 
 | 1. Hai bước | FR-PAY-003/004, FR-ORD-019 | Tiền riêng; Manager xác nhận; bếp bắt đầu nấu; từ chối đã thu thì hoàn. Giữ IPN chốt kho từ đặc tả trước. |
 | 2. Hủy đã trả | FR-AUTH-016, FR-ORD-017/018 | Chưa trả tự hủy, đã trả duyệt; đồng thời chưa nấu/trước cutoff. |
 | 3. Hủy ngày | FR-ORD-011/012/015/026 | Chỉ cả ngày. COD: hủy ngày đầu miễn/hoàn phí ship của ngày đó, không chuyển sang ngày khác (chốt 20/10/2026). Toàn gói hợp lệ trước giao ngày đầu hoàn ship, chống hoàn lặp. |
-| 4. Sau cutoff | FR-ORD-013/015/017/018/025 | Không hủy thông thường; đổi một lần trong ngày; khiếu nại 24 giờ sau nhận. |
+| 4. Sau cutoff | FR-ORD-013/015/017/018/025 | Không hủy thông thường. Đã bỏ đổi món sau đặt hàng theo quyết định 20/10/2026; khiếu nại 24 giờ sau nhận. |
 | 5. Failed | FR-ORD-010/016/023/024 | Giao lại qua Ready; 24 giờ chưa xử lý tự hủy/hoàn. |
 | 6. Nội bộ | FR-PTL-001/002, FR-ADM-015 | Bốn vai trò nội bộ, Active ngay; danh sách đủ năm vai trò. |
 | 7. Số bữa | FR-ORD-011, WF-26 | Mua đủ 7 × 4 = 28 bữa; hủy sau mua là luồng riêng. |
-| 8. Cutoff | FR-ORD-013, FR-ADM-015 | 20:00 hôm trước là mặc định có cấu hình; cùng đơn giá/12:00 chưa phải SRS. |
+| 8. Cutoff | FR-ORD-013, FR-ADM-015 | 20:00 hôm trước là mặc định có cấu hình, tiếp tục dùng cho hủy; không mở quyền đổi món. |
 | 9. Review/calo | FR-ORD-024/026, FR-TRK-006, FR-REV-001/003 | Theo ngày Completed, review riêng từng món như chủ yêu cầu xác nhận. |
 | 10. Target | FR-HLT-013, FR-MNU-001/008/010 | ±10% mềm; mục tiêu áp dụng thực đơn từ tuần lịch kế tiếp. |
 | 11. RememberMe | FR-AUTH-010, WF-03 | Không ghi nhớ 60 phút; ghi nhớ 7 ngày không hoạt động, thu hồi ngay vẫn hiệu lực. |
@@ -973,7 +973,7 @@ Khi khoảng ngày không có dữ liệu, WF-25 hiển thị số 0 kèm gợi 
 
 ### Lựa chọn triển khai và tham chiếu ngoài
 
-- weekly-orders.md ghi đổi món cùng đơn giá, giao mặc định 12:00, snapshot cutoff/chính sách theo đơn. Đây là lựa chọn triển khai đã ghi nhận, không tự trở thành SRS. Quy tắc sau cutoff không đổi số tiền không mặc nhiên đòi mọi món thay có cùng giá niêm yết.
+- weekly-orders.md ghi giao mặc định 12:00 và snapshot cutoff/chính sách theo đơn. Chức năng đổi món cùng đơn giá trước đây đã bị loại bỏ theo quyết định ngày 20/10/2026.
 - Theo phản hồi mục 12: xác nhận phụ huynh thuộc diễn giải/TBD-14; >10 kg/tháng thuộc diễn giải/TBD-03; email khẩn SendGrid được dẫn từ EIR-SW-002/TBD-11. Chưa có đầy đủ tài liệu nguồn trong tệp này; chưa đưa thành tiêu chí FR mới và không kết luận EIR vô hiệu chỉ vì không mang mã FR.
 - Phụ lục API B và /auth/login được nhắc trong phản hồi không có trong tệp này. Khi đồng bộ API: chỉ Admin gọi liệt kê/tạo người dùng; danh sách trả đối tượng đủ năm vai trò, tạo cho gán bốn vai trò nội bộ; đăng nhập nhận rememberMe hoặc trường ánh xạ. Không nhầm vai trò đối tượng với quyền gọi API, không tự đổi URL backend.
 - “Không ảnh hưởng code” ở phản hồi mục 6 chỉ mô tả ý định sửa câu chữ SRS. Backend còn phải đối chiếu enum, phân quyền, trạng thái và payload; cập nhật đặc tả chưa chứng minh code đã đáp ứng.
@@ -986,7 +986,7 @@ CĐ là vấn đề cần quyết định, không phải yêu cầu mới đã d
 | Mã | Cần chốt | Ảnh hưởng |
 | --- | --- | --- |
 | CĐ-01 — đã chốt cho COD | Trừ kho ngay khi đặt COD, không có hạn chờ Manager. Đơn COD lẻ dùng chung cấu hình cutoff chốt bếp với gói tuần (mặc định 20:00 hôm trước; chốt 20/10/2026). | Checkout, kho, xác nhận/hủy đơn lẻ. |
-| CĐ-02 | Đổi sau cutoff kết thúc ở trạng thái nào; ai thực hiện/duyệt khi đã nấu; một lần được đổi bao nhiêu món? | Gói tuần, bếp, kho. |
+| CĐ-02 — không còn áp dụng | Đã bỏ chức năng đổi món sau đặt hàng cho cả đơn ngày và gói tuần (20/10/2026). | Không triển khai yêu cầu/duyệt đổi hoặc đếm lượt đổi. |
 | CĐ-03 | Hoàn ngày Failed/Rejected xử lý ship gói thế nào, có khác khách tự hủy ngày không? | Hoàn tự động/đối soát; không tự áp chính sách hủy thường vào ngoại lệ. |
 | CĐ-04 | Gói lẫn Completed và Cancelled/Rejected tổng hợp trạng thái nào? Doanh thu/số đơn tính theo gói hay ngày, giá vốn/hoàn thuộc kỳ nào? | Trạng thái tổng, FR-FIN-001; không trì hoãn review/calo ngày. |
 | CĐ-05 | Thao tác người dùng, request xác thực hay refresh gia hạn phiên? Request nền khi không sử dụng có tính hoạt động không? | Phiên trượt, tránh polling giữ phiên vô hạn. |

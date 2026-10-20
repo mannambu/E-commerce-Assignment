@@ -22,7 +22,7 @@ class InventoryService {
     return [...quantities.values()]
   }
 
-  // Caller lưu Order trong cùng session. Dùng chung cho checkout, đổi món và hủy ngày.
+  // Caller lưu Order trong cùng session. Dùng chung cho checkout và hủy ngày.
   async changeItems(order: Order, removed: StockItem[], added: StockItem[], session: ClientSession) {
     const hold = order.inventoryHold
     if (hold.status === 'NotReserved' || hold.status === 'Released') return

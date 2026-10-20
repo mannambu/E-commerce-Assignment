@@ -15,7 +15,7 @@ export type AuditAction =
   | 'CancellationApproved'
   | 'CancellationRejected'
   | 'OrderCancelled'
-  | 'DeliverySwapped'
+  | 'DeliverySwapped' // Historical audit only; post-checkout meal changes are no longer supported.
   | 'DeliveryCancelled'
   | 'StockReleased'
   | 'RefundIssued'

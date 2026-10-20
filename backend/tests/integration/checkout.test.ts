@@ -315,18 +315,12 @@ test('checkout and inventory on an isolated MongoDB replica set', { timeout: 180
     }
   )
 
-  await t.test('weekly swap and cancellation use the checkout hold without double counting', async () => {
+  await t.test('weekly cancellation releases only its original items without double counting', async () => {
     const f = await fixture(true)
     const created = await orders.createOrder(f.userId, f.payload)
     const first = created.deliveries[0]
-    await weekly.swapItem(f.userId, String(created.orderId), String(first._id), String(first.items[0]._id), {
-      foodId: String(f.alternative._id),
-      version: 0
-    })
-    assert.equal((await database.foods.findOne({ _id: f.food._id }))!.reservedStock, 6)
-    assert.equal((await database.foods.findOne({ _id: f.alternative._id }))!.reservedStock, 1)
     await weekly.cancelDelivery(f.userId, String(created.orderId), String(first._id), {
-      version: 1,
+      version: 0,
       reason: 'Đổi lịch'
     })
     const updated = await database.orders.findOne({ _id: created.orderId })

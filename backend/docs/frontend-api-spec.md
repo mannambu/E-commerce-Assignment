@@ -785,7 +785,7 @@ Body giống /orders/quote, thêm `cartVersion` lấy từ `result.cart.version`
 * Online giữ kho 15 phút: `inventoryHold.status = Held`, `expiresAt` bằng `paymentDueAt`. Hết hạn chưa có IPN thành công, job chuyển Cancelled và nhả kho. Pending đã Paid không bị job hủy.
 * Cả đơn lẻ và tuần COD tạo ở `Pending` (payment vẫn Pending), kho Committed, không có hạn chờ Manager. Cả hai lưu `cutoffAt` theo cùng cấu hình chốt bếp. Online cũng Pending; IPN sau này ghi Paid/chốt kho mà không tự Confirmed. Gói tuần lưu chính sách hủy và target calo tại lúc đặt.
 * Xem [checkout-inventory.md](checkout-inventory.md) cho lỗi thiếu hàng, transaction, retry và ranh giới với phần IPN/tự hủy đơn.
-* Response gói tuần có `amounts` (tiền sau giảm/đã thu/đã hoàn/chờ hoàn/còn phải trả), tổng `waivedShippingFee`; mỗi ngày có thêm `grandTotal`, `nutritionTotals`, `canSwap`, `canCancel`. `grandTotal` gốc không giảm khi hủy ngày; UI dùng `amounts.payableTotal`/`amountDue` để hiển thị số thực tế.
+* Response gói tuần có `amounts` (tiền sau giảm/đã thu/đã hoàn/chờ hoàn/còn phải trả), tổng `waivedShippingFee`; mỗi ngày có thêm `grandTotal`, `nutritionTotals`, `canCancel`. Không còn `canSwap`; món cố định sau checkout. `grandTotal` gốc không giảm khi hủy ngày; UI dùng `amounts.payableTotal`/`amountDue` để hiển thị số thực tế.
 
 ### **GET /orders**
 
@@ -853,16 +853,16 @@ Body:
 
 | Method | Endpoint | Quyền |
 | --- | --- | --- |
-| GET | `/orders/:orderId/deliveries/:deliveryId/items/:itemId/alternatives` | Customer chủ đơn / Admin |
-| PATCH | `/orders/:orderId/deliveries/:deliveryId/items/:itemId` | Customer chủ đơn / Admin |
 | GET | `/orders/:orderId/deliveries/:deliveryId/cancellation` | Customer chủ đơn / Admin |
 | POST | `/orders/:orderId/deliveries/:deliveryId/cancel` | Customer chủ đơn / Admin |
 | PATCH | `/orders/:orderId/deliveries/:deliveryId/status` | Admin |
 | GET, PATCH | `/admin/commerce-settings` | Admin |
 
-Đổi món gửi `{ "foodId": "...", "version": 0 }`; hủy gửi `{ "reason": "...", "version": 0 }`; trạng thái gửi `{ "status": "Cooking", "version": 0 }`. Admin phải thêm `exceptionReason` vào mọi body thay đổi này; thiếu lý do trả 403. Version cũ trả 409. Manager dùng API `/decision` cho toàn đơn Pending và API phân công riêng từng ngày bên dưới.
+Hủy gửi `{ "reason": "...", "version": 0 }`; trạng thái gửi `{ "status": "Cooking", "version": 0 }`. Admin phải thêm `exceptionReason` vào các API ngoại lệ; thiếu lý do trả 403. Version cũ trả 409. Manager dùng API `/decision` cho toàn đơn Pending và API phân công riêng từng ngày bên dưới.
 
-Đổi/hủy chỉ trước cutoff của ngày Pending/Confirmed. Đổi món cùng giá snapshot, kiểm tra calo/dị ứng/kho; hủy xem preview trước xác nhận. Customer COD đã trả phải chờ Manager duyệt, sau duyệt mới tạo Refund **Pending**; chưa tự hoàn tiền. Preview COD dùng `lines[]` và `requiresApproval`. Trạng thái ngày theo `Confirmed → Cooking → Ready → Delivering → Completed`, chỉ xử lý từ ngày giao, online phải có IPN xác thực. Chính sách hủy, ví dụ ở [weekly-orders.md](weekly-orders.md) và [luồng hủy COD](cod-cancellation-workflow.md).
+Món trong đơn ngày/gói tuần cố định sau checkout cho mọi vai trò, cả trước cutoff và khi Confirmed. Hai API cũ `GET .../items/:itemId/alternatives` và `PATCH .../items/:itemId` đã gỡ, trả 404. Không có API yêu cầu/duyệt đổi hay bộ đếm lượt đổi.
+
+Hủy chỉ trước cutoff của ngày Pending/Confirmed, xem preview trước xác nhận. Customer COD đã trả phải chờ Manager duyệt, sau duyệt mới tạo Refund **Pending**; chưa tự hoàn tiền. Preview COD dùng `lines[]` và `requiresApproval`. Trạng thái ngày theo `Confirmed → Cooking → Ready → Delivering → Completed`, chỉ xử lý từ ngày giao, online phải có IPN xác thực. Chính sách hủy, ví dụ ở [weekly-orders.md](weekly-orders.md) và [luồng hủy COD](cod-cancellation-workflow.md).
 
 Luồng hủy COD bổ sung `POST/GET /orders/:orderId/cancellation-requests`, `PATCH /orders/:orderId/cancellation-requests/:requestId` (Manager Approve/Reject) và `GET /workspace/cancellation-requests` (Manager, phân trang). Body và checklist tại [cod-cancellation-workflow.md](cod-cancellation-workflow.md).
 
@@ -1136,5 +1136,5 @@ Cart, Tracking, Health Profile, gợi ý thực đơn và tạo/sửa review đ�
 - Backend chưa có báo cáo tài chính/Excel Manager, API liệt kê/xóa riêng phiên theo ID hay API đọc audit log. Có schema/service nội bộ không có nghĩa đã có endpoint public.
 - Frontend quản lý user cần đọc `result.items` và `result.total`, gửi `reason` khi khóa/mở/đổi role. Dashboard Admin phải dùng `orders.byStatus`; response không còn `revenue`. Các trang frontend cũ chưa được chuyển trong đợt backend này.
 - Checkout đã có giữ/trừ kho bằng transaction, idempotency và job hủy online chưa trả sau 15 phút. Manager đã có API xác nhận/từ chối và tạo yêu cầu hoàn. IPN và hoàn tiền thật qua cổng thanh toán chưa tích hợp; không coi Paid thủ công là xác nhận thanh toán.
-- Gói tuần đã có API đổi/hủy ngày; Customer COD tự hủy chưa thu hoặc yêu cầu Manager duyệt phần đã thu. Manager có phân công bếp/shipper, bếp có Confirmed → Cooking → Ready, shipper có nhận/giao và ghi COD/Failed. Manager xử lý Failed/đối soát và job 24 giờ đã có cho COD. Luồng hủy online, tích hợp cổng thanh toán và WebSocket realtime vẫn cần đồng bộ tiếp. Review đã kiểm tra chính ngày Completed; giới hạn/index mỗi Order–Food cần đồng bộ riêng. Recommendation/swap hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.
+- Gói tuần đã có API hủy ngày; món cố định sau checkout, không có chức năng đổi. Customer COD tự hủy chưa thu hoặc yêu cầu Manager duyệt phần đã thu. Manager có phân công bếp/shipper, bếp có Confirmed → Cooking → Ready, shipper có nhận/giao và ghi COD/Failed. Manager xử lý Failed/đối soát và job 24 giờ đã có cho COD. Luồng hủy online, tích hợp cổng thanh toán và WebSocket realtime vẫn cần đồng bộ tiếp. Review đã kiểm tra chính ngày Completed; giới hạn/index mỗi Order–Food cần đồng bộ riêng. Gợi ý/lựa chọn thực đơn trước checkout hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.
 - Reset qua mã email chỉ chạy thực tế sau khi cấu hình SMTP; không cần URL reset hoặc trang frontend để test bằng Postman. Hướng dẫn DB/seed/email ở [auth-setup.md](auth-setup.md), giải thích 12 collection ở [database_schema.md](../../docs/database_schema.md).

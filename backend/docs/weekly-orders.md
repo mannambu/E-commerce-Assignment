@@ -2,7 +2,7 @@
 
 ## Phân tích và lựa chọn
 
-Đối chiếu US-30, US-17 và US-11 trong [func_request.md](../../docs/func_request.md):
+Đối chiếu yêu cầu mới nhất trong [func_request_ver2.0.md](../../docs/func_request_ver2.0.md), cập nhật quyết định bỏ đổi món sau đặt hàng ngày 20/10/2026:
 
 | Phần | Cách triển khai | Vì sao |
 | --- | --- | --- |
@@ -10,13 +10,13 @@
 | Phí ship | Giữ `distanceKm` và biểu phí hiện có; chỉ thu ngày đầu | Giữ đúng yêu cầu và tương thích cách gọi hiện tại |
 | Lịch giao | Giờ cố định theo Việt Nam; lưu `scheduledAt` và `cutoffAt` từng ngày | Không phụ thuộc múi giờ máy chạy backend; khóa đúng ngày đã chốt |
 | Cấu hình bếp | Admin đặt giờ chốt; chép thời hạn và chính sách vào đơn lúc đặt | Đổi cấu hình sau này không làm đổi điều kiện của đơn cũ |
-| Đổi món | Đổi một dòng trong một ngày; kiểm tra giá, dinh dưỡng, dị ứng và kho | Giữ tổng giá đã chốt và không ảnh hưởng sáu ngày còn lại |
+| Món trong đơn | Cố định sau checkout cho cả đơn ngày và gói tuần | Không có API đổi món, yêu cầu/duyệt đổi hoặc bộ đếm lượt đổi |
 | Hủy ngày | Xem trước khoản giảm/hoàn, rồi xác nhận bằng `version` | Tránh hủy theo chính sách đã thay đổi hoặc ghi đè thao tác khác |
 | Trạng thái | Vận hành từng ngày; trạng thái gói tổng hợp từ các ngày còn hiệu lực | Giao xong ngày đầu không thể hoàn thành cả tuần |
 
-US-11 nói chặn swap sau checkout, nhưng US-30 cho đổi ngày trong gói tuần trước giờ chốt. Ở đây US-30 là ngoại lệ dành riêng cho `WEEKLY_7D`. Không mở đổi món đơn lẻ sau đặt.
+Không có ngoại lệ đổi món cho Customer, Manager hoặc Admin, kể cả khi đơn Confirmed và còn trước cutoff. Các API đổi món/tìm món thay thế trong đơn đã được gỡ, gọi lại trả 404.
 
-Các lựa chọn MVP trong đợt này: giờ giao mặc định **12:00**, chốt **20:00 ngày trước giao**, đổi món **cùng đơn giá đã chốt**, hủy trước giờ chốt được giảm/hoàn **100% tiền món và phí ship đã thu của ngày đó**. Sau giờ chốt không cho tự đổi/hủy; xử lý ngoại lệ thuộc đối soát sau này.
+Giờ giao mặc định **12:00**, cutoff mặc định **20:00 ngày trước giao** và có cấu hình. Hủy COD trước cutoff theo điều kiện thanh toán; giảm/hoàn **100% tiền món và phí ship thuộc ngày hủy**. Món trong đơn luôn cố định; cutoff không mở quyền đổi.
 
 ## Khoảng cách và phí ship
 
@@ -59,17 +59,9 @@ Các endpoint bên dưới bắt buộc JWT. Customer chỉ sửa đơn của m�
 
 | Method | Path | Dùng để |
 | --- | --- | --- |
-| GET | `/orders/:orderId/deliveries/:deliveryId/items/:itemId/alternatives` | Lấy tối đa năm món đổi cùng giá |
-| PATCH | `/orders/:orderId/deliveries/:deliveryId/items/:itemId` | Đổi một món |
 | GET | `/orders/:orderId/deliveries/:deliveryId/cancellation` | Xem khoản giảm/hoàn trước khi hủy |
 | POST | `/orders/:orderId/deliveries/:deliveryId/cancel` | Hủy một ngày |
 | PATCH | `/orders/:orderId/deliveries/:deliveryId/status` | Admin đổi trạng thái ngày |
-
-Body đổi món:
-
-```json
-{ "foodId": "ID_MON_MOI", "version": 0 }
-```
 
 Body hủy:
 
@@ -83,13 +75,9 @@ Body đổi trạng thái:
 { "status": "Cooking", "version": 0 }
 ```
 
-`version` lấy từ chi tiết đơn hoặc kết quả preview/alternatives mới nhất, tăng sau mỗi sửa đổi. Version cũ trả 409, frontend tải lại trước khi thử tiếp. Lặp lại thao tác hủy một ngày đã hủy trả kết quả hiện có, không thêm tiền hoàn hay nhả kho lần nữa.
+`version` lấy từ chi tiết đơn hoặc preview hủy mới nhất, tăng sau mỗi sửa đổi. Version cũ trả 409, frontend tải lại trước khi thử tiếp. Gửi lặp đúng yêu cầu hủy đã thành công không thêm tiền hoàn hay nhả kho lần nữa.
 
-Điều kiện đổi/hủy: ngày đang `Pending` hoặc `Confirmed`, đơn chưa kết thúc và thời điểm hiện tại **nhỏ hơn** `cutoffAt`. Đúng giờ chốt là đã khóa. Đổi món giữ số lượng, ngày, bữa và ID dòng; cập nhật tên/ảnh/dinh dưỡng của món mới, bỏ tham chiếu thực đơn cũ của dòng đó.
-
-Món đổi phải đang bán, đủ kho, cùng đơn giá trong OrderItem, calo lệch không quá ±15% món hiện tại, tổng ngày sau đổi lệch không quá ±10% `targetCaloriesSnapshot`. Nếu chưa có target, dùng tổng calo ngày trước đổi làm mốc. Lọc cả `allergies` và `dietaryRestrictions` hiện tại của chủ đơn, kể cả trường kiêng kỵ nằm trong `allergies` của hồ sơ cũ. Thay đổi cân nặng/mục tiêu sau đặt không tự đổi target của đơn đang chạy.
-
-Response đổi món có `calories`, `nutritionTotals` (calories/protein/carb/fat), `calorieDifference`, `targetCalories`, `targetDifference`, `warnings` và Order mới. Macro thay đổi được báo để frontend hiển thị, không tự chặn chỉ vì macro đổi.
+Điều kiện hủy: ngày đang `Pending` hoặc `Confirmed`, chưa nấu và thời điểm hiện tại **nhỏ hơn** `cutoffAt`. Đúng cutoff là đã chốt. Hủy giữ bản chụp các món đã đặt để đối chiếu, chỉ cập nhật trạng thái và khoản giảm/hoàn.
 
 Admin chuyển từng ngày theo `Confirmed → Cooking → Ready → Delivering → Completed`; không nhảy bước, quay ngược hay xử lý ngày giao tương lai. Online chỉ vào Cooking khi payment đã Paid/PartiallyRefunded và có Payment Transaction Succeeded từ VerifiedIPN. Bếp được phân công có API vận hành riêng `kitchen-status` cho Confirmed → Cooking → Ready, không cần lý do ngoại lệ Admin. Hoàn thành một ngày cập nhật theo dõi calo cho ngày đó. Gói chỉ Completed khi các ngày chưa hủy đều Completed, hoặc Cancelled khi cả bảy ngày đã hủy.
 
@@ -112,7 +100,7 @@ Ví dụ bảy ngày, mỗi ngày 50.000đ, ship ngày đầu 20.000đ: giá g�
 
 Preview Customer COD trả `requiresApproval` và `lines[]` chứa khoản giảm/hoàn của từng ngày; xem [API hiện hành](cod-cancellation-workflow.md). Preview online/Admin hiện có vẫn trả `foodCredit`, `shippingCredit`, `creditedAmount`, `refundAmount`, `remainingPayable`, `refundStatus`, chính sách, cutoff và version. `cancellation.refundAmount` là khoản yêu cầu hoàn; không đồng nghĩa `delivery.refundedAmount` hay `payment.refundedAmount` đã tăng.
 
-Đổi/hủy lưu Order, điều chỉnh kho đã giữ/trừ, AuditLog và yêu cầu hoàn tiền trong cùng MongoDB transaction. `NotReserved` không được cộng trả hàng vì chưa từng giữ/trừ. `Held` điều chỉnh reservedStock; `Committed` điều chỉnh stock. Cần MongoDB replica set/Atlas để chạy transaction.
+Hủy lưu Order, điều chỉnh kho đã giữ/trừ, AuditLog và yêu cầu hoàn tiền trong cùng MongoDB transaction. `NotReserved` không được cộng trả hàng vì chưa từng giữ/trừ. `Held` điều chỉnh reservedStock; `Committed` điều chỉnh stock. Cần MongoDB replica set/Atlas để chạy transaction.
 
 ## Admin cấu hình bếp
 
@@ -126,9 +114,9 @@ Preview Customer COD trả `requiresApproval` và `lines[]` chứa khoản giả
 
 ## Phần nối tiếp
 
-- Đợt này triển khai backend; frontend cần màn hình lịch, đổi món, preview xác nhận hủy và cấu hình giờ chốt.
+- Đợt này chỉ sửa backend. Response không còn `canSwap`; các API đổi món cũ trả 404. Giao diện cần dùng các API lịch, hủy và cấu hình giờ chốt hiện hành.
 - Checkout đã có transaction, idempotency, giữ kho online 15 phút và trừ kho COD; xem [phần 6](checkout-inventory.md). Quote vẫn không giữ hàng.
 - Thu COD theo ngày đã có trong [API Shipper](shipper-workflow.md); [API Manager](manager-cod-operations.md) xử lý ngày COD Failed và ghi nhận tiền thực tế thu bù/trả lại. Hủy ngày Failed bỏ cả tiền món và phí ship của ngày, không chuyển phí sang ngày khác, không trả món đã nấu về kho. Job hết hạn thanh toán và job COD Failed 24 giờ đã có; IPN và gọi cổng hoàn tiền chưa tích hợp. Không đánh dấu đã hoàn chỉ vì tạo yêu cầu Refund Pending.
 - API sửa payment-status thủ công bị chặn cho cả gói tuần và đơn lẻ. Retry chỉ cho online Pending, chưa trả, còn hạn và chưa hủy ngày; giữ lại hàng nếu hold đã Released. Đơn đã hủy ngày cần đối soát lại số tiền. Phần IPN sắp tới phải xử lý cả callback đến muộn sau khi hủy và lấy số phải thu từ khoản thực tế sau giảm.
 - Gói tuần COD phải có cutoff hợp lệ và kho Committed; sổ tiền phải phân bổ đúng ngày. Chính sách hủy COD áp dụng quyết định 20/10/2026, không dùng snapshot cũ để cho tự hủy phần đã thu. Luồng online/Admin vẫn kiểm tra snapshot chính sách hiện có. Không chạy migration hay sửa DB đang dùng.
-- Test phần 5 dùng kho giả lập/HTTP cục bộ; phần 6 bổ sung MongoDB replica set thật tạm thời để kiểm tra checkout và đổi/hủy ngày cùng kho. Chưa kiểm thử cổng thanh toán.
+- Test phần 5 dùng kho giả lập/HTTP cục bộ để kiểm tra API đổi món đã bị loại bỏ; phần 6 dùng MongoDB replica set tạm để kiểm tra checkout và hủy ngày cùng kho. Chưa kiểm thử cổng thanh toán.

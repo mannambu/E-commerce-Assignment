@@ -2,15 +2,11 @@ import { adminExceptionReason } from '~/utils/permissions'
 import { aggregateOrderStatus } from '~/utils/order-status'
 import { ClientSession, ObjectId } from 'mongodb'
 import { ErrorWithStatus } from '~/models/Errors'
-import Order, { DeliveryPeriod, OrderItem, OrderStatus } from '~/models/schemas/Order.schema'
+import Order, { DeliveryPeriod, OrderStatus } from '~/models/schemas/Order.schema'
 import Food from '~/models/schemas/Food.schema'
 import User, { UserRole } from '~/models/schemas/User.schema'
 import { normalizeSearchText, toLocalDate } from '~/models/schemas/common'
-import {
-  CancelDeliveryReqBody,
-  SwapDeliveryItemReqBody,
-  UpdateDeliveryStatusReqBody
-} from '~/models/requests/CartOrder.request'
+import { CancelDeliveryReqBody, UpdateDeliveryStatusReqBody } from '~/models/requests/CartOrder.request'
 import database from './database.services'
 import tracking from './tracking.services'
 import inventory from './inventory.services'
@@ -77,13 +73,6 @@ class WeeklyOrdersService {
         ...day,
         grandTotal: day.subtotal + day.shipping.totalFee,
         nutritionTotals: this.dayNutrition(day),
-        canSwap:
-          this.canEdit(order, day) &&
-          order.inventoryHold.status !== 'Released' &&
-          !(
-            order.inventoryHold.status === 'Held' &&
-            (!order.inventoryHold.expiresAt || order.inventoryHold.expiresAt <= new Date())
-          ),
         // COD preview decides self-cancel vs Manager approval from the per-day ledger.
         canCancel:
           order.payment.method === 'COD'
@@ -129,16 +118,10 @@ class WeeklyOrdersService {
   private checkEditable(order: Order, delivery: DeliveryPeriod) {
     if (!this.canEdit(order, delivery)) {
       throw new ErrorWithStatus({
-        message: 'Ngày giao đã chốt bếp hoặc đang được xử lý, không thể đổi/hủy',
+        message: 'Ngày giao đã chốt bếp hoặc đang được xử lý, không thể hủy',
         status: 400
       })
     }
-  }
-
-  private findItem(delivery: DeliveryPeriod, itemId: string) {
-    const item = delivery.items.find((item) => item._id.equals(new ObjectId(itemId)))
-    if (!item) throw new ErrorWithStatus({ message: 'Không tìm thấy dòng món trong ngày giao', status: 404 })
-    return item
   }
 
   private isFoodAllowed(food: Food, customer: User) {
@@ -156,42 +139,6 @@ class WeeklyOrdersService {
       } else if (rule && [...tags, ...ingredientText].some((text) => text.includes(rule))) return false
     }
     return true
-  }
-
-  private swapProblem(order: Order, delivery: DeliveryPeriod, item: OrderItem, food: Food, customer: User) {
-    if (!food.isActive || food._id?.equals(item.foodId)) return 'Hãy chọn món khác đang kinh doanh'
-    if (food.price !== item.price) return 'MVP chỉ đổi sang món cùng giá với giá đã chốt trong đơn'
-    if (!this.isFoodAllowed(food, customer)) return 'Món thay thế không phù hợp với dị ứng/kiêng kỵ của bạn'
-    if (Math.abs(food.calories - item.calories) > item.calories * 0.15)
-      return 'Món thay thế phải nằm trong ±15% calo món cũ'
-    const currentCalories = delivery.items.reduce((sum, line) => sum + line.calories * line.quantity, 0)
-    const nextCalories = currentCalories + (food.calories - item.calories) * item.quantity
-    const target = order.targetCaloriesSnapshot || currentCalories
-    if (Math.abs(nextCalories - target) > target * 0.1) return 'Tổng calo ngày sau đổi vượt sai số ±10%'
-    const existingQuantity =
-      order.inventoryHold.status === 'NotReserved'
-        ? order.deliveries
-            .filter((day) => day.status !== 'Cancelled')
-            .flatMap((day) => day.items)
-            .filter((line) => line.foodId.equals(food._id!))
-            .reduce((sum, line) => sum + line.quantity, 0)
-        : 0
-    if (food.stock - (food.reservedStock ?? 0) < item.quantity + existingQuantity)
-      return 'Món thay thế không đủ tồn kho'
-    return null
-  }
-
-  private checkSwapHold(order: Order) {
-    if (
-      order.inventoryHold.status === 'Released' ||
-      (order.inventoryHold.status === 'Held' &&
-        (!order.inventoryHold.expiresAt || order.inventoryHold.expiresAt <= new Date()))
-    ) {
-      throw new ErrorWithStatus({
-        message: 'Đơn đã hết thời gian giữ hàng, cần xử lý lại tồn kho trước khi đổi món',
-        status: 409
-      })
-    }
   }
 
   async getCartReplacements(userId: string, items: CartSummaryItem[]) {
@@ -242,50 +189,6 @@ class WeeklyOrdersService {
     })
   }
 
-  async getAlternatives(userId: string, orderId: string, deliveryId: string, itemId: string) {
-    const { order, delivery } = await this.getContext(userId, orderId, deliveryId)
-    this.checkEditable(order, delivery)
-    this.checkSwapHold(order)
-    const item = this.findItem(delivery, itemId)
-    const customer = await database.users.findOne({ _id: order.userId })
-    if (!customer) throw new ErrorWithStatus({ message: 'Không tìm thấy khách hàng', status: 404 })
-    const foods = await database.foods
-      .find({
-        isActive: true,
-        price: item.price,
-        calories: {
-          $gte: item.calories * 0.85,
-          $lte: item.calories * 1.15
-        }
-      })
-      .toArray()
-    const score = (food: Food) =>
-      Math.abs(food.calories - item.calories) +
-      Math.abs(food.nutrition.protein - item.nutrition.protein) +
-      Math.abs(food.nutrition.carb - item.nutrition.carb) +
-      Math.abs(food.nutrition.fat - item.nutrition.fat)
-    const alternatives = foods
-      .filter((food) => !this.swapProblem(order, delivery, item, food, customer))
-      .sort((a, b) => score(a) - score(b))
-      .slice(0, 5)
-      .map((food) => ({
-        foodId: food._id,
-        name: food.name,
-        price: food.price,
-        calories: food.calories,
-        nutrition: food.nutrition,
-        image: food.images[0] || null
-      }))
-    return {
-      orderId: order._id,
-      deliveryId: delivery._id,
-      itemId: item._id,
-      version: order.version,
-      alternatives,
-      message: alternatives.length ? 'Các món có thể đổi' : 'Hết món thay thế phù hợp'
-    }
-  }
-
   private async saveOrder(order: Order, actor: User, session: ClientSession) {
     const status = aggregateOrderStatus(order.deliveries)
     if (status !== order.status) order.statusHistory.push({ status, changedAt: new Date(), actorId: actor._id })
@@ -317,72 +220,6 @@ class WeeklyOrdersService {
     )
     if (!result.matchedCount) throw new ErrorWithStatus({ message: 'Đơn đã thay đổi, vui lòng tải lại', status: 409 })
     order.version += 1
-  }
-
-  async swapItem(
-    userId: string,
-    orderId: string,
-    deliveryId: string,
-    itemId: string,
-    payload: SwapDeliveryItemReqBody
-  ) {
-    return database.withTransaction(async (session) => {
-      const { actor, order, delivery } = await this.getContext(userId, orderId, deliveryId, session)
-      const exceptionReason = adminExceptionReason(actor.role, payload.exceptionReason)
-      this.checkVersion(order, payload.version)
-      this.checkEditable(order, delivery)
-      this.checkSwapHold(order)
-      const item = this.findItem(delivery, itemId)
-      const food = await database.foods.findOne({ _id: new ObjectId(payload.foodId) }, { session })
-      const customer = await database.users.findOne({ _id: order.userId }, { session })
-      if (!food || !customer)
-        throw new ErrorWithStatus({ message: 'Không tìm thấy món thay thế hoặc khách hàng', status: 404 })
-      const problem = this.swapProblem(order, delivery, item, food, customer)
-      if (problem) throw new ErrorWithStatus({ message: problem, status: 400 })
-      const beforeNutrition = this.dayNutrition(delivery)
-      const replacement: OrderItem = {
-        _id: item._id,
-        foodId: food._id!,
-        foodName: food.name,
-        image: food.images[0],
-        quantity: item.quantity,
-        price: item.price,
-        calories: food.calories,
-        nutrition: { ...food.nutrition },
-        mealSlot: item.mealSlot
-      }
-      delivery.items = delivery.items.map((line) => (line._id.equals(item._id) ? replacement : line))
-      await inventory.changeItems(order, [item], [replacement], session)
-      await this.saveOrder(order, actor, session)
-      await database.auditLogs.insertOne(
-        {
-          actorId: actor._id,
-          actorRole: actor.role,
-          action: 'DeliverySwapped',
-          entityType: 'Order',
-          entityId: order._id!,
-          before: { deliveryId: delivery._id, item },
-          after: { deliveryId: delivery._id, item: replacement },
-          reason: exceptionReason || 'Đổi món cùng giá trước giờ chốt bếp',
-          createdAt: new Date()
-        },
-        { session }
-      )
-      const nutritionTotals = this.dayNutrition(delivery)
-      const targetCalories = order.targetCaloriesSnapshot || beforeNutrition.calories
-      const macroChanged = (['protein', 'carb', 'fat'] as const).some(
-        (key) => beforeNutrition[key] !== nutritionTotals[key]
-      )
-      return {
-        order: this.describeOrder(order),
-        calories: nutritionTotals.calories,
-        nutritionTotals,
-        calorieDifference: nutritionTotals.calories - beforeNutrition.calories,
-        targetCalories,
-        targetDifference: nutritionTotals.calories - targetCalories,
-        warnings: macroChanged ? ['Macro của ngày đã thay đổi; hãy xem lại tổng protein, carb và fat.'] : []
-      }
-    })
   }
 
   private cancellationQuote(order: Order, delivery: DeliveryPeriod) {

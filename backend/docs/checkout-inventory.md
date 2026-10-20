@@ -103,7 +103,7 @@ Gói đã hủy ngày tiếp tục bị chặn retry để phần thanh toán đ
 | --- | --- |
 | Cart version | Xóa giỏ trong transaction theo đúng version; gửi lại key cũ không ảnh hưởng giỏ mới |
 | Món trong nhiều ngày | Cộng tổng nhu cầu của cùng Food một lần, không nhân cả giỏ với 7 |
-| Đổi/hủy ngày của gói tuần | Dùng chung `inventory.changeItems()` với checkout, không có thuật toán kho thứ hai |
+| Hủy ngày của gói tuần | Dùng chung `inventory.changeItems()` với checkout; món trong đơn không được đổi |
 | Hủy đơn lẻ | Cập nhật Order, nhả/trả kho và audit trong cùng transaction |
 | Timeline COD | Đặt ở Pending, Manager chuyển Confirmed; thanh toán vẫn Pending cho tới thu COD |
 | Chế biến đơn lẻ/ngày của gói tuần | Chỉ Confirmed → Cooking, kho phải Committed; online phải có giao dịch VerifiedIPN thành công |
@@ -137,5 +137,5 @@ npm run build
 Integration test tự chạy MongoDB replica set tạm bằng `mongodb-memory-server`, tạo index thật,
 đóng/xóa DB tạm khi xong. Lần đầu có thể cần tải MongoDB binary. Không kết nối DB được cấu hình trong `.env`.
 Các ca kiểm thử gồm tranh hàng cuối, key gửi lặp đồng thời, hai key dùng một giỏ, đổi giá sau báo giá,
-giỏ bị sửa, rollback giữa chừng, COD, job nhả trùng, retry giữ lại hàng, đổi/hủy ngày, commit kho tranh chấp
+giỏ bị sửa, rollback giữa chừng, COD, job nhả trùng, retry giữ lại hàng, hủy ngày, commit kho tranh chấp
 với job, ràng buộc tồn kho Admin, nguồn MealPlan và HTTP validation/phân quyền.

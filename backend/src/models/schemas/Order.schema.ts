@@ -178,7 +178,7 @@ export default interface Order {
   idempotencyKey?: string
   requestHash?: string
   cancellationPolicy?: CancellationPolicySnapshot
-  targetCaloriesSnapshot?: number // Mục tiêu tại lúc đặt, dùng kiểm tra đổi món trong gói tuần.
+  targetCaloriesSnapshot?: number // Mục tiêu dinh dưỡng tại lúc đặt gói tuần.
   cancelledBy?: CancelledBy
   cancelledAt?: Date
   cancellationReason?: string
