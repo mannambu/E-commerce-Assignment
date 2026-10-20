@@ -32,6 +32,15 @@ Các API dưới đây cần `Authorization: Bearer <access_token>` của Admin.
   "confirm_password": "Kitchen123!",
   "role": "Kitchen Staff"
 }
+
+{
+    "email": "delivery@example.com",
+    "username": "delivery_demo",
+    "phone": "0901234568",
+    "password": "delivery123!",
+    "confirm_password": "delivery123!",
+    "role": "Delivery Staff"
+}
 ```
 
 Giữ các trường tên đăng nhập, điện thoại và mật khẩu theo hợp đồng tạo tài khoản đang có. Không có bước chờ kích hoạt hoặc email mời trong API này. Customer tự đăng ký. Admin đầu tiên được tạo bằng `npm run seed:admin`; các Admin tiếp theo có thể tạo qua API.
