@@ -40,7 +40,7 @@ Gửi lại cùng người, cùng body và version của thao tác đã thành c
 - Ngày `Completed` lưu số phải thu, thực thu, chênh lệch và người/thời điểm ghi nhận trong `deliveryResult`. `codDifference = codCollectedAmount - codExpectedAmount`.
 - Số thực thu lớn hơn 0 tạo một Payment Transaction Succeeded, nguồn CODCollection, có `deliveryId` và `createdBy`. Số 0 vẫn là kết quả hợp lệ nhưng không tạo giao dịch thu tiền giả.
 - `payment.paidAmount` là tổng thực thu. Nếu tổng chưa đủ, payment vẫn Pending dù ngày đã Completed. Khi đủ, payment thành Paid; khoản hoàn đã ghi nhận giữ nhãn PartiallyRefunded theo mô hình hiện có.
-- Thu thiếu/thừa đặt `payment.codReconciliationRequired: true`; không sửa giá, tự thu bù hoặc tự hoàn tiền. Trạng thái Paid không thay thế việc kiểm tra cờ đối soát.
+- Thu thiếu/thừa đặt `payment.codReconciliationRequired: true`; không sửa giá, tự thu bù hoặc tự hoàn tiền. Manager ghi khoản thực tế thu bù/trả lại qua API đối soát; cờ được tính lại từ `codSettlement`, còn chênh lệch shipper khai ban đầu vẫn giữ nguyên. Trạng thái Paid không thay thế việc kiểm tra cờ đối soát.
 - Giao thất bại lưu lý do, ảnh, `failedAt` và lịch sử; không ghi tiền COD, calo, hoàn tiền hoặc trả kho. Không được chuyển Failed → Delivering/Completed bằng API shipper.
 
 Với gói tuần có ngày Failed, trạng thái tổng lấy công đoạn sớm nhất của các ngày còn đang xử lý; cờ Failed được giữ riêng. Khi không còn ngày nào đang xử lý và vẫn còn Failed (các ngày khác chỉ Completed/Cancelled), trạng thái tổng là Failed, không báo hoàn tất. Đơn lẻ Failed có trạng thái tổng Failed.
@@ -49,7 +49,7 @@ Với gói tuần có ngày Failed, trạng thái tổng lấy công đoạn s�
 
 `GET /workspace/orders` vẫn chỉ trả phần shipper được gán ở Ready/Delivering/Failed, thêm `paymentMethod`, `codExpectedAmount`, `deliveryResult`, `failedAt`, `hasFailedDeliveries`. Bếp không nhận các trường tiền này. Completed rời danh sách công việc đang xử lý; retry thao tác vẫn được kiểm tra theo dữ liệu đã lưu.
 
-Manager/Admin đọc `deliveryResult` của từng ngày trên workspace hoặc chi tiết đơn; sổ `/workspace/transactions` có `deliveryId`, `method`, `source`, `createdBy` để đối chiếu. Luồng giải quyết chênh lệch chưa nằm trong bước này.
+Manager/Admin đọc `deliveryResult` của từng ngày trên workspace hoặc chi tiết đơn; sổ `/workspace/transactions` có `deliveryId`, `method`, `source`, `createdBy` để đối chiếu. Manager xử lý chênh lệch bằng [API đối soát COD](manager-cod-operations.md).
 
 ## Checklist
 
@@ -62,7 +62,7 @@ Manager/Admin đọc `deliveryResult` của từng ngày trên workspace hoặc 
 
 ## Phần còn lại
 
-Manager xử lý Failed → Ready hoặc hủy/hoàn, job quá 24 giờ và xử lý chênh lệch COD thuộc bước tiếp theo. Thông báo hiện lưu DB cùng transaction, chưa đẩy WebSocket. Review đã sửa điều kiện ngày Completed; giới hạn một review mỗi Order hiện có chưa đổi sang mỗi cặp Order–Food, cần đồng bộ riêng cùng index. Không coi các FR này đã hoàn tất toàn bộ.
+Manager xử lý Failed → Ready hoặc hủy/yêu cầu hoàn, job đủ 24 giờ và ghi nhận thu bù/trả lại đã có cho COD: xem [hướng dẫn Manager](manager-cod-operations.md). Thông báo hiện lưu DB cùng transaction, chưa đẩy WebSocket. Review đã sửa điều kiện ngày Completed; giới hạn một review mỗi Order hiện có chưa đổi sang mỗi cặp Order–Food, cần đồng bộ riêng cùng index. Không coi các FR này đã hoàn tất toàn bộ.
 
 ## Chạy kiểm thử
 

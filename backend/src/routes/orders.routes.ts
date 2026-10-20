@@ -1,4 +1,10 @@
 import { Router } from 'express'
+import {
+  resolveFailureController,
+  reconcileCODController,
+  getCODLedgerController
+} from '~/controllers/manager-operations.controllers'
+import { failureResolutionValidator, codReconciliationValidator } from '~/middlewares/manager-operations.middlewares'
 import { shipperStatusController } from '~/controllers/shipper.controllers'
 import { shipperStatusValidator } from '~/middlewares/shipper.middlewares'
 import {
@@ -56,6 +62,30 @@ import {
 } from '~/middlewares/weekly-orders.middlewares'
 
 const ordersRouter = Router()
+
+ordersRouter.patch(
+  '/:orderId/deliveries/:deliveryId/failure-resolution',
+  accessTokenValidator,
+  requireRoles(UserRole.MANAGER),
+  deliveryParamsValidator,
+  failureResolutionValidator,
+  wrapRequestHandler(resolveFailureController)
+)
+ordersRouter.get(
+  '/:orderId/deliveries/:deliveryId/cod-reconciliation',
+  accessTokenValidator,
+  requireRoles(UserRole.MANAGER),
+  deliveryParamsValidator,
+  wrapRequestHandler(getCODLedgerController)
+)
+ordersRouter.post(
+  '/:orderId/deliveries/:deliveryId/cod-reconciliation',
+  accessTokenValidator,
+  requireRoles(UserRole.MANAGER),
+  deliveryParamsValidator,
+  codReconciliationValidator,
+  wrapRequestHandler(reconcileCODController)
+)
 
 ordersRouter.patch(
   '/:orderId/deliveries/:deliveryId/shipper-status',

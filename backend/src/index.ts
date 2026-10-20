@@ -13,6 +13,7 @@ import reviewsRouter from '~/routes/reviews.routes'
 import mediasRouter from './routes/medias.routes'
 import adminRouter from './routes/admin.routes'
 import { startInventoryJob } from './jobs/inventory.jobs'
+import { startFailedDeliveriesJob } from './jobs/failed-deliveries.jobs'
 
 config()
 // Index được chuẩn bị riêng bằng npm run schema:indexes; startup không sửa DB cũ.
@@ -62,6 +63,7 @@ databaseService
   .connect()
   .then(() => {
     startInventoryJob()
+    startFailedDeliveriesJob()
     app.listen(port, () => console.log(`Server listening on http://localhost:${port}`))
   })
   .catch(() => {

@@ -7,6 +7,7 @@ import { aggregateOrderStatus } from '~/utils/order-status'
 import { deliveryCodExpected, validEvidenceUrls } from '~/utils/delivery'
 import database from './database.services'
 import tracking from './tracking.services'
+import { readCODLedger, refreshCODSummary } from './cod-ledger.services'
 
 function fail(status: number, message: string): never {
   throw new ErrorWithStatus({ status, message })
@@ -157,7 +158,7 @@ class ShipperService {
         if (
           payments.some(
             (payment) =>
-              payment.source !== 'CODCollection' ||
+              !['CODCollection', 'Reconciliation'].includes(payment.source) ||
               payment.method !== 'COD' ||
               !Number.isSafeInteger(payment.amount) ||
               payment.amount <= 0
@@ -210,15 +211,7 @@ class ShipperService {
           ...(transactionId ? { transactionId } : {})
         }
         order.payment.paidAmount = paid + actual
-        order.payment.codReconciliationRequired = order.deliveries.some(
-          (delivery) => (delivery.deliveryResult?.codDifference || 0) !== 0
-        )
-        const payable =
-          order.grandTotal -
-          order.deliveries.reduce((sum, delivery) => sum + (delivery.cancellation?.creditedAmount || 0), 0)
-        order.payment.status =
-          refunded > 0 ? 'PartiallyRefunded' : paid + actual - reservedRefund >= payable ? 'Paid' : 'Pending'
-        if (order.payment.status === 'Paid' && !order.payment.paidAt) order.payment.paidAt = now
+        refreshCODSummary(order, await readCODLedger(order, session), now)
       }
       const status = aggregateOrderStatus(order.deliveries)
       if (status !== order.status) order.statusHistory.push({ ...event, status })

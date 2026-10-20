@@ -65,12 +65,12 @@ Response: `{ "message": "...", "result": { "items": [], "total": 0, "page": 1, "
 
 | FR | Phần chưa có trong backend hiện tại |
 | --- | --- |
-| AUTH-016 | Manager xác nhận/từ chối **toàn đơn Pending** và gán bếp/đổi shipper đã có: xem [API quyết định](manager-order-decisions.md), [API phân công](order-assignments.md). Còn duyệt hủy, xử lý Failed và đối soát. |
+| AUTH-016 | Manager xác nhận/từ chối **toàn đơn Pending** và gán bếp/đổi shipper đã có: xem [API quyết định](manager-order-decisions.md), [API phân công](order-assignments.md). Đã có [xử lý Failed và đối soát COD](manager-cod-operations.md); luồng duyệt yêu cầu hủy thông thường còn riêng. |
 | AUTH-020 | Đã có Confirmed → Cooking → Ready cho bếp được gán đúng ngày giao. Quyết định mới bỏ ca; chưa có WebSocket realtime. |
-| AUTH-021 | Đã có nhận/xuất phát, giao thành công với COD thực thu và Failed với lý do bắt buộc, ảnh tùy chọn cho đúng ngày được gán. Xem [API Shipper](shipper-workflow.md); Manager xử lý Failed và đối soát là bước tiếp theo. |
+| AUTH-021 | Đã có nhận/xuất phát, giao thành công với COD thực thu và Failed với lý do bắt buộc, ảnh tùy chọn cho đúng ngày được gán. Xem [API Shipper](shipper-workflow.md) và [Manager xử lý Failed/đối soát COD](manager-cod-operations.md). |
 | AUTH-022, PTL-006 | Báo cáo tài chính tổng hợp và đọc file Excel đã xuất. Sổ giao dịch chỉ là bước đọc dữ liệu ban đầu. |
 
-Checkout COD đã đổi sang Pending, trừ kho ngay và không có hạn chờ; online giữ 15 phút bằng hạn thanh toán, quá hạn chưa trả thì job hủy/nhả kho. Manager xác nhận hoặc từ chối qua `/orders/:orderId/decision`. Bếp có API riêng Confirmed → Cooking → Ready; Manager gán/đổi shipper tại Ready. Shipper chuyển Ready → Delivering → Completed/Failed; COD thu từng ngày, lưu thiếu/thừa để đối soát. Manager xử lý Failed và job 24 giờ triển khai sau. IPN và hoàn tiền thật để bước tích hợp cổng riêng. Không dùng các API ngoại lệ Admin để thay thế quy trình vận hành mới. Frontend ngoài phạm vi.
+Checkout COD đã đổi sang Pending, trừ kho ngay và không có hạn chờ; online giữ 15 phút bằng hạn thanh toán, quá hạn chưa trả thì job hủy/nhả kho. Manager xác nhận hoặc từ chối qua `/orders/:orderId/decision`. Bếp có API riêng Confirmed → Cooking → Ready; Manager gán/đổi shipper tại Ready. Shipper chuyển Ready → Delivering → Completed/Failed; COD thu từng ngày, lưu thiếu/thừa để đối soát. Manager đã xử lý Failed, ghi nhận tiền thực tế thu bù/trả lại COD; job tự hủy ngày COD Failed đủ 24 giờ chưa xử lý. IPN và gọi cổng hoàn tiền để bước tích hợp cổng riêng. Không dùng các API ngoại lệ Admin để thay thế quy trình vận hành mới. Frontend ngoài phạm vi.
 
 ## 5. Chạy kiểm thử
 

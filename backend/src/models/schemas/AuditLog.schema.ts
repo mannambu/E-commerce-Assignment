@@ -9,6 +9,8 @@ export type AuditAction =
   | 'OrderStatusChanged'
   | 'KitchenAssigned'
   | 'ShipperAssigned'
+  | 'DeliveryFailureResolved'
+  | 'CODReconciled'
   | 'OrderCancelled'
   | 'DeliverySwapped'
   | 'DeliveryCancelled'

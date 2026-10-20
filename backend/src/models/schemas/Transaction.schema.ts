@@ -27,6 +27,9 @@ export default interface Transaction {
   expenseCategory?: string
   description: string
   reconciliationReference?: string
+  requestedAmount?: number // Original refund request amount if partially settled.
+  refundRequestId?: ObjectId // Link a partial cash refund receipt to its pending request.
+  reconciledBy?: ObjectId
   createdBy?: ObjectId
   createdAt?: Date
   updatedAt?: Date

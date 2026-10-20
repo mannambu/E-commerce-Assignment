@@ -14,7 +14,7 @@ export type OrderStatus =
 export type PaymentMethod = 'COD' | 'VNPay' | 'MoMo'
 export type PaymentStatus = 'Pending' | 'Paid' | 'Failed' | 'PartiallyRefunded' | 'Refunded'
 export type PackageType = 'ONE_DAY' | 'WEEKLY_7D'
-export type CancelledBy = 'Customer' | 'Admin' | 'System'
+export type CancelledBy = 'Customer' | 'Admin' | 'Manager' | 'System'
 
 export interface OrderStatusEvent {
   status: OrderStatus
@@ -65,6 +65,35 @@ export interface DeliveryPeriod {
     transactionId?: ObjectId
   }
   failedAt?: Date // Start of the current Failed period for subsequent Manager resolution/24h job.
+  failureResolutions?: Array<{
+    action: 'Retry' | 'Cancel'
+    actorId?: ObjectId
+    actorRole: 'Manager' | 'System'
+    reason: string
+    resolvedAt: Date
+    failedAt: Date
+    requestVersion: number
+    previousShipperId?: ObjectId
+    previousDispatch?: DeliveryPeriod['dispatch']
+    failureResult?: DeliveryPeriod['deliveryResult']
+  }>
+  codSettlement?: {
+    collectedAmount: number
+    refundedAmount: number
+    pendingRefundAmount: number
+    balance: number // Positive: still owed; negative: customer is owed money.
+    updatedAt: Date
+  }
+  codReconciliations?: Array<{
+    action: 'Collect' | 'Refund'
+    actorId: ObjectId
+    amount: number
+    reference: string
+    reason: string
+    requestVersion: number
+    transactionId: ObjectId
+    recordedAt: Date
+  }>
   cutoffAt?: Date // Set at checkout using kitchen settings.
   items: OrderItem[]
   status: OrderStatus

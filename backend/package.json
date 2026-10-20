@@ -10,6 +10,7 @@
     "test:decisions:integration": "tsx --test tests/integration/order-decisions.test.ts",
     "test:operations:integration": "tsx --test tests/integration/order-operations.test.ts",
     "test:shipper:integration": "tsx --test tests/integration/shipper.test.ts",
+    "test:manager-operations:integration": "tsx --test tests/integration/manager-operations.test.ts",
     "test:schema": "tsx --test tests/schema.test.ts",
     "schema:indexes": "tsx scripts/schema-indexes.ts",
     "data:users": "tsx scripts/generate-users-import.ts",

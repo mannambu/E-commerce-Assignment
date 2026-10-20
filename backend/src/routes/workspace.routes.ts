@@ -7,9 +7,31 @@ import database from '~/services/database.services'
 import { wrapRequestHandler } from '~/utils/handlers'
 import { validate } from '~/utils/validation'
 import { deliveryCodExpected } from '~/utils/delivery'
+import managerOperations from '~/services/manager-operations.services'
 
 const workspace = Router()
 workspace.use(accessTokenValidator)
+
+workspace.get(
+  '/cod-issues',
+  requireRoles(UserRole.MANAGER),
+  validate(
+    checkSchema({
+      kind: { in: ['query'], optional: true, isString: { bail: true }, isIn: { options: [['All', 'Failed', 'COD']] } },
+      page: { in: ['query'], optional: true, isString: { bail: true }, isInt: { options: { min: 1, max: 1000000 } } },
+      limit: { in: ['query'], optional: true, isString: { bail: true }, isInt: { options: { min: 1, max: 100 } } }
+    })
+  ),
+  wrapRequestHandler(async (req, res) => {
+    const result = await managerOperations.listIssues(
+      req.decoded_authorization!.user_id,
+      (req.query.kind || 'All') as 'All' | 'Failed' | 'COD',
+      Number(req.query.page || 1),
+      Number(req.query.limit || 20)
+    )
+    res.set('Cache-Control', 'private, no-store').json({ result })
+  })
+)
 
 // Assignment picker only; this does not grant Manager access to account administration.
 workspace.get(
@@ -100,7 +122,10 @@ workspace.get(
           ...(role === UserRole.MANAGER || role === UserRole.ADMIN
             ? {
                 kitchenStaffIds: day.kitchenStaffIds || [],
-                assignedShipperId: day.assignedShipperId
+                assignedShipperId: day.assignedShipperId,
+                codSettlement: day.codSettlement,
+                codReconciliations: day.codReconciliations || [],
+                failureResolutions: day.failureResolutions || []
               }
             : {}),
           items: day.items.map((item) => ({ name: item.foodName, quantity: item.quantity, mealSlot: item.mealSlot })),

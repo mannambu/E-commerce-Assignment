@@ -879,6 +879,15 @@ Không trả tiền trong response bếp. Mọi thay đổi ghi audit và thông
 
 Shipper được gán dùng `PATCH /orders/:orderId/deliveries/:deliveryId/shipper-status` với `{ status, version }`: Ready → Delivering rồi Completed hoặc Failed. COD Completed bắt buộc `codCollectedAmount`; Failed bắt buộc `reason`, còn `evidenceUrls` tùy chọn (bỏ trường hoặc gửi `[]`; nếu có ảnh, tối đa 10 URL HTTPS hợp lệ). Thu COD từng ngày, ghi thiếu/thừa riêng, không tự sửa giá. Chi tiết và checklist: [shipper-workflow.md](shipper-workflow.md).
 
+Manager xử lý COD qua các API sau; hướng dẫn body, response và checklist tại [manager-cod-operations.md](manager-cod-operations.md):
+
+- `GET /workspace/cod-issues?kind=All&page=1&limit=20`: danh sách ngày Failed hoặc còn chênh lệch COD.
+- `PATCH /orders/:orderId/deliveries/:deliveryId/failure-resolution`: `{ action: "Retry" | "Cancel", version, reason }`. Retry về Ready và cần gán lại shipper; Cancel bỏ tiền món và phí ship của ngày đó.
+- `GET /orders/:orderId/deliveries/:deliveryId/cod-reconciliation`: sổ thu/hoàn và số còn thiếu/thừa của ngày.
+- `POST /orders/:orderId/deliveries/:deliveryId/cod-reconciliation`: `{ action: "Collect" | "Refund", version, amount, reference, reason }`, chỉ ghi tiền đã thực tế thu bù/trả lại, không xóa nợ.
+
+Job tự hủy ngày COD Failed đủ 24 giờ chưa xử lý. Các thao tác này không trả món đã nấu về kho và không sửa số tiền shipper khai ban đầu.
+
 ## **7) Admin Dashboard (/admin)**
 
 ### **GET /admin/dashboard-stats (Auth, Admin)**
@@ -1125,5 +1134,5 @@ Cart, Tracking, Health Profile, gợi ý thực đơn và tạo/sửa review đ�
 - Backend chưa có báo cáo tài chính/Excel Manager, API liệt kê/xóa riêng phiên theo ID hay API đọc audit log. Có schema/service nội bộ không có nghĩa đã có endpoint public.
 - Frontend quản lý user cần đọc `result.items` và `result.total`, gửi `reason` khi khóa/mở/đổi role. Dashboard Admin phải dùng `orders.byStatus`; response không còn `revenue`. Các trang frontend cũ chưa được chuyển trong đợt backend này.
 - Checkout đã có giữ/trừ kho bằng transaction, idempotency và job hủy online chưa trả sau 15 phút. Manager đã có API xác nhận/từ chối và tạo yêu cầu hoàn. IPN và hoàn tiền thật qua cổng thanh toán chưa tích hợp; không coi Paid thủ công là xác nhận thanh toán.
-- Gói tuần đã có API đổi/hủy ngày và yêu cầu hoàn Pending theo quy tắc hiện có; Manager có phân công bếp/shipper, bếp có Confirmed → Cooking → Ready, shipper có nhận/giao và ghi COD/Failed. Luồng duyệt hủy mới, Manager xử lý Failed/đối soát COD, job 24 giờ và WebSocket realtime vẫn cần đồng bộ tiếp. Review đã kiểm tra chính ngày Completed; giới hạn/index mỗi Order–Food cần đồng bộ riêng. Recommendation/swap hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.
+- Gói tuần đã có API đổi/hủy ngày và yêu cầu hoàn Pending theo quy tắc hiện có; Manager có phân công bếp/shipper, bếp có Confirmed → Cooking → Ready, shipper có nhận/giao và ghi COD/Failed. Manager xử lý Failed/đối soát và job 24 giờ đã có cho COD. Luồng duyệt hủy thông thường, tích hợp cổng thanh toán và WebSocket realtime vẫn cần đồng bộ tiếp. Review đã kiểm tra chính ngày Completed; giới hạn/index mỗi Order–Food cần đồng bộ riêng. Recommendation/swap hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.
 - Reset qua mã email chỉ chạy thực tế sau khi cấu hình SMTP; không cần URL reset hoặc trang frontend để test bằng Postman. Hướng dẫn DB/seed/email ở [auth-setup.md](auth-setup.md), giải thích 12 collection ở [database_schema.md](../../docs/database_schema.md).

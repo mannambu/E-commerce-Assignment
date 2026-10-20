@@ -54,6 +54,10 @@ export function getSchemaIndexPlan(env: NodeJS.ProcessEnv = process.env): Schema
           partialFilterExpression: { idempotencyKey: { $type: 'string' } }
         },
         { key: { status: 1, 'payment.status': 1, paymentDueAt: 1 }, name: 'payment_timeout' },
+        {
+          key: { 'payment.method': 1, 'deliveries.status': 1, 'deliveries.failedAt': 1 },
+          name: 'failed_delivery_timeout'
+        },
         { key: { 'inventoryHold.status': 1, 'inventoryHold.expiresAt': 1 }, name: 'release_stock' },
         { key: { 'deliveries.date': 1, 'deliveries.status': 1 }, name: 'delivery_schedule' }
       ]
