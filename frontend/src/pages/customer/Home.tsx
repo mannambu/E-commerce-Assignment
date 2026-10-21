@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, 
   Utensils, 
-  Users, 
   ChevronRight, 
   Star, 
   Flame, 
@@ -71,7 +70,7 @@ export default function Home() {
                 transition={{ duration: 0.6, delay: 0.2 }}
                 className="mx-auto max-w-xl text-lg font-medium leading-relaxed text-gray-500 sm:text-xl lg:mx-0"
               >
-                FitBite tự động hóa việc lên thực đơn dựa trên mục tiêu của bạn. Tiết kiệm thời gian, tối ưu sức khỏe và kết nối cùng chuyên gia.
+                FitBite tự động hóa việc lên thực đơn dựa trên mục tiêu của bạn. Tiết kiệm thời gian và theo dõi dinh dưỡng mỗi ngày.
               </motion.p>
 
               <motion.div 
@@ -88,11 +87,6 @@ export default function Home() {
                   Bắt đầu ngay
                   <ArrowRight size={20} className="ml-2 group-hover:translate-x-1 transition-transform" />
                 </Button>
-                <Link to="/pt-directory" className="w-full sm:w-auto">
-                  <Button variant="outline" size="lg" className="h-14 w-full rounded-2xl border-2 px-8 text-base font-black hover:bg-gray-50 sm:h-16 sm:w-auto sm:px-10 sm:text-lg">
-                    Khám phá PT
-                  </Button>
-                </Link>
               </motion.div>
 
               <motion.div
@@ -194,11 +188,10 @@ export default function Home() {
       {/* Stats Section */}
       <section className="relative overflow-hidden bg-gray-900 py-16 text-white md:py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-          <div className="grid grid-cols-2 gap-8 text-center md:grid-cols-4 md:gap-12">
+          <div className="grid grid-cols-1 gap-8 text-center sm:grid-cols-3 md:gap-12">
             {[
               { label: "Người dùng", value: "50K+" },
               { label: "Món ăn", value: "2,000+" },
-              { label: "PT Chuyên nghiệp", value: "500+" },
               { label: "Đánh giá 5 sao", value: "15K+" },
             ].map((stat, i) => (
               <div key={i} className="space-y-2">
@@ -240,9 +233,9 @@ export default function Home() {
               },
               { 
                 step: "03", 
-                title: "Kết nối PT", 
-                desc: "Lựa chọn huấn luyện viên phù hợp để đồng hành và tối ưu hóa kết quả.",
-                icon: <Users className="text-green-500" size={32} />
+                title: "Theo dõi dinh dưỡng",
+                desc: "Ghi lại bữa ăn, theo dõi lượng calo và cân nặng theo mục tiêu của bạn.",
+                icon: <TrendingUp className="text-green-500" size={32} />
               },
             ].map((item, i) => (
               <div key={i} className="relative group">
@@ -291,7 +284,7 @@ export default function Home() {
               <div className="absolute bottom-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mb-16 blur-3xl" />
             </div>
 
-            <div className="flex flex-col justify-between rounded-[48px] bg-gray-900 p-8 text-white shadow-xl md:p-10 lg:col-span-4 lg:p-12">
+            <div className="flex flex-col justify-between rounded-[48px] bg-gray-900 p-8 text-white shadow-xl md:p-10 lg:col-span-12 lg:p-12">
               <div>
                 <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center mb-8">
                   <Heart size={28} className="text-red-500" />
@@ -301,29 +294,6 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="flex flex-col items-center gap-10 rounded-[48px] border border-gray-100 bg-white p-8 shadow-xl md:p-10 lg:col-span-8 lg:flex-row lg:gap-12 lg:p-12">
-              <div className="flex-1">
-                <h3 className="text-4xl font-black text-gray-900 mb-6">Đội ngũ PT tận tâm</h3>
-                <p className="text-lg text-gray-500 font-medium leading-relaxed mb-8">
-                  Kết nối trực tiếp với các huấn luyện viên để nhận được sự tư vấn chuyên sâu nhất.
-                </p>
-                <Link to="/pt-directory">
-                  <Button className="rounded-2xl px-8 h-14 font-black">Xem danh sách PT</Button>
-                </Link>
-              </div>
-              <div className="flex-1 grid grid-cols-2 gap-4">
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="aspect-square rounded-3xl overflow-hidden shadow-lg">
-                    <img 
-                      src={`https://picsum.photos/seed/pt${i}/300/300`} 
-                      alt="PT" 
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
         </div>
       </section>
@@ -342,10 +312,9 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-3 md:gap-8">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 md:gap-8">
             {[
               { name: "Nguyễn Văn A", role: "Nhân viên văn phòng", text: "FitBite đã giúp tôi giảm 5kg trong vòng 2 tháng mà không cảm thấy mệt mỏi nhờ thực đơn rất đa dạng.", img: "https://i.pravatar.cc/150?img=11" },
-              { name: "Trần Thị B", role: "Kinh doanh tự do", text: "Việc kết nối với PT qua app rất tiện lợi. Tôi có thể tập luyện và ăn uống theo đúng lộ trình chuyên gia đề ra.", img: "https://i.pravatar.cc/150?img=32" },
               { name: "Lê Văn C", role: "Lập trình viên", text: "Hệ thống gợi ý món ăn rất thông minh, phù hợp với người bận rộn như tôi. Giao diện cực kỳ dễ sử dụng.", img: "https://i.pravatar.cc/150?img=53" },
             ].map((t, i) => (
               <div key={i} className="bg-gray-50 p-10 rounded-[40px] space-y-8 border border-transparent hover:border-orange-200 transition-colors">
@@ -413,7 +382,6 @@ export default function Home() {
               <h4 className="font-black text-gray-900 mb-8 uppercase tracking-widest text-xs">Sản phẩm</h4>
               <ul className="space-y-4 text-gray-500 font-medium">
                 <li><Link to="/food-catalog" className="hover:text-orange-500 transition-colors">Thực đơn</Link></li>
-                <li><Link to="/pt-directory" className="hover:text-orange-500 transition-colors">Tìm kiếm PT</Link></li>
                 <li><Link to="/health-survey" className="hover:text-orange-500 transition-colors">Gợi ý thực đơn</Link></li>
                 <li><Link to="/dashboard" className="hover:text-orange-500 transition-colors">Theo dõi tiến độ</Link></li>
               </ul>

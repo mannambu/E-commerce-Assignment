@@ -1,791 +1,266 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
-import { ChefHat, Edit2, Loader2, MessageCircle, Plus, Search, Trash2, Truck, Upload, X } from 'lucide-react';
-import Sidebar from '@/components/dashboard/Sidebar';
-import Header from '@/components/dashboard/Header';
-import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/Button';
+import { useState, type FormEvent, type ChangeEvent } from 'react';
+import { Plus, Edit2, MessageCircle, Upload } from 'lucide-react';
+import AdminPage, { AdminModal, Notice, Pagination, actionClass, fieldClass, panelClass, secondaryClass, useAdminResource } from '@/components/dashboard/AdminPage';
+import AdminFoodReviews from '@/components/dashboard/AdminFoodReviews';
+import { apiError, money } from '@/lib/admin';
+import { foodToForm, foodPayload, goalLabels, type FoodItem } from '@/lib/admin-food';
 import api from '@/services/api';
 
-type OrderStatus = 'Pending' | 'Cooking' | 'Delivering' | 'Completed' | 'Cancelled';
-
-type FoodItem = {
-  _id: string;
-  name: string;
-  description?: string;
-  details?: string;
-  images?: string[];
-  price: number;
-  calories: number;
-  nutrition?: {
-    protein?: number;
-    carb?: number;
-    fat?: number;
-  };
-  ingredients?: Array<{
-    name?: string;
-    allergyTags?: string[];
-  }>;
-  tags?: string[];
-  stock: number;
-  isActive: boolean;
-  isCombo?: boolean;
-};
-
-type KitchenOrder = {
-  _id: string;
-  status: OrderStatus;
-  deliveryAddress?: string;
-  items?: Array<{ quantity?: number }>;
-  grandTotal?: number;
-  createdAt?: string;
-};
-
-type FoodReview = {
-  _id: string;
-  reviewerId?: string;
-  rating?: number;
-  comment?: string;
-  createdAt?: string;
-};
-
-type FoodFormValues = {
-  name: string;
-  description: string;
-  details: string;
-  image: string;
-  price: string;
-  calories: string;
-  stock: string;
-  protein: string;
-  carb: string;
-  fat: string;
-  tags: string;
-  ingredientName: string;
-  allergyTags: string;
-  isCombo: boolean;
-};
-
-const emptyForm: FoodFormValues = {
-  name: '',
-  description: '',
-  details: '',
-  image: '',
-  price: '',
-  calories: '',
-  stock: '',
-  protein: '',
-  carb: '',
-  fat: '',
-  tags: '',
-  ingredientName: '',
-  allergyTags: '',
-  isCombo: false
-};
-
-function parseCsv(value: string): string[] {
-  return value
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function toPositiveNumber(value: string): number {
-  const num = Number(value);
-  return Number.isFinite(num) ? Math.max(0, num) : 0;
-}
-
+type FoodList = { foods: FoodItem[]; pagination: { total: number; page: number; total_pages: number; }; };
 export default function AdminMenu() {
-  const [foods, setFoods] = useState<FoodItem[]>([]);
-  const [kitchenOrders, setKitchenOrders] = useState<KitchenOrder[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isImageUploading, setIsImageUploading] = useState(false);
-  const [actionFoodId, setActionFoodId] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
-
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
-
-  const [showModal, setShowModal] = useState(false);
-  const [editFood, setEditFood] = useState<FoodItem | null>(null);
-  const [formData, setFormData] = useState<FoodFormValues>(emptyForm);
-  const [selectedFoodReviewId, setSelectedFoodReviewId] = useState<string>('');
-  const [foodReviews, setFoodReviews] = useState<FoodReview[]>([]);
-  const [isLoadingReviews, setIsLoadingReviews] = useState(false);
-  const [isDeletingReviewId, setIsDeletingReviewId] = useState<string | null>(null);
-
-  const fetchData = async () => {
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
+  const [goal, setGoal] = useState('');
+  const [status, setStatus] = useState('');
+  const params = new URLSearchParams({ page: String(page), limit: '20', sortBy: 'createdAt', order: 'desc', ...(query ? { search: query } : {}), ...(goal ? { goalTags: goal } : {}) });
+  const resource = useAdminResource<FoodList>('/foods?' + params);
+  const [editing, setEditing] = useState<FoodItem | null | undefined>(undefined);
+  const [form, setForm] = useState(() => foodToForm());
+  const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [reviewFood, setReviewFood] = useState<FoodItem | null>(null);
+  const open = (food?: FoodItem) => { setEditing(food || null); setForm(foodToForm(food)); setFormError(''); setSuccess(''); };
+  const save = async (event: FormEvent) => {
+    event.preventDefault(); if (busy || uploading) return;
+    setBusy(true); setFormError('');
     try {
-      setIsLoading(true);
-      setWarning(null);
-
-      const [foodsRes, ordersRes] = await Promise.all([
-        api.get('/foods?page=1&limit=300&sortBy=createdAt&order=desc'),
-        api.get('/orders/all')
-      ]);
-
-      const foodData = Array.isArray(foodsRes.data?.result?.foods) ? foodsRes.data.result.foods : [];
-      const allOrders = Array.isArray(ordersRes.data?.result) ? ordersRes.data.result : [];
-
-      setFoods(foodData);
-      setKitchenOrders(
-        allOrders
-          .filter((order: KitchenOrder) => ['Pending', 'Cooking', 'Delivering'].includes(order.status))
-          .sort((a: KitchenOrder, b: KitchenOrder) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
-          .slice(0, 6)
-      );
-    } catch (error: any) {
-      console.error('Loi tai du lieu admin menu:', error);
-      setWarning(error?.response?.data?.message || 'Khong the tai du lieu quan ly bep.');
-    } finally {
-      setIsLoading(false);
-    }
+      const payload = foodPayload(form, editing?.reservedStock ?? 0);
+      if (editing) await api.patch('/foods/' + editing._id, payload);
+      else await api.post('/foods', { ...payload, isActive: true });
+      setEditing(undefined); setSuccess('Đã lưu món ăn.'); resource.reload();
+    } catch (err) { setFormError(apiError(err)); } finally { setBusy(false); }
   };
-
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const loadFoodReviews = async (foodId: string) => {
-    if (!foodId) {
-      setFoodReviews([]);
-      return;
-    }
-
+  const upload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]; if (!file) return;
+    event.target.value = '';
+    if (!file.type.startsWith('image/') || file.size > 5 * 1024 * 1024) { setFormError('Chọn ảnh không quá 5MB.'); return; }
+    setUploading(true); setFormError('');
     try {
-      setIsLoadingReviews(true);
-      const res = await api.get(`/reviews/Food/${foodId}`);
-      setFoodReviews(Array.isArray(res.data?.result) ? res.data.result : []);
-    } catch (error: any) {
-      setFoodReviews([]);
-      setWarning(error?.response?.data?.message || 'Khong the tai review mon an.');
-    } finally {
-      setIsLoadingReviews(false);
-    }
+      const body = new FormData(); body.append('image', file);
+      const response = await api.post('/medias/upload-image', body);
+      const url = response.data.result?.[0];
+      if (typeof url !== 'string' || !url) throw new Error('Không nhận được đường dẫn ảnh.');
+      setForm(previous => ({ ...previous, images: [previous.images.trim(), url].filter(Boolean).join('\n') }));
+    } catch (err) { setFormError(apiError(err)); } finally { setUploading(false); }
   };
-
-  useEffect(() => {
-    if (foods.length === 0) return;
-    if (!selectedFoodReviewId) {
-      const firstFoodId = foods[0]?._id || '';
-      setSelectedFoodReviewId(firstFoodId);
-      loadFoodReviews(firstFoodId);
-    }
-  }, [foods, selectedFoodReviewId]);
-
-  const handleSelectFoodReview = async (foodId: string) => {
-    setSelectedFoodReviewId(foodId);
-    await loadFoodReviews(foodId);
+  const toggle = async (food: FoodItem) => {
+    if (busy) return; setBusy(true); setError(''); setSuccess('');
+    try { await api.patch('/foods/' + food._id, { isActive: !food.isActive }); resource.reload(); setSuccess(food.isActive ? 'Đã ẩn món khỏi danh mục bán.' : 'Đã mở bán món.'); }
+    catch (err) { setError(apiError(err)); } finally { setBusy(false); }
   };
+  const rows = (resource.data?.foods || []).filter(food => !status || (status === 'active' ? food.isActive : !food.isActive));
+  return <AdminPage title="Quản lý món ăn" {...resource} onReload={busy ? undefined : resource.reload}>
 
-  const handleDeleteFoodReview = async (reviewId: string) => {
-    if (!selectedFoodReviewId) return;
+    {error && <Notice error>
+      {error}
+    </Notice>}
+    {success && <Notice>
+      {success}
+    </Notice>}
 
-    try {
-      setIsDeletingReviewId(reviewId);
-      setWarning(null);
-      await api.delete(`/reviews/${reviewId}`);
-      await loadFoodReviews(selectedFoodReviewId);
-    } catch (error: any) {
-      setWarning(error?.response?.data?.message || 'Khong the xoa review mon an.');
-    } finally {
-      setIsDeletingReviewId(null);
-    }
-  };
+    <section className={panelClass + ' space-y-5'}>
 
-  const filteredFoods = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-
-    return foods.filter((item) => {
-      const matchSearch =
-        !query ||
-        item.name.toLowerCase().includes(query) ||
-        item._id.toLowerCase().includes(query) ||
-        (item.tags || []).join(' ').toLowerCase().includes(query);
-
-      const matchStatus =
-        statusFilter === 'all' ||
-        (statusFilter === 'active' && item.isActive) ||
-        (statusFilter === 'inactive' && !item.isActive);
-
-      return matchSearch && matchStatus;
-    });
-  }, [foods, searchQuery, statusFilter]);
-
-  const openCreateModal = () => {
-    setEditFood(null);
-    setFormData(emptyForm);
-    setShowModal(true);
-  };
-
-  const openEditModal = (food: FoodItem) => {
-    setEditFood(food);
-    setFormData({
-      name: food.name || '',
-      description: food.description || '',
-      details: food.details || '',
-      image: food.images?.[0] || '',
-      price: String(food.price ?? ''),
-      calories: String(food.calories ?? ''),
-      stock: String(food.stock ?? ''),
-      protein: String(food.nutrition?.protein ?? ''),
-      carb: String(food.nutrition?.carb ?? ''),
-      fat: String(food.nutrition?.fat ?? ''),
-      tags: (food.tags || []).join(', '),
-      ingredientName: food.ingredients?.[0]?.name || '',
-      allergyTags: (food.ingredients?.[0]?.allergyTags || []).join(', '),
-      isCombo: Boolean(food.isCombo)
-    });
-    setShowModal(true);
-  };
-
-  const closeModal = () => {
-    setShowModal(false);
-    setEditFood(null);
-    setFormData(emptyForm);
-  };
-
-  const buildFoodPayload = () => {
-    const tags = parseCsv(formData.tags);
-    const allergyTags = parseCsv(formData.allergyTags);
-
-    return {
-      name: formData.name.trim(),
-      description: formData.description.trim(),
-      details: formData.details.trim(),
-      images: [formData.image.trim() || 'https://picsum.photos/seed/food/600/400'],
-      price: toPositiveNumber(formData.price),
-      calories: toPositiveNumber(formData.calories),
-      nutrition: {
-        protein: toPositiveNumber(formData.protein),
-        carb: toPositiveNumber(formData.carb),
-        fat: toPositiveNumber(formData.fat)
-      },
-      ingredients: [
-        {
-          name: formData.ingredientName.trim() || 'Unknown ingredient',
-          allergyTags
-        }
-      ],
-      tags,
-      stock: Math.floor(toPositiveNumber(formData.stock)),
-      isCombo: formData.isCombo
-    };
-  };
-
-  const handleImageFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      setWarning('Vui long chon dung file anh.');
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setWarning('Anh vuot qua 5MB. Vui long chon file nho hon.');
-      return;
-    }
-
-    try {
-      setIsImageUploading(true);
-      setWarning(null);
-
-      const uploadData = new FormData();
-      uploadData.append('image', file);
-
-      const uploadRes = await api.post('/medias/upload-image', uploadData);
-      const uploadedUrl = uploadRes.data?.result?.[0];
-
-      if (!uploadedUrl || typeof uploadedUrl !== 'string') {
-        throw new Error('Upload thanh cong nhung khong nhan duoc URL anh.');
-      }
-
-      setFormData((prev) => ({ ...prev, image: uploadedUrl }));
-    } catch (error: any) {
-      setWarning(error?.response?.data?.message || error?.message || 'Khong the upload anh mon an.');
-    } finally {
-      setIsImageUploading(false);
-      event.target.value = '';
-    }
-  };
-
-  const handleSave = async (event: FormEvent) => {
-    event.preventDefault();
-
-    try {
-      setIsSubmitting(true);
-      setWarning(null);
-
-      const payload = buildFoodPayload();
-
-      if (editFood?._id) {
-        await api.patch(`/foods/${editFood._id}`, payload);
-      } else {
-        await api.post('/foods', {
-          ...payload,
-          isActive: true
-        });
-      }
-
-      closeModal();
-      await fetchData();
-    } catch (error: any) {
-      setWarning(error?.response?.data?.message || 'Khong the luu mon an. Vui long kiem tra du lieu.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleToggleStatus = async (item: FoodItem) => {
-    try {
-      setActionFoodId(item._id);
-      setWarning(null);
-      await api.patch(`/foods/${item._id}`, { isActive: !item.isActive });
-      setFoods((prev) => prev.map((food) => (food._id === item._id ? { ...food, isActive: !food.isActive } : food)));
-    } catch (error: any) {
-      setWarning(error?.response?.data?.message || 'Khong the cap nhat trang thai mon an.');
-    } finally {
-      setActionFoodId(null);
-    }
-  };
-
-  const handleSoftDelete = async (item: FoodItem) => {
-    try {
-      setActionFoodId(item._id);
-      setWarning(null);
-      await api.delete(`/foods/${item._id}`);
-      setFoods((prev) => prev.map((food) => (food._id === item._id ? { ...food, isActive: false } : food)));
-    } catch (error: any) {
-      setWarning(error?.response?.data?.message || 'Khong the an mon an nay.');
-    } finally {
-      setActionFoodId(null);
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen role-page-shell">
-        <Sidebar role="admin" />
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="animate-spin text-orange-500" size={40} />
-        </div>
+      <div className="flex justify-between items-center gap-4">
+        <h2 className="text-xl font-black text-gray-900">Danh mục món ăn</h2>
+        <button className={actionClass} disabled={busy} onClick={() => open()}><Plus size={16} />Thêm món ăn</button>
       </div>
-    );
-  }
 
-  return (
-    <div className="flex min-h-screen role-page-shell">
-      <Sidebar role="admin" />
-      <div className="flex-1 flex flex-col min-w-0">
-        <Header title="Quản lý bếp và tình trạng đơn" userRole="Quản trị viên" hideSearch={true} />
+      <form onSubmit={event => { event.preventDefault(); setQuery(search.trim()); setPage(1); }} className="flex flex-wrap gap-3">
 
-        <main className="p-8 space-y-8 overflow-y-auto min-w-0">
-          {warning ? (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-              {warning}
-            </div>
-          ) : null}
+        <input
+          aria-label="Tìm món ăn"
+          className={fieldClass + ' md:!w-64'}
+          placeholder="Tìm tên món, có hoặc không dấu..."
+          value={search}
+          onChange={event => setSearch(event.target.value)} />
 
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-black text-gray-900">Bếp và giao hàng</h2>
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Đơn đang xử lý: {kitchenOrders.length}</span>
-            </div>
+        <select
+          aria-label="Mục tiêu dinh dưỡng"
+          className={fieldClass + ' md:!w-48'}
+          value={goal}
+          onChange={event => { setGoal(event.target.value); setPage(1); }}>
+          <option value="">Tất cả mục tiêu</option>
+          {Object.entries(goalLabels).map(([key, label]) => <option key={key} value={key}>
+            {label}
+          </option>)}
+        </select>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {kitchenOrders.length === 0 ? (
-                <div className="col-span-full rounded-3xl border border-dashed border-gray-200 bg-white p-6 text-center text-sm text-gray-500">
-                  Chưa có đơn hàng nào đang được xử lý bởi bếp hoặc giao hàng.
-                </div>
-              ) : (
-                kitchenOrders.map((order) => {
-                  const quantity = (order.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+        <select
+          aria-label="Trạng thái món trên trang"
+          className={fieldClass + ' md:!w-56'}
+          value={status}
+          onChange={event => setStatus(event.target.value)}>
+          <option value="">Tất cả trạng thái</option>
+          <option value="active">Đang bán (trên trang)</option>
+          <option value="inactive">Đã ẩn (trên trang)</option>
+        </select>
+        <button className={secondaryClass}>Tìm kiếm</button>
+      </form>
 
-                  return (
-                    <article key={order._id} className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 space-y-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-black text-gray-900">Order #{order._id.slice(-6).toUpperCase()}</p>
-                          <p className="text-xs text-gray-500">{order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN') : 'N/A'}</p>
-                        </div>
-                        <span
-                          className={cn(
-                            'px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider',
-                            order.status === 'Pending' && 'bg-amber-100 text-amber-700',
-                            order.status === 'Cooking' && 'bg-blue-100 text-blue-600',
-                            order.status === 'Delivering' && 'bg-indigo-100 text-indigo-700'
-                          )}
-                        >
-                          {order.status}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                        <p className="inline-flex items-center gap-1"><ChefHat size={14} /> So mon: <span className="font-bold text-gray-900">{quantity}</span></p>
-                        <p className="inline-flex items-center gap-1"><Truck size={14} /> Tong tien: <span className="font-bold text-gray-900">{Math.round(order.grandTotal || 0).toLocaleString('vi-VN')} d</span></p>
-                      </div>
-
-                      <p className="text-xs text-gray-500 line-clamp-2">Dia chi: {order.deliveryAddress || 'Chua co dia chi giao hang'}</p>
-                    </article>
-                  );
-                })
-              )}
-            </div>
-          </section>
-
-          <section className="space-y-4">
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <h2 className="text-xl font-black text-gray-900 uppercase">Quản lý món ăn</h2>
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                  <input
-                    type="text"
-                    placeholder="Tìm tên món, ID, tag..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="h-11 w-72 pl-10 pr-4 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-500/10"
-                  />
-                </div>
-
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
-                  className="h-11 px-4 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-600 outline-none focus:ring-2 focus:ring-orange-500/10"
-                >
-                  <option value="all">Tất cả trạng thái</option>
-                  <option value="active">Đang bán</option>
-                  <option value="inactive">Đã ẩn</option>
-                </select>
-
-                <Button type="button" onClick={openCreateModal} className="h-11 rounded-xl bg-[#c1e06d] text-gray-900 font-black hover:bg-[#b1d05d]">
-                  <Plus size={16} className="mr-2" /> Thêm món ăn
-                </Button>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-[28px] shadow-sm border border-gray-100 overflow-hidden">
-              <table className="w-full min-w-[1100px] text-left border-collapse">
-                <thead>
-                  <tr className="text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 bg-gray-50/40">
-                    <th className="px-6 py-4">Tên món ăn</th>
-                    <th className="px-6 py-4">Giá</th>
-                    <th className="px-6 py-4">Dinh dưỡng</th>
-                    <th className="px-6 py-4">Còn hàng</th>
-                    <th className="px-6 py-4">Trang thái</th>
-                    <th className="px-6 py-4">Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {filteredFoods.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-6 py-10 text-center text-sm text-gray-500 font-medium">
-                        Không tìm thấy món ăn nào phù hợp với tiêu chí của bạn.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredFoods.map((item) => {
-                      const isActing = actionFoodId === item._id;
-
-                      return (
-                        <tr key={item._id} className="hover:bg-gray-50/50 transition-colors">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <img
-                                src={item.images?.[0] || 'https://picsum.photos/seed/food/120/120'}
-                                alt={item.name}
-                                className="w-12 h-12 rounded-xl object-cover"
-                                referrerPolicy="no-referrer"
-                              />
-                              <div>
-                                <p className="text-sm font-bold text-gray-900">{item.name}</p>
-                                <p className="text-[11px] text-gray-400">{item._id}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-sm font-black text-gray-900">
-                            {Math.round(item.price || 0).toLocaleString('vi-VN')} d
-                          </td>
-                          <td className="px-6 py-4 text-xs text-gray-600 space-y-1">
-                            <p>Protein: <span className="font-bold text-gray-900">{item.nutrition?.protein ?? 0}g</span></p>
-                            <p>Carb: <span className="font-bold text-gray-900">{item.nutrition?.carb ?? 0}g</span></p>
-                            <p>Fat: <span className="font-bold text-gray-900">{item.nutrition?.fat ?? 0}g</span></p>
-                          </td>
-                          <td className="px-6 py-4 text-sm font-bold text-gray-700">{item.stock}</td>
-                          <td className="px-6 py-4">
-                            <span
-                              className={cn(
-                                'px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider',
-                                item.isActive ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-600'
-                              )}
-                            >
-                              {item.isActive ? 'Dang ban' : 'Da an'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                disabled={isActing}
-                                onClick={() => handleToggleStatus(item)}
-                                className={cn(
-                                  'relative w-12 h-6 rounded-full transition-colors duration-200 disabled:opacity-50',
-                                  item.isActive ? 'bg-[#c1e06d]' : 'bg-gray-300'
-                                )}
-                              >
-                                <span
-                                  className={cn(
-                                    'absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-200',
-                                    item.isActive ? 'translate-x-6' : 'translate-x-0'
-                                  )}
-                                />
-                              </button>
-
-                              <button
-                                type="button"
-                                disabled={isActing}
-                                onClick={() => openEditModal(item)}
-                                className="p-2 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 disabled:opacity-50"
-                              >
-                                <Edit2 size={16} />
-                              </button>
-
-                              <button
-                                type="button"
-                                disabled={isActing || !item.isActive}
-                                onClick={() => handleSoftDelete(item)}
-                                className="p-2 rounded-lg text-red-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-40"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <section className="space-y-4">
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <h2 className="text-xl font-black text-gray-900 uppercase inline-flex items-center gap-2">
-                <MessageCircle size={20} className="text-orange-500" /> Review món ăn
-              </h2>
-              <select
-                value={selectedFoodReviewId}
-                onChange={(e) => handleSelectFoodReview(e.target.value)}
-                className="h-11 px-4 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-orange-500/10"
-              >
-                {foods.map((food) => (
-                  <option key={food._id} value={food._id}>
-                    {food.name} {food.isCombo ? '(Combo)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="bg-white rounded-[28px] shadow-sm border border-gray-100 p-5 space-y-3">
-              {isLoadingReviews ? (
-                <div className="py-8 text-center text-sm text-gray-500">Đang tải review...</div>
-              ) : foodReviews.length === 0 ? (
-                <div className="py-8 text-center text-sm text-gray-500">Món ăn này chưa có review nào.</div>
-              ) : (
-                foodReviews.map((review) => (
-                  <article key={review._id} className="rounded-2xl border border-gray-100 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-black text-gray-900">{Number(review.rating || 0).toFixed(1)} / 5</p>
-                      <button
-                        type="button"
-                        disabled={isDeletingReviewId === review._id}
-                        onClick={() => handleDeleteFoodReview(review._id)}
-                        className="inline-flex items-center gap-2 px-3 h-9 rounded-xl border border-red-200 text-red-600 text-xs font-black disabled:opacity-50"
-                      >
-                        <Trash2 size={14} />
-                        {isDeletingReviewId === review._id ? 'Đang xóa...' : 'Xóa review'}
-                      </button>
-                    </div>
-                    <p className="mt-2 text-sm text-gray-600">{review.comment || 'Không có nội dung'}</p>
-                    <p className="mt-2 text-xs text-gray-400">
-                      User: {String(review.reviewerId || '').slice(-6)} • {review.createdAt ? new Date(review.createdAt).toLocaleDateString('vi-VN') : ''}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[950px] text-left text-sm">
+          <thead className="text-xs uppercase text-gray-400 border-b border-gray-100">
+            <tr>
+              {['Món ăn', 'Giá', 'Dinh dưỡng', 'Tồn kho', 'Trạng thái', 'Thao tác'].map(label => <th key={label} className="p-4">
+                {label}
+              </th>)}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {rows.map(food => <tr key={food._id} className="hover:bg-gray-50/60">
+              <td className="p-4">
+                <div className="flex gap-3 items-center">
+                  <img src={food.images?.[0]} alt={food.name} className="w-12 h-12 rounded-xl object-cover bg-gray-50" />
+                  <div>
+                    <p className="font-bold text-gray-900">
+                      {food.name}
                     </p>
-                  </article>
-                ))
-              )}
-            </div>
-          </section>
-        </main>
+                    <p className="text-xs text-gray-500">
+                      {food.goalTags?.map(value => goalLabels[value] || value).join(' · ')}
+                    </p>
+                    <p className="text-xs text-gray-400">{food.rating ?? 0}/5 · {food.reviewCount ?? 0} đánh giá</p>
+                  </div>
+                </div>
+              </td>
+              <td className="p-4 font-black whitespace-nowrap">
+                {money(food.price)}
+              </td>
+              <td className="p-4 text-xs text-gray-600">
+                <p>{food.calories} kcal</p>
+                <p>P: {food.nutrition?.protein ?? 0}g · C: {food.nutrition?.carb ?? 0}g · F: {food.nutrition?.fat ?? 0}g</p>
+              </td>
+              <td className="p-4 text-xs">
+                <p>Tổng: {food.stock}</p>
+                <p>Đang giữ: {food.reservedStock ?? 0}</p>
+                <strong>Có thể bán: {food.availability?.availableQuantity ?? Math.max(0, food.stock - (food.reservedStock ?? 0))}</strong>
+              </td>
+              <td className="p-4">
+                <span
+                  className={'px-3 py-1 rounded-lg text-xs font-bold ' + (food.isActive ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500')}>
+                  {food.isActive ? 'Đang bán' : 'Đã ẩn'}
+                </span>
+              </td>
+              <td className="p-4">
+                <div className="flex flex-wrap gap-2">
+                  <button className={secondaryClass} disabled={busy} onClick={() => open(food)}><Edit2 size={14} />Sửa</button>
+                  <button className={secondaryClass} disabled={busy} onClick={() => toggle(food)}>
+                    {food.isActive ? 'Ẩn món' : 'Mở bán'}
+                  </button>
+                  <button className={secondaryClass} onClick={() => setReviewFood(food)}><MessageCircle size={14} />Đánh giá</button>
+                </div>
+              </td>
+            </tr>)}
+          </tbody>
+        </table>
       </div>
 
-      {showModal ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeModal} />
-          <div className="relative bg-white rounded-[32px] shadow-2xl max-w-3xl w-full p-7 space-y-6 max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-2xl font-black text-gray-900">{editFood ? 'Chỉnh sửa món ăn' : 'Thêm món ăn mới'}</h3>
-              <button type="button" onClick={closeModal} className="p-2 text-gray-400 hover:text-gray-900 rounded-lg hover:bg-gray-100">
-                <X size={22} />
-              </button>
-            </div>
+      {!resource.loading && !resource.error && rows.length === 0 && <p className="text-center text-gray-500 py-8">Không có món phù hợp trên trang này.</p>}
 
-            <form onSubmit={handleSave} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input
-                  type="text"
-                  required
-                  placeholder="Tên món ăn"
-                  value={formData.name}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                  className="h-12 px-4 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-[#c1e06d]/40"
-                />
-                <input
-                  type="text"
-                  required
-                  placeholder="Giá (VND)"
-                  value={formData.price}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, price: e.target.value }))}
-                  className="h-12 px-4 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-[#c1e06d]/40"
-                />
-              </div>
+      {resource.data && <Pagination page={page} total={resource.data.pagination.total} limit={20} onPage={setPage} busy={resource.loading || busy} />}
+    </section>
 
-              <textarea
-                required
-                rows={3}
-                placeholder="Mô tả ngắn gọn về món ăn"
-                value={formData.description}
-                onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-                className="w-full px-4 py-3 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-[#c1e06d]/40"
-              />
+    {reviewFood && <AdminFoodReviews key={reviewFood._id} foodId={reviewFood._id} name={reviewFood.name} onChanged={resource.reload} />}
 
-              <textarea
-                rows={2}
-                placeholder="Thông tin chi tiết (tùy chọn, có thể là nguyên liệu, cách chế biến,...)"
-                value={formData.details}
-                onChange={(e) => setFormData((prev) => ({ ...prev, details: e.target.value }))}
-                className="w-full px-4 py-3 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-[#c1e06d]/40"
-              />
+    {editing !== undefined && <AdminModal title={editing ? 'Chỉnh sửa món ăn' : 'Thêm món ăn'} busy={busy || uploading} onClose={() => setEditing(undefined)}>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <input
-                  type="text"
-                  required
-                  placeholder="Calories"
-                  value={formData.calories}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, calories: e.target.value }))}
-                  className="h-12 px-4 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-[#c1e06d]/40"
-                />
-                <input
-                  type="text"
-                  required
-                  placeholder="Còn hàng (số lượng)"
-                  value={formData.stock}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, stock: e.target.value }))}
-                  className="h-12 px-4 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-[#c1e06d]/40"
-                />
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    placeholder="Image URL"
-                    value={formData.image}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, image: e.target.value }))}
-                    className="h-12 w-full px-4 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-[#c1e06d]/40"
-                  />
-                  <label className="inline-flex items-center gap-2 text-xs font-bold text-blue-700 cursor-pointer">
-                    <Upload size={14} />
-                    {isImageUploading ? 'Đang upload...' : 'Upload ảnh từ máy tính'}
-                    <input type="file" accept="image/*" onChange={handleImageFileChange} className="hidden" disabled={isImageUploading} />
-                  </label>
-                </div>
-              </div>
+      <form onSubmit={save} className="space-y-5">
 
-              {formData.image ? (
-                <div className="rounded-xl border border-gray-200 p-3 bg-gray-50">
-                  <p className="text-[11px] font-bold text-gray-500 mb-2 uppercase tracking-wider">Xem trước ảnh</p>
-                  <img
-                    src={formData.image}
-                    alt="Food preview"
-                    className="w-full h-44 rounded-xl object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                </div>
-              ) : null}
+        {formError && <Notice error>
+          {formError}
+        </Notice>}
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <input
-                  type="text"
-                  required
-                  placeholder="Protein (g)"
-                  value={formData.protein}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, protein: e.target.value }))}
-                  className="h-12 px-4 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-[#c1e06d]/40"
-                />
-                <input
-                  type="text"
-                  required
-                  placeholder="Carb (g)"
-                  value={formData.carb}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, carb: e.target.value }))}
-                  className="h-12 px-4 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-[#c1e06d]/40"
-                />
-                <input
-                  type="text"
-                  required
-                  placeholder="Fat (g)"
-                  value={formData.fat}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, fat: e.target.value }))}
-                  className="h-12 px-4 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-[#c1e06d]/40"
-                />
-              </div>
+        <label className="block text-sm font-bold space-y-1">Tên món<input required className={fieldClass} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input
-                  type="text"
-                  placeholder="Tags (sử dụng dấu phẩy để ngăn cách)"
-                  value={formData.tags}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, tags: e.target.value }))}
-                  className="h-12 px-4 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-[#c1e06d]/40"
-                />
-                <label className="h-12 px-4 bg-gray-50 rounded-xl border border-gray-200 flex items-center gap-2 text-sm font-medium text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={formData.isCombo}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, isCombo: e.target.checked }))}
-                  />
-                  là combo
-                </label>
-              </div>
+        <label className="block text-sm font-bold space-y-1">Mô tả<textarea
+          required
+          rows={3}
+          className={fieldClass}
+          value={form.description}
+          onChange={event => setForm({ ...form, description: event.target.value })} /></label>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input
-                  type="text"
-                  placeholder="Nguyên liệu chính (ví dụ: 'Thịt bò, rau củ,...')"
-                  value={formData.ingredientName}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, ingredientName: e.target.value }))}
-                  className="h-12 px-4 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-[#c1e06d]/40"
-                />
-                <input
-                  type="text"
-                  placeholder="Allergy tags (sử dụng dấu phẩy để ngăn cách)"
-                  value={formData.allergyTags}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, allergyTags: e.target.value }))}
-                  className="h-12 px-4 bg-gray-50 rounded-xl border border-gray-200 outline-none focus:ring-2 focus:ring-[#c1e06d]/40"
-                />
-              </div>
-
-              <Button
-                type="submit"
-                disabled={isSubmitting || isImageUploading}
-                className="w-full h-12 bg-[#c1e06d] text-gray-900 rounded-2xl font-black hover:bg-[#b1d05d] disabled:opacity-60"
-              >
-                {isImageUploading ? 'Đang upload ảnh...' : isSubmitting ? 'Đang lưu...' : editFood ? 'Lưu chỉnh sửa' : 'Tạo món ăn'}
-              </Button>
-            </form>
-          </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {([['price', 'Giá (đ)'], ['calories', 'Calo (kcal)'], ['stock', 'Tồn kho tổng'], ['protein', 'Protein (g)'], ['carb', 'Carb (g)'], ['fat', 'Fat (g)']] as const).map(([key, label]) => <label key={key} className="text-sm font-bold space-y-1">
+            {label}
+            <input
+              required
+              type="number"
+              min={key === 'price' ? '0.01' : key === 'stock' ? editing?.reservedStock ?? 0 : 0}
+              step={key === 'stock' ? '1' : 'any'}
+              className={fieldClass}
+              value={form[key]}
+              onChange={event => setForm({ ...form, [key]: event.target.value })} />
+          </label>)}
         </div>
-      ) : null}
-    </div>
-  );
+
+        {editing && <p className="text-xs text-gray-500">Đang giữ cho đơn chờ: {editing.reservedStock ?? 0}. Tồn kho tổng không được thấp hơn lượng đang giữ.</p>}
+
+        <label className="block text-sm font-bold space-y-1">Ảnh món ăn (mỗi đường dẫn một dòng)<textarea
+          required
+          rows={3}
+          className={fieldClass}
+          value={form.images}
+          onChange={event => setForm({ ...form, images: event.target.value })} /></label>
+
+        <label className="inline-flex items-center gap-2 text-sm font-bold text-blue-700">
+          <Upload size={16} />
+          {uploading ? 'Đang tải ảnh...' : 'Thêm ảnh từ máy'}
+          <input type="file" accept="image/*" className="max-w-56" disabled={uploading || busy} onChange={upload} />
+        </label>
+
+        <div className="flex gap-2 flex-wrap">
+          {form.images.split('\n').filter(Boolean).map((image, index) => <img key={index} src={image} alt={'Ảnh món ' + (index + 1)} className="w-20 h-20 rounded-xl object-cover" />)}
+        </div>
+
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-bold">Mục tiêu dinh dưỡng</legend>
+          <div className="flex gap-5 flex-wrap">
+            {Object.entries(goalLabels).map(([value, label]) => <label key={value} className="text-sm flex gap-2 items-center">
+              <input
+                type="checkbox"
+                checked={form.goalTags.includes(value)}
+                onChange={event => setForm({ ...form, goalTags: event.target.checked ? [...form.goalTags, value] : form.goalTags.filter(goal => goal !== value) })} />
+              {label}
+            </label>)}
+          </div>
+        </fieldset>
+
+        <label className="block text-sm font-bold space-y-1">Nhãn món (ngăn cách bằng dấu phẩy)<input className={fieldClass} value={form.tags} onChange={event => setForm({ ...form, tags: event.target.value })} /></label>
+
+        <fieldset className="space-y-3">
+          <legend className="text-sm font-bold">Nguyên liệu và dị ứng</legend>
+          {form.ingredients.map((ingredient, index) => <div key={index} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3">
+            <label className="text-xs text-gray-500">Tên nguyên liệu<input
+              required
+              className={fieldClass}
+              value={ingredient.name}
+              onChange={event => setForm({ ...form, ingredients: form.ingredients.map((item, i) => i === index ? { ...item, name: event.target.value } : item) })} /></label>
+            <label className="text-xs text-gray-500">Dị ứng (ngăn cách bằng dấu phẩy)<input
+              className={fieldClass}
+              value={ingredient.allergyTags}
+              onChange={event => setForm({ ...form, ingredients: form.ingredients.map((item, i) => i === index ? { ...item, allergyTags: event.target.value } : item) })} /></label>
+            <button
+              type="button"
+              className={secondaryClass}
+              disabled={form.ingredients.length <= 1}
+              onClick={() => setForm({ ...form, ingredients: form.ingredients.filter((_, i) => i !== index) })}>Bỏ</button>
+          </div>)}
+          <button
+            type="button"
+            className={secondaryClass}
+            onClick={() => setForm({ ...form, ingredients: [...form.ingredients, { name: '', allergyTags: '' }] })}>Thêm nguyên liệu</button>
+        </fieldset>
+
+        <div className="flex justify-end gap-3">
+          <button type="button" className={secondaryClass} disabled={busy || uploading} onClick={() => setEditing(undefined)}>Hủy</button>
+          <button className={actionClass} disabled={busy || uploading}>
+            {busy ? 'Đang lưu...' : 'Lưu món ăn'}
+          </button>
+        </div>
+      </form>
+    </AdminModal>}
+  </AdminPage>;
 }

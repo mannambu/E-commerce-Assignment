@@ -26,14 +26,6 @@ body.role-theme-customer {
   --role-border: #fde4cf;
 }
 
-body.role-theme-pt {
-  --role-accent: #4f46e5;
-  --role-accent-soft: #e0e7ff;
-  --role-page-bg: #f5f7ff;
-  --role-surface: #ffffff;
-  --role-border: #dbe4ff;
-}
-
 body.role-theme-admin {
   --role-accent: #0f766e;
   --role-accent-soft: #dff8f4;

@@ -28,7 +28,8 @@
     "seed:cart": "npx tsx scripts/seed-cart.ts",
     "seed:admin": "npx tsx scripts/seed-admin.ts",
     "seed:manager": "tsx scripts/seed-manager.ts",
-    "seed:foods": "tsx scripts/seed-foods.ts"
+    "seed:foods": "tsx scripts/seed-foods.ts",
+    "seed:customer": "tsx scripts/seed-customer.ts"
   },
   "keywords": [],
   "author": "",

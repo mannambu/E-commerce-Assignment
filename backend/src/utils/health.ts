@@ -22,27 +22,65 @@ export function calculateHealthMetrics(profile: {
   activityLevel: ActivityLevel
   goal: HealthGoal
 }) {
-  const bmrRaw =
-    profile.gender === 'Male'
-      ? 10 * profile.weightKg + 6.25 * profile.heightCm - 5 * profile.age + 5
-      : 10 * profile.weightKg + 6.25 * profile.heightCm - 5 * profile.age - 161
-
-  const tdeeRaw = bmrRaw * ACTIVITY_MULTIPLIERS[profile.activityLevel]
-  let targetCaloriesRaw = tdeeRaw
-
-  if (profile.goal === 'LoseFat') {
-    targetCaloriesRaw = tdeeRaw - 500
-  } else if (profile.goal === 'GainMuscle') {
-    targetCaloriesRaw = tdeeRaw + 300
+  if (
+    !profile ||
+    (profile.gender !== 'Male' && profile.gender !== 'Female') ||
+    profile.age === undefined ||
+    profile.age === null ||
+    !Number.isFinite(Number(profile.age)) ||
+    profile.heightCm === undefined ||
+    profile.heightCm === null ||
+    !Number.isFinite(Number(profile.heightCm)) ||
+    profile.weightKg === undefined ||
+    profile.weightKg === null ||
+    !Number.isFinite(Number(profile.weightKg)) ||
+    !profile.activityLevel ||
+    !profile.goal
+  ) {
+    throw new Error('Chưa đủ dữ liệu để tính chỉ số')
   }
 
-  const targetCalories = Math.max(1200, Math.round(targetCaloriesRaw))
-  const macroRatio = MACRO_RATIOS[profile.goal]
+  const age = Number(profile.age)
+  const heightCm = Number(profile.heightCm)
+  const weightKg = Number(profile.weightKg)
+
+  const bmrRaw =
+    profile.gender === 'Male'
+      ? 10 * weightKg + 6.25 * heightCm - 5 * age + 5
+      : 10 * weightKg + 6.25 * heightCm - 5 * age - 161
+
+  const activityMultiplier = ACTIVITY_MULTIPLIERS[profile.activityLevel] ?? 1.2
+  const tdeeRaw = bmrRaw * activityMultiplier
+
+  // Target theo mục tiêu: LoseFat -15%, GainMuscle +10%, MaintainWeight 0% (FR-HLT-007)
+  let targetCaloriesRaw: number
+  if (profile.goal === 'LoseFat') {
+    targetCaloriesRaw = tdeeRaw * 0.85
+  } else if (profile.goal === 'GainMuscle') {
+    targetCaloriesRaw = tdeeRaw * 1.1
+  } else {
+    targetCaloriesRaw = tdeeRaw
+  }
+
+  const bmr = Math.round(bmrRaw)
+  const tdee = Math.round(tdeeRaw)
+
+  // Sàn an toàn: Target >= BMR kèm cờ cảnh báo khi Target thấp hơn BMR (FR-HLT-008)
+  let targetCalories = Math.round(targetCaloriesRaw)
+  let targetAdjustedToBmr = false
+
+  if (targetCalories < bmr) {
+    targetCalories = bmr
+    targetAdjustedToBmr = true
+  }
+
+  const macroRatio = MACRO_RATIOS[profile.goal] ?? MACRO_RATIOS.MaintainWeight
 
   return {
-    bmr: Math.round(bmrRaw),
-    tdee: Math.round(tdeeRaw),
+    bmr,
+    tdee,
     targetCalories,
+    targetAdjustedToBmr,
     macroDistribution: {
       protein: Math.round((targetCalories * macroRatio.protein) / 4),
       carb: Math.round((targetCalories * macroRatio.carb) / 4),

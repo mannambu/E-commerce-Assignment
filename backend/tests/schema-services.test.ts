@@ -12,6 +12,7 @@ import Food from '../src/models/schemas/Food.schema'
 import DailyHealthLog from '../src/models/schemas/DailyHealthLog.schema'
 import { toLocalDate } from '../src/models/schemas/common'
 import settings, { DEFAULT_COMMERCE_RULES } from '../src/services/settings.services'
+import { calculateHealthMetrics } from '../src/utils/health'
 
 test('weekly quote uses actual day menus, charges shipping once and saves nested snapshots', async (t) => {
   t.mock.method(settings, 'getCommerceRules', async () => ({ ...DEFAULT_COMMERCE_RULES }))
@@ -203,4 +204,52 @@ test('daily tracking atomically deduplicates a consumed serving and preserves al
   assert.equal(days.get('2026-09-27')!.weightKg, 65)
   const calories = await tracking.getDailyCalories(String(user._id))
   assert.equal(calories.history.find((entry) => entry.date === date)!.caloriesConsumed, 400)
+})
+
+
+test('US-08: calculateHealthMetrics follows Mifflin-St Jeor, BMR floor constraint and guards against missing fields', () => {
+  // 1. Missing fields throw 'Chưa đủ dữ liệu để tính chỉ số'
+  assert.throws(() => calculateHealthMetrics({} as any), /Chưa đủ dữ liệu để tính chỉ số/)
+  assert.throws(() => calculateHealthMetrics({ gender: 'Male', age: 25 } as any), /Chưa đủ dữ liệu để tính chỉ số/)
+
+  // 2. Male standard profile: 70kg, 170cm, 25 years old, Moderate (1.55), MaintainWeight
+  // bmrRaw = 10 * 70 + 6.25 * 170 - 5 * 25 + 5 = 1642.5 -> Math.round = 1643
+  // tdeeRaw = 1642.5 * 1.55 = 2545.875 -> Math.round = 2546
+  const maleMaintain = calculateHealthMetrics({
+    gender: 'Male',
+    age: 25,
+    heightCm: 170,
+    weightKg: 70,
+    activityLevel: 'Moderate',
+    goal: 'MaintainWeight'
+  })
+  assert.equal(maleMaintain.bmr, 1643)
+  assert.equal(maleMaintain.tdee, 2546)
+  assert.equal(maleMaintain.targetCalories, 2546)
+  assert.equal(maleMaintain.targetAdjustedToBmr, false)
+  // Macro: 30% P, 40% C, 30% F
+  assert.equal(maleMaintain.macroDistribution.protein, Math.round((2546 * 0.3) / 4))
+  assert.equal(maleMaintain.macroDistribution.carb, Math.round((2546 * 0.4) / 4))
+  assert.equal(maleMaintain.macroDistribution.fat, Math.round((2546 * 0.3) / 9))
+
+  // 3. Female LoseFat (-15%)
+  // bmrRaw = 10 * 50 + 6.25 * 160 - 5 * 30 - 161 = 500 + 1000 - 150 - 161 = 1189
+  // Light (1.375) -> tdeeRaw = 1189 * 1.375 = 1634.875 -> 1635
+  // LoseFat (0.85) -> targetCaloriesRaw = 1634.875 * 0.85 = 1389.64 -> 1390
+  const femaleLoseFat = calculateHealthMetrics({
+    gender: 'Female',
+    age: 30,
+    heightCm: 160,
+    weightKg: 50,
+    activityLevel: 'Light',
+    goal: 'LoseFat'
+  })
+  assert.equal(femaleLoseFat.bmr, 1189)
+  assert.equal(femaleLoseFat.tdee, 1635)
+  assert.equal(femaleLoseFat.targetCalories, 1390)
+  assert.equal(femaleLoseFat.targetAdjustedToBmr, false)
+  // LoseFat Macro: 40% P, 30% C, 30% F
+  assert.equal(femaleLoseFat.macroDistribution.protein, Math.round((1390 * 0.4) / 4))
+  assert.equal(femaleLoseFat.macroDistribution.carb, Math.round((1390 * 0.3) / 4))
+  assert.equal(femaleLoseFat.macroDistribution.fat, Math.round((1390 * 0.3) / 9))
 })

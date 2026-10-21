@@ -63,7 +63,7 @@ Chọn **Add New → Project**, import cùng repository, chọn branch cần dep
 Thêm biến sau cho Production (và Preview nếu dùng chung backend):
 
 ```env
-VITE_API_URL=https://<backend-moi>.onrender.com
+VITE_API_URL=https://e-commerce-assignment-ozf8.onrender.com
 ```
 
 Không thêm `/api`, không dùng localhost. Biến `VITE_*` được đưa vào mã chạy trong trình duyệt: không đặt JWT secret, mật khẩu database hay Cloudinary API secret ở đây.

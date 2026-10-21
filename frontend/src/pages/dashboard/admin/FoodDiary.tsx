@@ -11,13 +11,13 @@ type FoodDiaryRow = {
   sources: {
     Order: number;
     Manual: number;
-    Legacy: number;
+    MealPlan: number;
   };
   entriesCount: number;
-  user: {
+  user?: {
     username: string;
     email: string;
-    role: 'Customer' | 'PT' | 'Admin';
+    role: string;
   };
 };
 
@@ -29,7 +29,7 @@ type FoodDiaryResponse = {
     totalCalories: number;
     orderCalories: number;
     manualCalories: number;
-    legacyCalories: number;
+    mealPlanCalories: number;
   };
   items: FoodDiaryRow[];
 };
@@ -37,7 +37,7 @@ type FoodDiaryResponse = {
 export default function AdminFoodDiary() {
   const [days, setDays] = useState('14');
   const [searchQuery, setSearchQuery] = useState('');
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'order' | 'manual' | 'legacy'>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'order' | 'manual' | 'mealPlan'>('all');
 
   const [isLoading, setIsLoading] = useState(true);
   const [warning, setWarning] = useState<string | null>(null);
@@ -72,21 +72,21 @@ export default function AdminFoodDiary() {
     return allRows.filter((row) => {
       const matchesSearch =
         !query ||
-        row.user.username.toLowerCase().includes(query) ||
-        row.user.email.toLowerCase().includes(query) ||
+        (row.user?.username || '').toLowerCase().includes(query) ||
+        (row.user?.email || '').toLowerCase().includes(query) ||
         row.userId.toLowerCase().includes(query);
 
       const sourceCalories = {
         order: Number(row.sources.Order || 0),
         manual: Number(row.sources.Manual || 0),
-        legacy: Number(row.sources.Legacy || 0)
+        mealPlan: Number(row.sources.MealPlan || 0)
       };
 
       const matchesSource =
         sourceFilter === 'all' ||
         (sourceFilter === 'order' && sourceCalories.order > 0) ||
         (sourceFilter === 'manual' && sourceCalories.manual > 0) ||
-        (sourceFilter === 'legacy' && sourceCalories.legacy > 0);
+        (sourceFilter === 'mealPlan' && sourceCalories.mealPlan > 0);
 
       return matchesSearch && matchesSource;
     });
@@ -132,8 +132,8 @@ export default function AdminFoodDiary() {
               <p className="text-2xl font-black text-gray-900 mt-2">{Math.round(summary?.manualCalories || 0).toLocaleString('vi-VN')}</p>
             </div>
             <div className="bg-white rounded-2xl border border-gray-100 p-5">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Du lieu cu</p>
-              <p className="text-2xl font-black text-gray-900 mt-2">{Math.round(summary?.legacyCalories || 0).toLocaleString('vi-VN')}</p>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Từ thực đơn</p>
+              <p className="text-2xl font-black text-gray-900 mt-2">{Math.round(summary?.mealPlanCalories || 0).toLocaleString('vi-VN')}</p>
             </div>
           </section>
 
@@ -152,13 +152,13 @@ export default function AdminFoodDiary() {
 
               <select
                 value={sourceFilter}
-                onChange={(e) => setSourceFilter(e.target.value as 'all' | 'order' | 'manual' | 'legacy')}
+                onChange={(e) => setSourceFilter(e.target.value as 'all' | 'order' | 'manual' | 'mealPlan')}
                 className="h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-orange-500/10"
               >
                 <option value="all">Tat ca nguon</option>
                 <option value="order">Tu don hang</option>
                 <option value="manual">Nhap tay</option>
-                <option value="legacy">Du lieu cu</option>
+                <option value="mealPlan">Từ thực đơn</option>
               </select>
 
               <div className="flex items-center gap-2 ml-auto">
@@ -195,7 +195,7 @@ export default function AdminFoodDiary() {
                   <th className="px-6 py-4">Tong calorie</th>
                   <th className="px-6 py-4">Order</th>
                   <th className="px-6 py-4">Manual</th>
-                  <th className="px-6 py-4">Legacy</th>
+                  <th className="px-6 py-4">Thực đơn</th>
                   <th className="px-6 py-4">So ban ghi</th>
                 </tr>
               </thead>
@@ -213,8 +213,8 @@ export default function AdminFoodDiary() {
                         <div className="flex items-center gap-2">
                           <UserCircle2 size={16} className="text-gray-400" />
                           <div>
-                            <p className="text-sm font-bold text-gray-900">{row.user.username}</p>
-                            <p className="text-[11px] text-gray-500">{row.user.email || row.userId}</p>
+                            <p className="text-sm font-bold text-gray-900">{row.user?.username || 'Tài khoản không còn tồn tại'}</p>
+                            <p className="text-[11px] text-gray-500">{row.user?.email || row.userId}</p>
                           </div>
                         </div>
                       </td>
@@ -225,7 +225,7 @@ export default function AdminFoodDiary() {
                       </td>
                       <td className="px-6 py-4 text-sm text-blue-700 font-semibold">{Math.round(row.sources.Order || 0).toLocaleString('vi-VN')}</td>
                       <td className="px-6 py-4 text-sm text-green-700 font-semibold">{Math.round(row.sources.Manual || 0).toLocaleString('vi-VN')}</td>
-                      <td className="px-6 py-4 text-sm text-gray-700 font-semibold">{Math.round(row.sources.Legacy || 0).toLocaleString('vi-VN')}</td>
+                      <td className="px-6 py-4 text-sm text-gray-700 font-semibold">{Math.round(row.sources.MealPlan || 0).toLocaleString('vi-VN')}</td>
                       <td className="px-6 py-4 text-sm text-gray-700">{row.entriesCount}</td>
                     </tr>
                   ))

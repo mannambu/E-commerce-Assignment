@@ -12,31 +12,29 @@ const ForgotPassword = lazy(() => import('./pages/auth/ForgotPassword'));
 const Home = lazy(() => import('./pages/customer/Home'));
 const HealthSurvey = lazy(() => import('./pages/customer/HealthSurvey'));
 const Dashboard = lazy(() => import('./pages/customer/Dashboard'));
+const Profile = lazy(() => import('./pages/customer/Profile'));
 
 const UserDashboard = lazy(() => import('./pages/dashboard/UserDashboard'));
 const UserMenu = lazy(() => import('./pages/dashboard/user/UserMenu'));
 const UserDiary = lazy(() => import('./pages/dashboard/user/UserDiary'));
-const UserPT = lazy(() => import('./pages/dashboard/user/UserPT'));
 
 const AdminDashboard = lazy(() => import('./pages/dashboard/AdminDashboard'));
 const AdminMenu = lazy(() => import('./pages/dashboard/admin/AdminMenu'));
 const AdminFoodDiary = lazy(() => import('./pages/dashboard/admin/FoodDiary'));
-const AdminPT = lazy(() => import('./pages/dashboard/admin/AdminPT'));
 const AdminAnalytics = lazy(() => import('./pages/dashboard/admin/AdminAnalytics'));
 const AdminOrders = lazy(() => import('./pages/dashboard/admin/AdminOrders'));
+const AdminUsers = lazy(() => import('./pages/dashboard/admin/AdminUsers'));
+const AdminSettings = lazy(() => import('./pages/dashboard/admin/AdminSettings'));
 const AdminFinanceRevenue = lazy(() => import('./pages/dashboard/admin/finance/Revenue'));
 const AdminFinanceExpenses = lazy(() => import('./pages/dashboard/admin/finance/Expenses'));
-const AdminFinancePayouts = lazy(() => import('./pages/dashboard/admin/finance/Payouts'));
 const AdminFinanceTransactions = lazy(() => import('./pages/dashboard/admin/finance/Transactions'));
 
-const PTDashboard = lazy(() => import('./pages/dashboard/PTDashboard'));
-const PTMenu = lazy(() => import('./pages/dashboard/pt/PTMenu'));
-const PTProfile = lazy(() => import('./pages/dashboard/pt/PTProfile'));
+const ManagerWorkspace = lazy(() => import('./pages/workspace/ManagerWorkspace'));
+const KitchenWorkspace = lazy(() => import('./pages/workspace/KitchenWorkspace'));
+const DeliveryWorkspace = lazy(() => import('./pages/workspace/DeliveryWorkspace'));
 
 const FoodCatalog = lazy(() => import('./pages/customer/FoodCatalog'));
 const FoodDetails = lazy(() => import('./pages/customer/FoodDetails'));
-const PTDirectory = lazy(() => import('./pages/customer/PTDirectory'));
-const PTDetails = lazy(() => import('./pages/customer/PTDetails'));
 const Cart = lazy(() => import('./pages/customer/Cart'));
 const Checkout = lazy(() => import('./pages/customer/Checkout'));
 
@@ -51,9 +49,19 @@ const DashboardRedirect = () => {
   const { user } = useAuth();
 
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role === 'Admin') return <Navigate to="/dashboard/admin" replace />;
-  if (user.role === 'PT') return <Navigate to="/dashboard/pt-view" replace />;
-  return <Navigate to="/dashboard/user" replace />;
+  switch (user.role) {
+    case 'Admin':
+      return <Navigate to="/dashboard/admin/users" replace />;
+    case 'Manager':
+      return <Navigate to="/workspace/manager" replace />;
+    case 'Kitchen Staff':
+      return <Navigate to="/workspace/kitchen" replace />;
+    case 'Delivery Staff':
+      return <Navigate to="/workspace/delivery" replace />;
+    case 'Customer':
+    default:
+      return <Navigate to="/dashboard/user" replace />;
+  }
 };
 
 // ==================== Protected Route ====================
@@ -83,24 +91,20 @@ const RouteThemeClassSync = () => {
   const location = useLocation();
 
   useEffect(() => {
-    const roleThemeClasses = ['role-theme-customer', 'role-theme-pt', 'role-theme-admin'];
+    const roleThemeClasses = ['role-theme-customer', 'role-theme-admin'];
     document.body.classList.remove(...roleThemeClasses);
 
     const pathname = location.pathname;
     let nextThemeClass = '';
 
-    if (pathname.startsWith('/dashboard/admin')) {
+    if (pathname.startsWith('/dashboard/admin') || pathname.startsWith('/workspace')) {
       nextThemeClass = 'role-theme-admin';
-    } else if (pathname.startsWith('/dashboard/pt') || pathname.startsWith('/dashboard/pt-view')) {
-      nextThemeClass = 'role-theme-pt';
     } else if (
       pathname.startsWith('/dashboard') ||
       pathname.startsWith('/cart') ||
       pathname.startsWith('/checkout') ||
       pathname.startsWith('/food-catalog') ||
-      pathname.startsWith('/food/') ||
-      pathname.startsWith('/pt-directory') ||
-      pathname.startsWith('/pt/')
+      pathname.startsWith('/food/')
     ) {
       nextThemeClass = 'role-theme-customer';
     } else if (pathname === '/' && user?.role === 'Customer') {
@@ -128,11 +132,10 @@ function AppRoutes() {
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<Home />} />
+          <Route path="/menu" element={<Navigate to="/food-catalog" replace />} />
           <Route path="/health-survey" element={<HealthSurvey />} />
           <Route path="/food-catalog" element={<FoodCatalog />} />
           <Route path="/food/:id" element={<FoodDetails />} />
-          <Route path="/pt-directory" element={<PTDirectory />} />
-          <Route path="/pt/:id" element={<PTDetails />} />
 
           {/* Auth Routes */}
           <Route path="/login" element={<Login />} />
@@ -173,10 +176,18 @@ function AppRoutes() {
             }
           />
           <Route
-            path="/dashboard/pt"
+            path="/dashboard/profile"
             element={
               <ProtectedRoute allowedRoles={['Customer']}>
-                <UserPT />
+                <Profile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute allowedRoles={['Customer']}>
+                <Profile />
               </ProtectedRoute>
             }
           />
@@ -197,33 +208,43 @@ function AppRoutes() {
             }
           />
 
-          {/* PT Routes */}
+          {/* Operational Workspace Routes (5 roles) */}
           <Route
-            path="/dashboard/pt-view"
+            path="/workspace/manager"
             element={
-              <ProtectedRoute allowedRoles={['PT']}>
-                <PTDashboard />
+              <ProtectedRoute allowedRoles={['Manager', 'Admin']}>
+                <ManagerWorkspace />
               </ProtectedRoute>
             }
           />
           <Route
-            path="/dashboard/pt/menu"
+            path="/workspace/kitchen"
             element={
-              <ProtectedRoute allowedRoles={['PT']}>
-                <PTMenu />
+              <ProtectedRoute allowedRoles={['Kitchen Staff']}>
+                <KitchenWorkspace />
               </ProtectedRoute>
             }
           />
           <Route
-            path="/dashboard/pt/profile"
+            path="/workspace/delivery"
             element={
-              <ProtectedRoute allowedRoles={['PT']}>
-                <PTProfile />
+              <ProtectedRoute allowedRoles={['Delivery Staff']}>
+                <DeliveryWorkspace />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/workspace"
+            element={
+              <ProtectedRoute>
+                <DashboardRedirect />
               </ProtectedRoute>
             }
           />
 
           {/* Admin Routes */}
+          <Route path="/dashboard/admin/users" element={<ProtectedRoute allowedRoles={['Admin']}><AdminUsers /></ProtectedRoute>} />
+          <Route path="/dashboard/admin/settings" element={<ProtectedRoute allowedRoles={['Admin']}><AdminSettings /></ProtectedRoute>} />
           <Route
             path="/dashboard/admin"
             element={
@@ -249,14 +270,6 @@ function AppRoutes() {
             }
           />
           <Route
-            path="/dashboard/admin/pt"
-            element={
-              <ProtectedRoute allowedRoles={['Admin']}>
-                <AdminPT />
-              </ProtectedRoute>
-            }
-          />
-          <Route
             path="/dashboard/admin/orders"
             element={
               <ProtectedRoute allowedRoles={['Admin']}>
@@ -277,14 +290,6 @@ function AppRoutes() {
             element={
               <ProtectedRoute allowedRoles={['Admin']}>
                 <AdminFinanceExpenses />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/dashboard/admin/finance/payouts"
-            element={
-              <ProtectedRoute allowedRoles={['Admin']}>
-                <AdminFinancePayouts />
               </ProtectedRoute>
             }
           />
