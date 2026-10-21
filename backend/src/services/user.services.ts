@@ -37,6 +37,7 @@ import { pendingNotificationEmail } from '~/utils/notification-email'
 import { signToken, verifyToken } from '~/utils/jwt'
 import trackingService from './tracking.services'
 import { calculateHealthMetrics } from '~/utils/health'
+import { toLocalDate } from '~/models/schemas/common'
 import { SignOptions } from 'jsonwebtoken'
 
 config()
@@ -92,20 +93,45 @@ class UsersService {
     return !restrictions.some((rule) => source.includes(rule))
   }
 
-  private buildMealPlanForDay(foods: Food[], targetCalories: number) {
-    const used = new Set<string>()
+  private buildMealPlanForDay(foods: Food[], targetCalories: number, recentUsedIds?: Set<string>) {
+    const dayUsed = new Set<string>()
 
     const meals = (Object.keys(MEAL_CALORIE_RATIOS) as MealSlot[]).map((slot) => {
       const slotTargetCalories = Math.round(targetCalories * MEAL_CALORIE_RATIOS[slot])
 
-      const candidates = foods.filter((food) => !used.has(String(food._id)))
+      // 1. Lọc món chưa dùng trong ngày
+      let candidates = foods.filter((food) => !dayUsed.has(String(food._id)))
+
+      // 2. Nếu có recentUsedIds (qua các ngày trong tuần), ưu tiên món chưa dùng gần đây để tăng đa dạng
+      if (recentUsedIds && candidates.some((f) => !recentUsedIds.has(String(f._id)))) {
+        const freshCandidates = candidates.filter((f) => !recentUsedIds.has(String(f._id)))
+        if (freshCandidates.length > 0) {
+          candidates = freshCandidates
+        }
+      }
+
       const pool = candidates.length > 0 ? candidates : foods
-      const selected = [...pool].sort(
+
+      // Sắp xếp các món theo độ lệch calo so với mục tiêu bữa ăn
+      const sorted = [...pool].sort(
         (a, b) => Math.abs(a.calories - slotTargetCalories) - Math.abs(b.calories - slotTargetCalories)
-      )[0]
+      )
+
+      // Lọc các món gần mục tiêu calo nhất (trong khoảng ±20% hoặc top 4-5 món gần nhất) để tăng tối đa tính đa dạng khi làm mới
+      const closeCandidates = sorted.filter(
+        (f) => Math.abs(f.calories - slotTargetCalories) <= slotTargetCalories * 0.2
+      )
+      const topPool =
+        closeCandidates.length >= 2
+          ? closeCandidates.slice(0, 5)
+          : sorted.slice(0, Math.min(4, sorted.length))
+      const selected = topPool[Math.floor(Math.random() * topPool.length)] || sorted[0]
 
       if (selected?._id) {
-        used.add(String(selected._id))
+        dayUsed.add(String(selected._id))
+        if (recentUsedIds) {
+          recentUsedIds.add(String(selected._id))
+        }
       }
 
       return {
@@ -306,9 +332,14 @@ class UsersService {
 
   async login(payload: LoginReqBody) {
     const identifier = (payload.identifier || payload.email || '').trim()
+    const escapedIdentifier = identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const user = await databaseService.users.findOne({
       role: { $in: ALL_ROLES },
-      $or: [{ email: identifier.toLowerCase() }, { username: identifier }]
+      $or: [
+        { email: identifier.toLowerCase() },
+        { username: identifier },
+        { username: new RegExp(`^${escapedIdentifier}$`, 'i') }
+      ]
     })
 
     if (!user) {
@@ -550,7 +581,15 @@ class UsersService {
   }
 
   async updateMe(user_id: string, payload: UpdateMeReqBody) {
-    const safePayload: { username?: string; phone?: string; date_of_birth?: Date; avatar?: string } = {}
+    const safePayload: {
+      username?: string
+      phone?: string
+      date_of_birth?: Date
+      avatar?: string
+      addresses?: import('~/models/schemas/User.schema').UserAddress[]
+      password?: string
+      password_changed_at?: Date
+    } = {}
     const unsetPayload: { avatar?: '' } = {}
 
     if (typeof payload.username === 'string') {
@@ -563,6 +602,28 @@ class UsersService {
 
     if (typeof payload.date_of_birth === 'string') {
       safePayload.date_of_birth = new Date(payload.date_of_birth)
+    }
+
+    if (Array.isArray(payload.addresses)) {
+      safePayload.addresses = payload.addresses.map((addr, idx) => ({
+        _id: addr._id || new ObjectId().toString(),
+        name: typeof addr.name === 'string' ? addr.name.trim() : '',
+        phone: typeof addr.phone === 'string' ? addr.phone.trim() : '',
+        address: typeof addr.address === 'string' ? addr.address.trim() : '',
+        isDefault: addr.isDefault !== undefined ? Boolean(addr.isDefault) : idx === 0
+      }))
+    }
+
+    if (payload.old_password && payload.password) {
+      const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
+      if (!user || !(await verifyPassword(payload.old_password, user.password))) {
+        throw new ErrorWithStatus({
+          message: 'Mật khẩu cũ không chính xác',
+          status: HTTP_STATUS.UNAUTHORIZED
+        })
+      }
+      safePayload.password = await hashPassword(payload.password)
+      safePayload.password_changed_at = new Date()
     }
 
     if (payload.avatar === null || payload.avatar === '') {
@@ -849,7 +910,21 @@ class UsersService {
       })
     }
 
-    return user.healthProfile
+    const logs = await databaseService.dailyHealthLogs
+      .find(
+        { userId: new ObjectId(user_id), 'profileChanges.0': { $exists: true } },
+        { projection: { profileChanges: 1 } }
+      )
+      .toArray()
+
+    const history = logs
+      .flatMap((log) => log.profileChanges || [])
+      .sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime())
+
+    return {
+      ...user.healthProfile,
+      history
+    }
   }
 
   async recommendMeals(user_id: string, days: 1 | 7 = 1) {
@@ -895,14 +970,30 @@ class UsersService {
     const targetCalories =
       user.healthProfile.targetCalories || calculateHealthMetrics(user.healthProfile).targetCalories
 
+    const now = new Date()
+    const todayVN = toLocalDate(now)
+    const [y, m, d] = todayVN.split('-').map(Number)
+
+    // Xác định ngày bắt đầu:
+    // Đơn lẻ 1 ngày (FOOD): bắt đầu từ hôm nay theo giờ Việt Nam
+    // Gói tuần 7 ngày (COMBO): bếp chốt lúc 20:00 ngày hôm trước, nên nếu trước 20:00 VN thì bắt đầu từ ngày mai, nếu sau 20:00 VN thì ngày kia
+    const vnHour = (now.getUTCHours() + 7) % 24
+    const startOffset = days === 1 ? 0 : vnHour < 20 ? 1 : 2
+
+    const weeklyUsed = new Set<string>()
+
     const plans = Array.from({ length: days }).map((_, index) => {
-      const date = new Date()
-      date.setDate(date.getDate() + index)
+      const curDate = new Date(Date.UTC(y, m - 1, d + startOffset + index, 12, 0, 0))
+      const dateStr = toLocalDate(curDate)
+
+      if (weeklyUsed.size >= Math.max(1, allowedFoods.length - 2)) {
+        weeklyUsed.clear()
+      }
 
       return {
         day: index + 1,
-        date: date.toISOString().split('T')[0],
-        ...this.buildMealPlanForDay(allowedFoods, targetCalories)
+        date: dateStr,
+        ...this.buildMealPlanForDay(allowedFoods, targetCalories, weeklyUsed)
       }
     })
 
@@ -959,9 +1050,17 @@ class UsersService {
       })
       .toArray()
 
-    const nextFood = candidates
-      .filter((food) => this.isFoodAllowed(food, restrictions))
-      .sort((a, b) => Math.abs(a.calories - expectedCalories) - Math.abs(b.calories - expectedCalories))[0]
+    const allowedCandidates = candidates.filter((food) => this.isFoodAllowed(food, restrictions))
+    // Lọc theo ngưỡng calo ±15% so với calo món ban đầu/mong đợi (AC 1 & AC 3 US-11)
+    const calorieBound = expectedCalories * 0.15
+    const withinCalorieBounds = allowedCandidates.filter(
+      (food) => Math.abs(food.calories - expectedCalories) <= calorieBound
+    )
+
+    const sortedCandidates = [...withinCalorieBounds].sort(
+      (a, b) => Math.abs(a.calories - expectedCalories) - Math.abs(b.calories - expectedCalories)
+    )
+    const nextFood = sortedCandidates[0]
 
     if (!nextFood) {
       throw new ErrorWithStatus({
@@ -984,6 +1083,14 @@ class UsersService {
         nutrition: nextFood.nutrition,
         images: nextFood.images
       },
+      candidates: sortedCandidates.slice(0, 5).map((f) => ({
+        _id: f._id,
+        name: f.name,
+        calories: f.calories,
+        price: f.price,
+        nutrition: f.nutrition,
+        images: f.images
+      })),
       targetCalories: expectedCalories,
       calorieDelta: nextFood.calories - expectedCalories
     }

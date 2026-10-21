@@ -1,12 +1,12 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Utensils, ClipboardList,
-  LogOut, ShoppingBag, BarChart3, Users, Settings, Receipt
+  LogOut, ShoppingBag, BarChart3, Users as UserIcon, Settings, Receipt
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { useState } from 'react';
-import api, { waitForSessionRefresh } from '@/services/api';
+import { waitForSessionRefresh } from '@/services/api';
 import { apiError } from '@/lib/admin';
 
 interface SidebarProps {
@@ -16,6 +16,7 @@ interface SidebarProps {
 export default function Sidebar({ role }: SidebarProps) {
   const { user, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState('');
   const handleLogout = async () => {
@@ -23,12 +24,15 @@ export default function Sidebar({ role }: SidebarProps) {
     setIsLoggingOut(true);
     setLogoutError('');
     try {
-      // Revoke the current access session on the server as well as local state.
+      // AuthContext revokes the session and clears local authentication state.
       await waitForSessionRefresh();
-      await api.post('/users/logout', { refresh_token: localStorage.getItem('refresh_token') });
-      logout();
+      await logout();
+      navigate('/login', { replace: true });
     } catch (error) {
-      if ((error as { response?: { status?: number } }).response?.status === 401) logout();
+      if ((error as { response?: { status?: number } }).response?.status === 401) {
+        await logout();
+        navigate('/login', { replace: true });
+      }
       else setLogoutError(apiError(error));
     } finally { setIsLoggingOut(false); }
   };
@@ -36,13 +40,14 @@ export default function Sidebar({ role }: SidebarProps) {
   // 1. Định nghĩa menu cho Khách hàng
   const customerLinks = [
     { icon: LayoutDashboard, label: 'Tổng quan', path: '/dashboard/user' },
-    { icon: Utensils, label: 'Thực đơn của tôi', path: '/dashboard/menu' },
-    { icon: ClipboardList, label: 'Nhật ký thực phẩm', path: '/dashboard/diary' },
+    { icon: Utensils, label: 'Gợi ý thực đơn', path: '/dashboard/menu' },
+    { icon: ClipboardList, label: 'Nhật ký & Theo dõi', path: '/dashboard/diary' },
+    { icon: UserIcon, label: 'Hồ sơ & Địa chỉ', path: '/dashboard/profile' },
   ];
 
   // 2. Định nghĩa menu cho Admin
   const adminLinks = [
-    { icon: Users, label: 'Quản lý người dùng', path: '/dashboard/admin/users' },
+    { icon: UserIcon, label: 'Quản lý người dùng', path: '/dashboard/admin/users' },
     { icon: LayoutDashboard, label: 'Quản trị hệ thống', path: '/dashboard/admin' },
     { icon: Utensils, label: 'Quản lý thực đơn', path: '/dashboard/admin/menu' },
     { icon: ShoppingBag, label: 'Giám sát đơn hàng', path: '/dashboard/admin/orders' },
@@ -95,7 +100,7 @@ export default function Sidebar({ role }: SidebarProps) {
         <button 
           onClick={handleLogout}
           disabled={isLoggingOut}
-          className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-500 hover:bg-red-50 rounded-xl transition-all"
+          className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-500 hover:bg-red-50 rounded-xl transition-all min-h-[44px]"
         >
           <LogOut size={20} />
           {isLoggingOut ? 'Đang đăng xuất...' : 'Đăng xuất'}

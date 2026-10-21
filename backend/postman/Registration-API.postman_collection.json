@@ -11,12 +11,11 @@
       "script": {
         "type": "text/javascript",
         "exec": [
-          "if (!pm.collectionVariables.get('runId')) {",
-          "  pm.collectionVariables.set('runId', String(Date.now()));",
-          "}",
-          "const runId = pm.collectionVariables.get('runId');",
+          "const runId = String(Date.now());",
+          "pm.collectionVariables.set('runId', runId);",
           "pm.collectionVariables.set('customerEmail', `customer_${runId}@gmail.com`);",
-          "pm.collectionVariables.set('customerUsername', `cus_${runId}`);"
+          "pm.collectionVariables.set('customerUsername', `cus_${runId}`);",
+          "pm.collectionVariables.set('phoneVN', `09${Math.floor(10000000 + Math.random() * 90000000)}`);"
         ]
       }
     }
@@ -40,11 +39,11 @@
     },
     {
       "key": "strongPassword",
-      "value": "Abcdef12"
+      "value": "Abcdef12!"
     },
     {
       "key": "weakPassword",
-      "value": "12345678"
+      "value": "123"
     },
     {
       "key": "phoneVN",
@@ -184,7 +183,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"email\": \"{{customerEmail}}\",\n  \"username\": \"{{customerUsername}}_new\",\n  \"password\": \"{{strongPassword}}\",\n  \"confirm_password\": \"{{strongPassword}}\",\n  \"phone\": \"{{phoneVN}}\",\n  \"role\": \"Customer\"\n}"
+          "raw": "{\n  \"email\": \"{{customerEmail}}\",\n  \"username\": \"{{customerUsername}}_dup\",\n  \"password\": \"{{strongPassword}}\",\n  \"confirm_password\": \"{{strongPassword}}\",\n  \"phone\": \"{{phoneVN}}\",\n  \"role\": \"Customer\"\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/users/register",
@@ -200,7 +199,7 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Status code should be validation error', function () {",
+              "pm.test('Status code should be validation error (400/422)', function () {",
               "  pm.expect([400, 422]).to.include(pm.response.code);",
               "});"
             ]
@@ -209,7 +208,7 @@
       ]
     },
     {
-      "name": "5) Register Weak Password - Fail",
+      "name": "5) Register Weak Password (<8 chars) - Fail",
       "request": {
         "method": "POST",
         "header": [
@@ -220,14 +219,14 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"email\": \"weak_{{$timestamp}}@gmail.com\",\n  \"username\": \"weak_{{$randomInt}}\",\n  \"password\": \"{{weakPassword}}\",\n  \"confirm_password\": \"{{weakPassword}}\",\n  \"phone\": \"{{phoneVN}}\",\n  \"role\": \"Customer\"\n}"
+          "raw": "{\n  \"email\": \"weak_{{customerEmail}}\",\n  \"username\": \"weak_{{customerUsername}}\",\n  \"password\": \"{{weakPassword}}\",\n  \"confirm_password\": \"{{weakPassword}}\",\n  \"phone\": \"{{phoneVN}}\",\n  \"role\": \"Customer\"\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/users/register",
           "host": ["{{baseUrl}}"],
           "path": ["users", "register"]
         },
-        "description": "Test rule mật khẩu mạnh theo yêu cầu nghiệp vụ."
+        "description": "Test rule mật khẩu phải từ 8 ký tự trở lên (FR-SEC-001)."
       },
       "response": [],
       "event": [
@@ -236,7 +235,7 @@
           "script": {
             "type": "text/javascript",
             "exec": [
-              "pm.test('Status code should be validation error', function () {",
+              "pm.test('Status code should be validation error (422)', function () {",
               "  pm.expect([400, 422]).to.include(pm.response.code);",
               "});"
             ]

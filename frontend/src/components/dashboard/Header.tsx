@@ -186,7 +186,7 @@ export default function Header({ title, userName, userRole, avatar, hideSearch =
     } finally {
       logout();
       localStorage.removeItem('userRole');
-      navigate('/login');
+      navigate('/login', { replace: true });
     }
   };
 
