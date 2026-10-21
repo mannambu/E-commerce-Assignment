@@ -16,27 +16,18 @@ const Dashboard = lazy(() => import('./pages/customer/Dashboard'));
 const UserDashboard = lazy(() => import('./pages/dashboard/UserDashboard'));
 const UserMenu = lazy(() => import('./pages/dashboard/user/UserMenu'));
 const UserDiary = lazy(() => import('./pages/dashboard/user/UserDiary'));
-const UserPT = lazy(() => import('./pages/dashboard/user/UserPT'));
 
 const AdminDashboard = lazy(() => import('./pages/dashboard/AdminDashboard'));
 const AdminMenu = lazy(() => import('./pages/dashboard/admin/AdminMenu'));
 const AdminFoodDiary = lazy(() => import('./pages/dashboard/admin/FoodDiary'));
-const AdminPT = lazy(() => import('./pages/dashboard/admin/AdminPT'));
 const AdminAnalytics = lazy(() => import('./pages/dashboard/admin/AdminAnalytics'));
 const AdminOrders = lazy(() => import('./pages/dashboard/admin/AdminOrders'));
 const AdminFinanceRevenue = lazy(() => import('./pages/dashboard/admin/finance/Revenue'));
 const AdminFinanceExpenses = lazy(() => import('./pages/dashboard/admin/finance/Expenses'));
-const AdminFinancePayouts = lazy(() => import('./pages/dashboard/admin/finance/Payouts'));
 const AdminFinanceTransactions = lazy(() => import('./pages/dashboard/admin/finance/Transactions'));
-
-const PTDashboard = lazy(() => import('./pages/dashboard/PTDashboard'));
-const PTMenu = lazy(() => import('./pages/dashboard/pt/PTMenu'));
-const PTProfile = lazy(() => import('./pages/dashboard/pt/PTProfile'));
 
 const FoodCatalog = lazy(() => import('./pages/customer/FoodCatalog'));
 const FoodDetails = lazy(() => import('./pages/customer/FoodDetails'));
-const PTDirectory = lazy(() => import('./pages/customer/PTDirectory'));
-const PTDetails = lazy(() => import('./pages/customer/PTDetails'));
 const Cart = lazy(() => import('./pages/customer/Cart'));
 const Checkout = lazy(() => import('./pages/customer/Checkout'));
 
@@ -52,7 +43,6 @@ const DashboardRedirect = () => {
 
   if (!user) return <Navigate to="/login" replace />;
   if (user.role === 'Admin') return <Navigate to="/dashboard/admin" replace />;
-  if (user.role === 'PT') return <Navigate to="/dashboard/pt-view" replace />;
   return <Navigate to="/dashboard/user" replace />;
 };
 
@@ -83,7 +73,7 @@ const RouteThemeClassSync = () => {
   const location = useLocation();
 
   useEffect(() => {
-    const roleThemeClasses = ['role-theme-customer', 'role-theme-pt', 'role-theme-admin'];
+    const roleThemeClasses = ['role-theme-customer', 'role-theme-admin'];
     document.body.classList.remove(...roleThemeClasses);
 
     const pathname = location.pathname;
@@ -91,16 +81,12 @@ const RouteThemeClassSync = () => {
 
     if (pathname.startsWith('/dashboard/admin')) {
       nextThemeClass = 'role-theme-admin';
-    } else if (pathname.startsWith('/dashboard/pt') || pathname.startsWith('/dashboard/pt-view')) {
-      nextThemeClass = 'role-theme-pt';
     } else if (
       pathname.startsWith('/dashboard') ||
       pathname.startsWith('/cart') ||
       pathname.startsWith('/checkout') ||
       pathname.startsWith('/food-catalog') ||
-      pathname.startsWith('/food/') ||
-      pathname.startsWith('/pt-directory') ||
-      pathname.startsWith('/pt/')
+      pathname.startsWith('/food/')
     ) {
       nextThemeClass = 'role-theme-customer';
     } else if (pathname === '/' && user?.role === 'Customer') {
@@ -131,8 +117,6 @@ function AppRoutes() {
           <Route path="/health-survey" element={<HealthSurvey />} />
           <Route path="/food-catalog" element={<FoodCatalog />} />
           <Route path="/food/:id" element={<FoodDetails />} />
-          <Route path="/pt-directory" element={<PTDirectory />} />
-          <Route path="/pt/:id" element={<PTDetails />} />
 
           {/* Auth Routes */}
           <Route path="/login" element={<Login />} />
@@ -173,14 +157,6 @@ function AppRoutes() {
             }
           />
           <Route
-            path="/dashboard/pt"
-            element={
-              <ProtectedRoute allowedRoles={['Customer']}>
-                <UserPT />
-              </ProtectedRoute>
-            }
-          />
-          <Route
             path="/cart"
             element={
               <ProtectedRoute allowedRoles={['Customer']}>
@@ -193,32 +169,6 @@ function AppRoutes() {
             element={
               <ProtectedRoute allowedRoles={['Customer']}>
                 <Checkout />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* PT Routes */}
-          <Route
-            path="/dashboard/pt-view"
-            element={
-              <ProtectedRoute allowedRoles={['PT']}>
-                <PTDashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/dashboard/pt/menu"
-            element={
-              <ProtectedRoute allowedRoles={['PT']}>
-                <PTMenu />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/dashboard/pt/profile"
-            element={
-              <ProtectedRoute allowedRoles={['PT']}>
-                <PTProfile />
               </ProtectedRoute>
             }
           />
@@ -249,14 +199,6 @@ function AppRoutes() {
             }
           />
           <Route
-            path="/dashboard/admin/pt"
-            element={
-              <ProtectedRoute allowedRoles={['Admin']}>
-                <AdminPT />
-              </ProtectedRoute>
-            }
-          />
-          <Route
             path="/dashboard/admin/orders"
             element={
               <ProtectedRoute allowedRoles={['Admin']}>
@@ -277,14 +219,6 @@ function AppRoutes() {
             element={
               <ProtectedRoute allowedRoles={['Admin']}>
                 <AdminFinanceExpenses />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/dashboard/admin/finance/payouts"
-            element={
-              <ProtectedRoute allowedRoles={['Admin']}>
-                <AdminFinancePayouts />
               </ProtectedRoute>
             }
           />

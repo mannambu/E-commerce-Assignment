@@ -49,6 +49,11 @@ export default function Login() {
       // API Spec: response.data.result chứa token và role
       const { access_token, refresh_token, role } = response.data.result;
 
+      if (role !== 'Customer' && role !== 'Admin') {
+        setError('root', { message: 'Vai trò tài khoản này không còn được hỗ trợ trên giao diện hiện tại.' });
+        return;
+      }
+
       // Cập nhật token + user state qua AuthContext
       await login(access_token, refresh_token);
       localStorage.setItem('userRole', role);
@@ -56,8 +61,6 @@ export default function Login() {
       // Điều hướng theo Role
       if (role === 'Admin') {
         navigate('/dashboard/admin');
-      } else if (role === 'PT') {
-        navigate('/dashboard/pt-view');
       } else {
         navigate('/dashboard/user');
       }

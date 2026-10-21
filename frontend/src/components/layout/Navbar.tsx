@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ShoppingCart, Menu, X, Utensils, Users, LayoutDashboard } from 'lucide-react';
+import { ShoppingCart, Menu, X, Utensils, LayoutDashboard } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
@@ -15,15 +15,12 @@ export default function Navbar() {
 
   const navLinks = [
     { name: 'Thực đơn', path: '/food-catalog', icon: <Utensils size={18} /> },
-    { name: 'Huấn luyện viên', path: '/pt-directory', icon: <Users size={18} /> },
     { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard size={18} /> },
   ];
 
   const dashboardPath =
     user?.role === 'Admin'
       ? '/dashboard/admin'
-      : user?.role === 'PT'
-      ? '/dashboard/pt-view'
       : '/dashboard/user';
 
   const handleLogout = () => {

@@ -42,7 +42,6 @@ type AdminOrder = {
 type DashboardStats = {
   users?: {
     customers?: number;
-    pts?: number;
   };
   revenue?: {
     overall?: {
@@ -409,7 +408,6 @@ export default function AdminAnalytics() {
                 <p>Doanh thu tổng: <span className="font-black text-gray-900">{Math.round(stats?.revenue?.overall?.totalAmount || 0).toLocaleString('vi-VN')}vnd</span></p>
                 <p>Đơn hoàn tất: <span className="font-black text-gray-900">{(stats?.revenue?.overall?.completedOrders || 0).toLocaleString('vi-VN')}</span></p>
                 <p>Khách hàng: <span className="font-black text-gray-900">{(stats?.users?.customers || 0).toLocaleString('vi-VN')}</span></p>
-                <p>PT: <span className="font-black text-gray-900">{(stats?.users?.pts || 0).toLocaleString('vi-VN')}</span></p>
               </div>
             </div>
           </div>

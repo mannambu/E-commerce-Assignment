@@ -9,8 +9,7 @@ import {
   Bike,
   CheckCircle2,
   XCircle,
-  UserCircle,
-  Dumbbell
+  UserCircle
 } from 'lucide-react';
 import Sidebar from '@/components/dashboard/Sidebar';
 import Header from '@/components/dashboard/Header';
@@ -33,14 +32,6 @@ type UserOrder = {
   };
 };
 
-type RegisteredPTService = {
-  _id: string;
-  ptId?: string;
-  title?: string;
-  sessions?: number;
-  price?: number;
-};
-
 type UserProfile = {
   username?: string;
   healthProfile?: {
@@ -57,7 +48,6 @@ export default function UserDashboard() {
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [orders, setOrders] = useState<UserOrder[]>([]);
-  const [ptServices, setPTServices] = useState<RegisteredPTService[]>([]);
 
   const [todayStats, setTodayStats] = useState({
     consumedCalories: 0,
@@ -86,13 +76,12 @@ export default function UserDashboard() {
         setIsLoading(true);
         setDashboardWarning(null);
 
-        const [todayCalRes, historyCalRes, weightHistRes, profileRes, ordersRes, ptServicesRes] = await Promise.allSettled([
+        const [todayCalRes, historyCalRes, weightHistRes, profileRes, ordersRes] = await Promise.allSettled([
           api.get('/tracking/calories/today'),
           api.get('/tracking/calories'),
           api.get('/tracking/weight-history'),
           api.get('/users/me'),
-          api.get('/orders'),
-          api.get('/users/me/pt-services')
+          api.get('/orders')
         ]);
 
         if (todayCalRes.status === 'fulfilled' && todayCalRes.value.data?.result) {
@@ -156,10 +145,6 @@ export default function UserDashboard() {
           setOrders(ordersRes.value.data.result);
         }
 
-        if (ptServicesRes.status === 'fulfilled') {
-          const services = ptServicesRes.value.data?.result?.services;
-          setPTServices(Array.isArray(services) ? services : []);
-        }
 
       } catch (error) {
         console.error('Lỗi khi tải dữ liệu dashboard:', error);
@@ -199,7 +184,7 @@ export default function UserDashboard() {
             </div>
           ) : null}
 
-          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+          <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <article className="bg-white p-5 rounded-[24px] shadow-sm border border-gray-50">
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Calories hôm nay</p>
               <p className="text-2xl font-black text-gray-900 mt-2">{todayStats.consumedCalories.toLocaleString('vi-VN')} <span className="text-xs font-bold text-gray-400">kcal</span></p>
@@ -211,10 +196,6 @@ export default function UserDashboard() {
             <article className="bg-white p-5 rounded-[24px] shadow-sm border border-gray-50">
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Đơn đang xử lý</p>
               <p className="text-2xl font-black text-gray-900 mt-2">{orders.filter((order) => ['Pending', 'Confirmed', 'Cooking', 'Delivering'].includes(order.status)).length}</p>
-            </article>
-            <article className="bg-white p-5 rounded-[24px] shadow-sm border border-gray-50">
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Gói PT đã đăng ký</p>
-              <p className="text-2xl font-black text-gray-900 mt-2">{ptServices.length}</p>
             </article>
           </section>
 
@@ -323,25 +304,6 @@ export default function UserDashboard() {
             </div>
           </section>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {ptServices.slice(0, 4).map((service) => (
-              <article key={service._id} className="bg-white p-5 rounded-[24px] shadow-sm border border-gray-50 flex items-center gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center shrink-0">
-                  <Dumbbell size={22} className="text-blue-600" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wider truncate">Dịch vụ PT</p>
-                  <p className="text-sm font-black text-gray-900 truncate mt-1">{service.title || 'Gói PT'}</p>
-                  <p className="text-[11px] font-semibold text-gray-500 mt-1">{Number(service.sessions || 0)} buổi • {Number(service.price || 0).toLocaleString('vi-VN')} đ</p>
-                  {service.ptId ? (
-                    <Link to={`/pt/${service.ptId}`} className="mt-2 inline-flex text-[11px] font-bold text-orange-600 hover:text-orange-700">
-                      Đánh giá PT
-                    </Link>
-                  ) : null}
-                </div>
-              </article>
-            ))}
-          </div>
 
           <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-50 space-y-6">
             <div className="flex items-center justify-between">

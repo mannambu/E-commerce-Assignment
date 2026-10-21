@@ -11,14 +11,14 @@ import {
   BarChart,
   Bar
 } from 'recharts';
-import { Loader2, DollarSign, Users, Megaphone, ShoppingBag } from 'lucide-react';
+import { Loader2, DollarSign, Megaphone, ShoppingBag } from 'lucide-react';
 import Sidebar from '@/components/dashboard/Sidebar';
 import Header from '@/components/dashboard/Header';
 import api from '@/services/api';
 
 type DashboardStats = {
-  users: { customers: number; pts: number };
-  products: { foods: number; ptServices: number };
+  users: { customers: number };
+  products: { foods: number };
   revenue: {
     overall: { totalAmount: number; completedOrders: number };
     thisMonth: { totalAmount: number; completedOrders: number };
@@ -39,8 +39,8 @@ type OrderItem = {
 };
 
 const defaultStats: DashboardStats = {
-  users: { customers: 0, pts: 0 },
-  products: { foods: 0, ptServices: 0 },
+  users: { customers: 0 },
+  products: { foods: 0 },
   revenue: {
     overall: { totalAmount: 0, completedOrders: 0 },
     thisMonth: { totalAmount: 0, completedOrders: 0 },
@@ -94,7 +94,7 @@ export default function AdminDashboard() {
   const kpiData = useMemo(
     () => ({
       foodRevenue: Number(stats.revenue.breakdown.FOOD_ONE_DAY.revenue || 0),
-      ptCommission: Number(stats.revenue.breakdown.COMBO_WEEKLY.revenue || 0),
+      weeklyRevenue: Number(stats.revenue.breakdown.COMBO_WEEKLY.revenue || 0),
       marketingCost: Number(stats.revenue.breakdown.OTHER.revenue || 0)
     }),
     [stats]
@@ -165,11 +165,11 @@ export default function AdminDashboard() {
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600">
-                  <Users size={24} />
+                  <ShoppingBag size={24} />
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Hoa hồng PT</p>
-                  <h3 className="text-xl font-black text-gray-900 mt-1">{money(kpiData.ptCommission)}</h3>
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Doanh thu Combo tuần</p>
+                  <h3 className="text-xl font-black text-gray-900 mt-1">{money(kpiData.weeklyRevenue)}</h3>
                 </div>
               </div>
             </div>
@@ -217,22 +217,14 @@ export default function AdminDashboard() {
               </ResponsiveContainer>
             </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+              <div className="grid grid-cols-2 gap-4 mt-6">
                 <div className="rounded-2xl bg-gray-50 p-4">
                   <p className="text-[10px] font-bold text-gray-400 uppercase">Khách hàng</p>
                   <p className="text-xl font-black text-gray-900 mt-1">{stats.users.customers}</p>
                 </div>
                 <div className="rounded-2xl bg-gray-50 p-4">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase">PT</p>
-                  <p className="text-xl font-black text-gray-900 mt-1">{stats.users.pts}</p>
-                </div>
-                <div className="rounded-2xl bg-gray-50 p-4">
                   <p className="text-[10px] font-bold text-gray-400 uppercase">Món ăn hoạt động</p>
                   <p className="text-xl font-black text-gray-900 mt-1">{stats.products.foods}</p>
-                </div>
-                <div className="rounded-2xl bg-gray-50 p-4">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase">Gói PT hoạt động</p>
-                  <p className="text-xl font-black text-gray-900 mt-1">{stats.products.ptServices}</p>
                 </div>
               </div>
             </div>

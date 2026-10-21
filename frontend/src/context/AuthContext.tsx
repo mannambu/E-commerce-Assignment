@@ -5,7 +5,7 @@ interface User {
   _id: string;
   email: string;
   username: string;
-  role: 'Customer' | 'PT' | 'Admin';
+  role: 'Customer' | 'Admin';
   avatar?: string;
 }
 
@@ -53,6 +53,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const response = await api.get('/users/me');
 
       const userData = response.data.result || response.data.user || response.data;
+      if (userData?.role !== 'Customer' && userData?.role !== 'Admin') {
+        logout();
+        return;
+      }
       setUser(userData);
 
     } catch (error: any) {
@@ -95,6 +99,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const logout = () => {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
+    localStorage.removeItem('userRole');
     setUser(null);
   };
 

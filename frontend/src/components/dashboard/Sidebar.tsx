@@ -1,13 +1,13 @@
 import { Link, useLocation } from 'react-router-dom';
 import { 
-  LayoutDashboard, Utensils, Users, ClipboardList, 
+  LayoutDashboard, Utensils, ClipboardList,
   LogOut, ShoppingBag, BarChart3
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 
 interface SidebarProps {
-  role?: 'admin' | 'pt' | 'user' | 'Admin' | 'PT' | 'Customer';
+  role?: 'admin' | 'user' | 'Admin' | 'Customer';
 }
 
 export default function Sidebar({ role }: SidebarProps) {
@@ -19,35 +19,24 @@ export default function Sidebar({ role }: SidebarProps) {
     { icon: LayoutDashboard, label: 'Tổng quan', path: '/dashboard/user' },
     { icon: Utensils, label: 'Thực đơn của tôi', path: '/dashboard/menu' },
     { icon: ClipboardList, label: 'Nhật ký thực phẩm', path: '/dashboard/diary' },
-    { icon: Users, label: 'Huấn luyện viên', path: '/dashboard/pt' },
   ];
 
-  // 2. Định nghĩa menu cho PT
-  const ptLinks = [
-    { icon: LayoutDashboard, label: 'Dashboard PT', path: '/dashboard/pt-view' },
-    { icon: Utensils, label: 'Gói PT của tôi', path: '/dashboard/pt/menu' },
-    { icon: Users, label: 'Học viên & Check-in', path: '/dashboard/pt/profile' },
-  ];
-
-  // 3. Định nghĩa menu cho Admin
+  // 2. Định nghĩa menu cho Admin
   const adminLinks = [
     { icon: LayoutDashboard, label: 'Quản trị hệ thống', path: '/dashboard/admin' },
     { icon: Utensils, label: 'Quản lý thực đơn', path: '/dashboard/admin/menu' },
-    { icon: Users, label: 'Quản lý PT', path: '/dashboard/admin/pt' },
     { icon: ShoppingBag, label: 'Quản lý đơn hàng', path: '/dashboard/admin/orders' },
     { icon: BarChart3, label: 'Dashboard thống kê', path: '/dashboard/admin/analytics' },
   ];
 
   const normalizedRole = role?.toLowerCase() === 'admin'
     ? 'Admin'
-    : role?.toLowerCase() === 'pt'
-      ? 'PT'
-      : role?.toLowerCase() === 'user'
-        ? 'Customer'
-        : user?.role;
+    : role?.toLowerCase() === 'user' || role === 'Customer'
+      ? 'Customer'
+      : user?.role;
 
   // Lựa chọn bộ menu dựa trên Role
-  const activeLinks = normalizedRole === 'Admin' ? adminLinks : normalizedRole === 'PT' ? ptLinks : customerLinks;
+  const activeLinks = normalizedRole === 'Admin' ? adminLinks : customerLinks;
 
   return (
     <aside className="sticky top-0 flex h-screen w-64 flex-col border-r border-[color:var(--role-border)] bg-[var(--role-surface)]/95 backdrop-blur-md">

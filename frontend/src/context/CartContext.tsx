@@ -8,7 +8,7 @@ interface CartItem {
   image: string;
   qty: number;
   calories?: number;
-  type: 'food' | 'pt';
+  type: 'food';
 }
 
 interface CartContextType {

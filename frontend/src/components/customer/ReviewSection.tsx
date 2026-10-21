@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button';
 import api from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
 
-type ReviewTargetType = 'Food' | 'PT';
+type ReviewTargetType = 'Food';
 
 type ReviewItem = {
   _id: string;

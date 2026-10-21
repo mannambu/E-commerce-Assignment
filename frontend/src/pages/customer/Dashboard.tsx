@@ -7,8 +7,7 @@ import {
   Target, 
   Info, 
   TrendingUp, 
-  Utensils, 
-  UserCheck 
+  Utensils
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { cn } from '@/lib/utils';
@@ -174,18 +173,6 @@ export default function Dashboard() {
               </div>
             </Link>
 
-            <Link to="/pt-directory" className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-6 hover:shadow-md hover:border-orange-200 transition-all group">
-              <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center shrink-0 group-hover:bg-purple-200 transition-colors">
-                <UserCheck size={32} />
-              </div>
-              <div>
-                <h4 className="text-lg font-bold text-gray-900 group-hover:text-orange-500 transition-colors">Tìm kiếm PT</h4>
-                <p className="text-sm text-gray-500">Kết nối với huấn luyện viên chuyên nghiệp để đạt mục tiêu nhanh hơn.</p>
-                <div className="mt-3 text-orange-500 font-bold text-sm inline-flex items-center gap-1">
-                  Khám phá <TrendingUp size={14} />
-                </div>
-              </div>
-            </Link>
           </div>
         </div>
       </div>
@@ -199,10 +186,6 @@ export default function Dashboard() {
         <Link to="/food-catalog" className="flex flex-col items-center gap-1 text-gray-400">
           <Utensils size={20} />
           <span className="text-[10px] font-bold">Thực đơn</span>
-        </Link>
-        <Link to="/pt-directory" className="flex flex-col items-center gap-1 text-gray-400">
-          <UserCheck size={20} />
-          <span className="text-[10px] font-bold">PT</span>
         </Link>
       </div>
     </div>

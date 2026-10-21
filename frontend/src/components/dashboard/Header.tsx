@@ -29,7 +29,7 @@ type CurrentProfile = {
   email?: string;
   username?: string;
   phone?: string;
-  role?: 'Customer' | 'PT' | 'Admin';
+  role?: 'Customer' | 'Admin';
   account_status?: 'Active' | 'Pending' | 'Locked';
   created_at?: string;
   updated_at?: string;
@@ -53,14 +53,6 @@ type CurrentProfile = {
       fat?: number;
     };
   };
-  ptProfile?: {
-    experienceYears?: number;
-    specialties?: string[];
-    portfolioImages?: string[];
-    rating?: number;
-    approvedByAdmin?: boolean;
-  };
-  registeredPTServices?: Array<unknown>;
 };
 
 export default function Header({ title, userName, userRole, avatar, hideSearch = false }: HeaderProps) {
@@ -81,9 +73,6 @@ export default function Header({ title, userName, userRole, avatar, hideSearch =
   const [formPhone, setFormPhone] = useState('');
   const [formDateOfBirth, setFormDateOfBirth] = useState('');
 
-  const [formExperienceYears, setFormExperienceYears] = useState('');
-  const [formSpecialties, setFormSpecialties] = useState('');
-  const [formPortfolioImages, setFormPortfolioImages] = useState('');
   const [formGender, setFormGender] = useState<'Male' | 'Female'>('Male');
   const [formAge, setFormAge] = useState('');
   const [formHeightCm, setFormHeightCm] = useState('');
@@ -117,10 +106,6 @@ export default function Header({ title, userName, userRole, avatar, hideSearch =
     setFormUsername(profile.username || '');
     setFormPhone(profile.phone || '');
     setFormDateOfBirth(profile.date_of_birth ? String(profile.date_of_birth).slice(0, 10) : '');
-
-    setFormExperienceYears(String(profile.ptProfile?.experienceYears ?? ''));
-    setFormSpecialties((profile.ptProfile?.specialties || []).join(', '));
-    setFormPortfolioImages((profile.ptProfile?.portfolioImages || []).join(', '));
 
     setFormGender(profile.healthProfile?.gender || 'Male');
     setFormAge(profile.healthProfile?.age ? String(profile.healthProfile.age) : '');
@@ -175,7 +160,6 @@ export default function Header({ title, userName, userRole, avatar, hideSearch =
     if (userRole) return userRole;
     const role = profile?.role || user?.role;
     if (role === 'Admin') return 'Quản trị viên';
-    if (role === 'PT') return 'Huấn luyện viên';
     return 'Người dùng';
   }, [profile?.role, user?.role, userRole]);
 
@@ -185,7 +169,6 @@ export default function Header({ title, userName, userRole, avatar, hideSearch =
 
   const roleCode = profile?.role || user?.role;
   const isCustomer = roleCode === 'Customer';
-  const isPT = roleCode === 'PT';
   const hasHealthProfile = Boolean(profile?.healthProfile);
 
   const notifications = profile?.notifications || [];
@@ -283,26 +266,6 @@ export default function Header({ title, userName, userRole, avatar, hideSearch =
             activityLevel: formActivityLevel,
             goal: formGoal,
             allergies
-          })
-        );
-      }
-
-      if (isPT) {
-        const specialties = formSpecialties
-          .split(',')
-          .map((item) => item.trim())
-          .filter(Boolean);
-
-        const portfolioImages = formPortfolioImages
-          .split(',')
-          .map((item) => item.trim())
-          .filter(Boolean);
-
-        followUpTasks.push(
-          api.patch('/users/me/pt-profile', {
-            experienceYears: Number(formExperienceYears || 0),
-            specialties,
-            portfolioImages
           })
         );
       }
@@ -499,25 +462,7 @@ export default function Header({ title, userName, userRole, avatar, hideSearch =
               />
             </div>
 
-            {isPT ? (
-              <div className="pt-2">
-                <p className="text-xs font-black text-gray-500 uppercase tracking-wider mb-2">PT Profile</p>
-                <Row label="Kinh nghiệm" value={profile?.ptProfile?.experienceYears ? `${profile.ptProfile.experienceYears} năm` : 'Chưa cập nhật'} />
-                <Row label="Đánh giá" value={profile?.ptProfile?.rating ? profile.ptProfile.rating.toFixed(1) : 'N/A'} />
-                <Row label="Đã duyệt" value={profile?.ptProfile?.approvedByAdmin ? 'Đã duyệt' : 'Chưa duyệt'} />
-                <Row
-                  label="Chuyên môn"
-                  value={profile?.ptProfile?.specialties && profile.ptProfile.specialties.length > 0 ? profile.ptProfile.specialties.join(', ') : 'Chưa cập nhật'}
-                />
-              </div>
-            ) : null}
 
-            {isCustomer ? (
-              <div className="pt-2">
-                <p className="text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Thông tin khách hàng</p>
-                <Row label="Số gói PT đã đăng ký" value={String(profile?.registeredPTServices?.length || 0)} />
-              </div>
-            ) : null}
 
           </div>
           <div className="pt-4 flex justify-end">
@@ -618,34 +563,6 @@ export default function Header({ title, userName, userRole, avatar, hideSearch =
               />
             </div>
 
-            {isPT ? (
-              <>
-                <Input
-                  label="Số năm kinh nghiệm"
-                  type="number"
-                  value={formExperienceYears}
-                  onChange={(e) => setFormExperienceYears(e.target.value)}
-                />
-                <div className="space-y-1">
-                  <label className="text-sm font-bold text-gray-700">Chuyên môn (cách nhau bởi dấu phẩy)</label>
-                  <textarea
-                    value={formSpecialties}
-                    onChange={(e) => setFormSpecialties(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-300"
-                    rows={3}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-bold text-gray-700">Portfolio URLs (cách nhau bởi dấu phẩy)</label>
-                  <textarea
-                    value={formPortfolioImages}
-                    onChange={(e) => setFormPortfolioImages(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-300"
-                    rows={3}
-                  />
-                </div>
-              </>
-            ) : null}
 
             {settingsError ? <p className="text-sm font-medium text-red-500">{settingsError}</p> : null}
           </div>

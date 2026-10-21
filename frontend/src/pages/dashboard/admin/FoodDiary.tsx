@@ -17,7 +17,7 @@ type FoodDiaryRow = {
   user: {
     username: string;
     email: string;
-    role: 'Customer' | 'PT' | 'Admin';
+    role: 'Customer' | 'Admin';
   };
 };
 

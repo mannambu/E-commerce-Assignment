@@ -21,7 +21,6 @@ const registerSchema = z.object({
     .regex(/[0-9]/, 'Phải có ít nhất 1 con số'),
   confirmPassword: z.string(),
   phone: z.string().regex(/^[0-9]{10}$/, 'Số điện thoại phải đúng 10 chữ số'),
-  role: z.enum(['Customer', 'PT']),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Mật khẩu xác nhận không khớp",
   path: ["confirmPassword"],
@@ -30,7 +29,6 @@ const registerSchema = z.object({
 type RegisterForm = z.infer<typeof registerSchema>;
 
 export default function Register() {
-  const [role, setRole] = useState<'Customer' | 'PT'>('Customer');
   const [showPassword, setShowPassword] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState(0);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -43,14 +41,10 @@ export default function Register() {
     handleSubmit,
     watch,
     formState: { errors, isSubmitting },
-    setValue,
     setError,
     clearErrors
   } = useForm<RegisterForm>({
-    resolver: zodResolver(registerSchema),
-    defaultValues: {
-      role: 'Customer',
-    }
+    resolver: zodResolver(registerSchema)
   });
 
   const password = watch('password');
@@ -106,23 +100,21 @@ const timer = setTimeout(checkUsername, 500);
         password: data.password,
         confirm_password: data.confirmPassword,
         phone: data.phone,
-        role: data.role
+        role: 'Customer'
       };
 
       const response = await api.post('/users/register', payload);
 
-      if (data.role === 'Customer') {
-        const { access_token, refresh_token } = response.data.result || {};
-        if (access_token && refresh_token) {
-          await login(access_token, refresh_token);
-          localStorage.setItem('userRole', 'Customer');
-        }
+      const { access_token, refresh_token } = response.data.result || {};
+      if (access_token && refresh_token) {
+        await login(access_token, refresh_token);
+        localStorage.setItem('userRole', 'Customer');
       }
 
       setIsSuccess(true);
 
       setTimeout(() => {
-        navigate(data.role === 'Customer' ? '/dashboard/user' : '/login');
+        navigate(access_token && refresh_token ? '/dashboard/user' : '/login');
       }, 1500);
 
     } catch (err: any) {
@@ -150,19 +142,15 @@ const timer = setTimeout(checkUsername, 500);
           </div>
           <div className="space-y-3">
             <h2 className="text-3xl font-black text-gray-900">
-              {role === 'Customer' ? 'Tuyệt vời!' : 'Hồ sơ đã gửi!'}
+              Tuyệt vời!
             </h2>
             <p className="text-gray-500 font-medium">
-              {role === 'Customer' 
-                ? 'Chào mừng bạn đến với cộng đồng sức khỏe của chúng tôi. Đang chuyển hướng...' 
-                : 'Chúng tôi sẽ xem xét hồ sơ của bạn và phản hồi sớm nhất có thể.'}
+              Chào mừng bạn đến với cộng đồng sức khỏe của chúng tôi. Đang chuyển hướng...
             </p>
           </div>
-          {role === 'Customer' && (
-            <Button className="w-full py-6 rounded-2xl text-lg font-black" onClick={() => navigate('/login')}>
-              Đăng nhập ngay
-            </Button>
-          )}
+          <Button className="w-full py-6 rounded-2xl text-lg font-black" onClick={() => navigate('/login')}>
+            Đăng nhập ngay
+          </Button>
         </motion.div>
       </div>
     );
@@ -213,8 +201,8 @@ const timer = setTimeout(checkUsername, 500);
                 <ShieldCheck size={20} />
               </div>
               <div>
-                <h3 className="font-bold text-lg">Đội ngũ chuyên gia</h3>
-                <p className="text-sm text-orange-100">Kết nối với những PT hàng đầu để đạt mục tiêu nhanh nhất.</p>
+                <h3 className="font-bold text-lg">Theo dõi mỗi ngày</h3>
+                <p className="text-sm text-orange-100">Ghi lại bữa ăn và theo dõi tiến trình hướng tới mục tiêu của bạn.</p>
               </div>
             </div>
           </div>
@@ -229,30 +217,6 @@ const timer = setTimeout(checkUsername, 500);
           <div className="mb-10">
             <h2 className="text-3xl font-black text-gray-900">Tạo tài khoản</h2>
             <p className="text-gray-500 font-medium mt-2">Chỉ mất 1 phút để bắt đầu thay đổi bản thân.</p>
-          </div>
-
-          {/* Role Tabs */}
-          <div className="flex p-1.5 bg-gray-100/50 rounded-2xl mb-10">
-            <button
-              type="button"
-              onClick={() => { setRole('Customer'); setValue('role', 'Customer'); }}
-              className={cn(
-                "flex-1 py-3 text-sm font-black rounded-xl transition-all",
-                role === 'Customer' ? "bg-white text-orange-500 shadow-lg shadow-orange-500/5" : "text-gray-400 hover:text-gray-600"
-              )}
-            >
-              Khách hàng
-            </button>
-            <button
-              type="button"
-              onClick={() => { setRole('PT'); setValue('role', 'PT'); }}
-              className={cn(
-                "flex-1 py-3 text-sm font-black rounded-xl transition-all",
-                role === 'PT' ? "bg-white text-orange-500 shadow-lg shadow-orange-500/5" : "text-gray-400 hover:text-gray-600"
-              )}
-            >
-              Huấn luyện viên
-            </button>
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 md:grid-cols-2 gap-6">
