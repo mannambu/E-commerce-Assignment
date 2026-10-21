@@ -81,7 +81,7 @@ export default function Login() {
       // Điều hướng chuẩn xác theo 5 vai trò (FR-AUTH-007)
       switch (role) {
         case 'Admin':
-          navigate('/dashboard/admin', { replace: true });
+          navigate('/dashboard/admin/users', { replace: true });
           break;
         case 'Manager':
           navigate('/workspace/manager', { replace: true });
