@@ -1,7 +1,13 @@
 import { Router } from 'express'
-import { createFoodController, deleteFoodController, getFoodDetailController, getFoodsController, updateFoodController } from '~/controllers/foods.controllers'
+import {
+  createFoodController,
+  deleteFoodController,
+  getFoodDetailController,
+  getFoodsController,
+  updateFoodController
+} from '~/controllers/foods.controllers'
 import { createFoodValidator, getFoodDetailValidator, updateFoodValidator } from '~/middlewares/foods.middlewares'
-import { accessTokenValidator, isAdminValidator } from '~/middlewares/users.middlewares'
+import { accessTokenValidator, isAdminValidator, optionalAccessTokenValidator } from '~/middlewares/users.middlewares'
 import { wrapRequestHandler } from '~/utils/handlers'
 
 const foodsRouter = Router()
@@ -10,9 +16,8 @@ const foodsRouter = Router()
  * Description. Get foods list with optional filtering, sorting and pagination
  * Path: /
  * Method: GET
-//  * Query: { page?: number, limit?: number, search?: string, tags?: string, minPrice?: number, maxPrice?: number, minCalories?: number, maxCalories?: number, isCombo?: 'true' | 'false', sortBy?: string, order?: 'asc' | 'desc' }
  */
-foodsRouter.get('/', wrapRequestHandler(getFoodsController))
+foodsRouter.get('/', optionalAccessTokenValidator, wrapRequestHandler(getFoodsController))
 
 /**
  * Description. Get detail of one food by id
@@ -20,7 +25,12 @@ foodsRouter.get('/', wrapRequestHandler(getFoodsController))
  * Method: GET
  * Params: { food_id: string }
  */
-foodsRouter.get('/:food_id', getFoodDetailValidator, wrapRequestHandler(getFoodDetailController))
+foodsRouter.get(
+  '/:food_id',
+  getFoodDetailValidator,
+  optionalAccessTokenValidator,
+  wrapRequestHandler(getFoodDetailController)
+)
 
 /**
  * Description. Create a new food item (CHỈ ADMIN MỚI ĐƯỢC TẠO)
@@ -29,10 +39,10 @@ foodsRouter.get('/:food_id', getFoodDetailValidator, wrapRequestHandler(getFoodD
  * Header: { Authorization: Bearer <access_token> }
  */
 foodsRouter.post(
-  '/', 
-  accessTokenValidator, 
+  '/',
+  accessTokenValidator,
   isAdminValidator, // Đặt trạm kiểm soát Admin ở đây
-  createFoodValidator, 
+  createFoodValidator,
   wrapRequestHandler(createFoodController)
 )
 

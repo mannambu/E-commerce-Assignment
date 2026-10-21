@@ -2,11 +2,13 @@
 
 Backend sử dụng Node.js + Express + TypeScript + MongoDB.
 
+Database gồm 12 collection; giải thích từng collection, cấu trúc đơn/ngày giao và nhật ký sức khỏe nằm trong [database_schema.md](../docs/database_schema.md). Xem trước index bằng `npm run schema:indexes`; kiểm tra backend bằng `npm test`.
+
 ## Yêu cầu môi trường
 
-- Node.js 18+
+- Node.js 20.19 trở lên
 - npm 9+
-- MongoDB (local hoặc cloud)
+- MongoDB replica set hoặc Atlas (luồng cập nhật hồ sơ/nhật ký dùng transaction)
 
 ## Cài đặt
 
@@ -20,25 +22,26 @@ Tạo file `.env` trong thư mục `backend`.
 
 ```env
 PORT=4000
+CORS_ORIGINS=http://localhost:3000
 
-DB_USERNAME=
-DB_PASSWORD=
-DB_NAME=
+DB_URI="mongodb+srv://<USER>:<PASSWORD>@<HOST_CLUSTER>/?retryWrites=true&w=majority"
+DB_NAME=fitbite_v2_dev
 
 DB_USERS_COLLECTION=users
-DB_REFRESH_TOKENS_COLLECTION=refresh_tokens
+DB_SESSIONS_COLLECTION=sessions
 DB_FOODS_COLLECTION=foods
-DB_PT_SERVICES_COLLECTION=pt_services
 DB_ORDERS_COLLECTION=orders
 DB_CARTS_COLLECTION=carts
 DB_REVIEWS_COLLECTION=reviews
-DB_CHATS_COLLECTION=chats
-DB_ANALYTICS_COLLECTION=analytics
-DB_CALORIE_LOGS_COLLECTION=calorie_logs
+DB_MEAL_PLANS_COLLECTION=meal_plans
+DB_DAILY_HEALTH_LOGS_COLLECTION=daily_health_logs
+DB_NOTIFICATIONS_COLLECTION=notifications
+DB_TRANSACTIONS_COLLECTION=transactions
+DB_AUDIT_LOGS_COLLECTION=audit_logs
+DB_SETTINGS_COLLECTION=settings
 
 JWT_SECRET_ACCESS_TOKEN=
 JWT_SECRET_REFRESH_TOKEN=
-JWT_SECRET_FORGOT_PASSWORD_TOKEN=
 ACCESS_TOKEN_EXPIRES_IN=15m
 REFRESH_TOKEN_EXPIRES_IN=7d
 
@@ -57,6 +60,8 @@ CLOUDINARY_API_SECRET=
 
 ## Chạy dự án
 
+Chuẩn bị DB mới và index theo [hướng dẫn database](../docs/database_schema.md#chuẩn-bị-database) trước khi seed/chạy server. Code không tự chuyển dữ liệu Order/Cart/Tracking cũ.
+
 ```bash
 npm run dev
 ```
@@ -73,6 +78,10 @@ npm run start
 ## Các lệnh chính
 
 - `npm run dev`: chạy server với nodemon + tsx
+- `npm test`: kiểm tra schema, đăng ký, xác thực và đánh giá món ăn bằng dữ liệu giả; không kết nối MongoDB
+- `npm run test:checkout:integration`: kiểm thử checkout/tồn kho với MongoDB replica set tạm, không dùng DB dự án
+- `npm run test:foods:integration`: kiểm thử FR-CAT-001/002/003/004/006/007 trên MongoDB tạm (tìm có/không dấu, dữ liệu cũ, tồn khả dụng, quyền xem, lọc mục tiêu/dị ứng mặc định, cảnh báo dị ứng danh mục/chi tiết kể cả khi tắt lọc, hồ sơ chưa khai báo, xác thực phiên, kiểm tra query, phân trang ổn định và kiểm tra lại kho khi thêm giỏ); không dùng DB dự án, lần đầu có thể cần tải MongoDB binary
+  Bộ lệnh cũng chạy FR-ADM-001 qua HTTP thật: quyền Admin, thêm/sửa/ẩn món, validation dữ liệu lồng nhau, trường server quản lý, PATCH không ghi một phần khi lỗi và bảo vệ lượng kho đang giữ.
 - `npm run build`: build TypeScript ra `dist`
 - `npm run start`: chạy bản build
 - `npm run lint`: kiểm tra lint
@@ -80,11 +89,16 @@ npm run start
 - `npm run prettier`: kiểm tra format
 - `npm run prettier:fix`: format code
 
+[Hướng dẫn DB, seed Admin/Manager, Bcrypt và email reset](docs/auth-setup.md).
+
+[Checkout và tồn kho: API, quy tắc kho, transaction và điểm nối thanh toán](docs/checkout-inventory.md).
+
 ## Seed dữ liệu
 
 - `npm run seed:admin`
+- `npm run seed:manager`
+- `npm run seed:foods`
 - `npm run seed:cart`
-- `npm run seed:pt-services`
 
 ## Cấu trúc thư mục (cấp 2)
 
@@ -109,7 +123,6 @@ backend/
 - `/users`
 - `/cart`
 - `/orders`
-- `/pt`
 - `/foods`
 - `/tracking`
 - `/reviews`
@@ -119,8 +132,10 @@ backend/
 
 ## CORS
 
-Backend đang cho phép các origin:
+Backend đọc danh sách origin từ `CORS_ORIGINS`, phân tách bằng dấu phẩy. Nếu không khai báo thì chỉ cho phép `http://localhost:3000`.
 
-- `http://localhost:3000`
-- `https://e-commerce-mauve-xi.vercel.app`
-- `https://e-commerce-git-haobranch-phongwd2311s-projects.vercel.app`
+Khi deploy, đặt `CORS_ORIGINS=https://<frontend-moi>.vercel.app`. Thêm từng domain preview nếu cần; không dùng wildcard.
+
+Đường dẫn `GET /health` trả về `{ "status": "ok" }` sau khi server khởi động thành công. Đây là kiểm tra tiến trình HTTP, không phải kiểm tra kết nối DB liên tục.
+
+Xem [hướng dẫn deploy mới lên Render và Vercel](../docs/deployment.md).

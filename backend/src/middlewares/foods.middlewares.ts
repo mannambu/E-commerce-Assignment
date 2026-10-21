@@ -1,259 +1,117 @@
-import { checkSchema } from 'express-validator'
+import { RequestHandler } from 'express'
+import { checkSchema, matchedData, ParamSchema, Schema } from 'express-validator'
+import { EntityError } from '~/models/Errors'
+import { FOOD_WRITABLE_FIELDS } from '~/models/requests/Food.request'
 import { validate } from '~/utils/validation'
 
 export const getFoodDetailValidator = validate(
   checkSchema({
     food_id: {
       in: ['params'],
-      notEmpty: {
-        errorMessage: 'Food ID là bắt buộc'
-      },
-      isMongoId: {
-        errorMessage: 'Food ID không hợp lệ'
-      }
+      notEmpty: { errorMessage: 'Food ID là bắt buộc' },
+      isMongoId: { errorMessage: 'Food ID không hợp lệ' }
     }
   })
 )
 
-export const createFoodValidator = validate(
-  checkSchema({
-    name: {
-      in: ['body'],
-      notEmpty: {
-        errorMessage: 'Tên món ăn là bắt buộc'
-      },
-      isString: {
-        errorMessage: 'Tên món ăn phải là chuỗi'
-      },
-      trim: true
-    },
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+const nonemptyText = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0
+const textList = (value: unknown, min = 0): value is string[] =>
+  Array.isArray(value) && value.length >= min && value.every(nonemptyText)
+const trimList = (value: string[]) => value.map((item) => item.trim())
+const nonnegativeNumber = (value: unknown) => {
+  if (typeof value !== 'number' && typeof value !== 'string') return false
+  if (typeof value === 'string' && !/^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim())) return false
+  return Number.isFinite(Number(value)) && Number(value) >= 0
+}
 
-    description: {
-      in: ['body'],
-      notEmpty: {
-        errorMessage: 'Mô tả món ăn là bắt buộc'
-      },
-      isString: {
-        errorMessage: 'Mô tả phải là chuỗi'
-      },
-      trim: true
-    },
-
-    details: {
-      in: ['body'],
-      optional: true,
-      isString: {
-        errorMessage: 'details phải là chuỗi'
-      },
-      trim: true
-    },
-
-    images: {
-      in: ['body'],
-      isArray: {
-        options: { min: 1 },
-        errorMessage: 'images phải là mảng và phải có ít nhất 1 ảnh'
+function foodBodyValidator(partial: boolean): RequestHandler {
+  const field = (
+    check: (value: unknown) => boolean,
+    message: string,
+    sanitize?: ParamSchema['customSanitizer'],
+    optional = partial
+  ): ParamSchema => ({
+    in: ['body'],
+    optional,
+    custom: { options: check, errorMessage: message, bail: true },
+    ...(sanitize ? { customSanitizer: sanitize } : {})
+  })
+  const textField = (message: string) => field(nonemptyText, message, { options: (value: string) => value.trim() })
+  const listField = (min: number, message: string) =>
+    field((value) => textList(value, min), message, { options: trimList })
+  const schema: Schema = {
+    name: textField('Tên món phải là chuỗi không rỗng'),
+    description: textField('Mô tả phải là chuỗi không rỗng'),
+    images: listField(1, 'images phải có ít nhất một chuỗi ảnh không rỗng'),
+    price: field((value) => nonnegativeNumber(value) && Number(value) > 0, 'Giá phải là số hữu hạn lớn hơn 0', {
+      options: Number
+    }),
+    calories: field(nonnegativeNumber, 'Calories phải là số hữu hạn không âm', { options: Number }),
+    nutrition: field(
+      (value) => isObject(value) && ['protein', 'carb', 'fat'].every((key) => nonnegativeNumber(value[key])),
+      'nutrition phải có đủ protein, carb, fat là số hữu hạn không âm',
+      { options: (value) => ({ protein: Number(value.protein), carb: Number(value.carb), fat: Number(value.fat) }) }
+    ),
+    ingredients: field(
+      (value) =>
+        Array.isArray(value) &&
+        value.length > 0 &&
+        value.every(
+          (ingredient) => isObject(ingredient) && nonemptyText(ingredient.name) && textList(ingredient.allergyTags)
+        ),
+      'ingredients phải có ít nhất một nguyên liệu gồm name không rỗng và allergyTags là mảng chuỗi không rỗng',
+      {
+        options: (value) =>
+          value.map((ingredient: { name: string; allergyTags: string[] }) => ({
+            name: ingredient.name.trim(),
+            allergyTags: trimList(ingredient.allergyTags)
+          }))
       }
-    },
-
-    'images.*': {
-      in: ['body'],
-      notEmpty: {
-        errorMessage: 'Mỗi image không được để trống'
-      },
-      isString: {
-        errorMessage: 'Mỗi image phải là chuỗi'
-      },
-      trim: true
-    },
-
-    price: {
-      in: ['body'],
-      notEmpty: {
-        errorMessage: 'Giá là bắt buộc'
-      },
-      isFloat: {
-        options: { gt: 0 },
-        errorMessage: 'Giá phải lớn hơn 0'
-      },
-      toFloat: true
-    },
-
-    calories: {
-      in: ['body'],
-      notEmpty: {
-        errorMessage: 'Calories là bắt buộc'
-      },
-      isFloat: {
-        options: { min: 0 },
-        errorMessage: 'Calories phải là số không âm'
-      },
-      toFloat: true
-    },
-
-    nutrition: {
-      in: ['body'],
-      notEmpty: {
-        errorMessage: 'nutrition là bắt buộc'
-      },
-      isObject: {
-        errorMessage: 'nutrition phải là object'
-      }
-    },
-
-    'nutrition.protein': {
-      in: ['body'],
-      notEmpty: {
-        errorMessage: 'Protein là bắt buộc'
-      },
-      isFloat: {
-        options: { min: 0 },
-        errorMessage: 'Protein phải là số không âm'
-      },
-      toFloat: true
-    },
-
-    'nutrition.carb': {
-      in: ['body'],
-      notEmpty: {
-        errorMessage: 'Carb là bắt buộc'
-      },
-      isFloat: {
-        options: { min: 0 },
-        errorMessage: 'Carb phải là số không âm'
-      },
-      toFloat: true
-    },
-
-    'nutrition.fat': {
-      in: ['body'],
-      notEmpty: {
-        errorMessage: 'Fat là bắt buộc'
-      },
-      isFloat: {
-        options: { min: 0 },
-        errorMessage: 'Fat phải là số không âm'
-      },
-      toFloat: true
-    },
-
-    ingredients: {
-      in: ['body'],
-      isArray: {
-        options: { min: 1 },
-        errorMessage: 'ingredients phải là mảng và phải có ít nhất 1 nguyên liệu'
-      }
-    },
-
-    'ingredients.*.name': {
-      in: ['body'],
-      notEmpty: {
-        errorMessage: 'Tên nguyên liệu là bắt buộc'
-      },
-      isString: {
-        errorMessage: 'Tên nguyên liệu phải là chuỗi'
-      },
-      trim: true
-    },
-
-    'ingredients.*.allergyTags': {
-      in: ['body'],
-      isArray: {
-        errorMessage: 'allergyTags phải là mảng'
-      }
-    },
-
-    'ingredients.*.allergyTags.*': {
-      in: ['body'],
-      optional: true,
-      notEmpty: {
-        errorMessage: 'Mỗi allergy tag không được để trống'
-      },
-      isString: {
-        errorMessage: 'Mỗi allergy tag phải là chuỗi'
-      },
-      trim: true
-    },
-
-    tags: {
-      in: ['body'],
-      isArray: {
-        errorMessage: 'tags phải là mảng'
-      }
-    },
-
-    'tags.*': {
-      in: ['body'],
-      optional: true,
-      notEmpty: {
-        errorMessage: 'Mỗi tag không được để trống'
-      },
-      isString: {
-        errorMessage: 'Mỗi tag phải là chuỗi'
-      },
-      trim: true
-    },
-
-    stock: {
-      in: ['body'],
-      notEmpty: {
-        errorMessage: 'Số lượng tồn kho là bắt buộc'
-      },
-      isInt: {
-        options: { min: 0 },
-        errorMessage: 'Tồn kho phải là số nguyên không âm'
-      },
-      toInt: true
-    },
-
-    isActive: {
-      in: ['body'],
-      optional: true,
-      isBoolean: {
-        errorMessage: 'isActive phải là boolean'
-      },
-      toBoolean: true
-    },
-
-    isCombo: {
-      in: ['body'],
-      optional: true,
-      isBoolean: {
-        errorMessage: 'isCombo phải là boolean'
-      },
-      toBoolean: true
+    ),
+    tags: listField(0, 'tags phải là mảng các chuỗi không rỗng'),
+    goalTags: field(
+      (value) =>
+        textList(value) && value.every((goal) => ['LoseFat', 'GainMuscle', 'MaintainWeight'].includes(goal.trim())),
+      'goalTags phải là mảng gồm LoseFat, GainMuscle hoặc MaintainWeight',
+      { options: trimList },
+      true
+    ),
+    stock: field(
+      (value) =>
+        (typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value.trim()))) &&
+        Number.isSafeInteger(Number(value)) &&
+        Number(value) >= 0,
+      'Tồn kho phải là số nguyên không âm trong phạm vi an toàn',
+      { options: Number }
+    ),
+    isActive: field(
+      (value) => typeof value === 'boolean' || value === 'true' || value === 'false',
+      'isActive phải là boolean hoặc chuỗi true/false',
+      { options: (value) => value === true || value === 'true' },
+      true
+    )
+  }
+  const runValidation = validate(checkSchema(schema, ['body']))
+  return (req, res, next) => {
+    if (!isObject(req.body) || (partial && !FOOD_WRITABLE_FIELDS.some((key) => req.body[key] !== undefined))) {
+      return next(
+        new EntityError({
+          errors: {
+            body: { msg: partial ? 'Cần ít nhất một trường món ăn hợp lệ để cập nhật' : 'Body phải là object món ăn' }
+          }
+        })
+      )
     }
-  })
-)
+    return runValidation(req, res, (error) => {
+      if (error) return next(error)
+      // Strip server-owned fields and nested fields not part of the write contract.
+      req.body = matchedData(req, { locations: ['body'] })
+      next()
+    })
+  }
+}
 
-export const updateFoodValidator = validate(
-  checkSchema({
-    name: { in: ['body'], optional: true, isString: true, trim: true },
-    description: { in: ['body'], optional: true, isString: true, trim: true },
-    price: { 
-      in: ['body'],
-      optional: true,
-      isFloat: { options: { gt: 0 }, errorMessage: 'Giá phải lớn hơn 0' }, 
-      toFloat: true
-    },
-    calories: { 
-      in: ['body'],
-      optional: true,
-      isFloat: { options: { min: 0 }, errorMessage: 'Calories không được âm' }, 
-      toFloat: true 
-    },
-    images: { in: ['body'], optional: true, isArray: true },
-    'images.*': { in: ['body'], optional: true, isString: true, trim: true },
-    nutrition: { in: ['body'], optional: true, isObject: true },
-    ingredients: { in: ['body'], optional: true, isArray: true },
-    tags: { in: ['body'], optional: true, isArray: true },
-    stock: { 
-      in: ['body'],
-      optional: true,
-      isInt: { options: { min: 0 }, errorMessage: 'Tồn kho không được âm' }, 
-      toInt: true 
-    },
-    isActive: { in: ['body'], optional: true, isBoolean: true, toBoolean: true },
-    isCombo: { in: ['body'], optional: true, isBoolean: true, toBoolean: true }
-  })
-)
+export const createFoodValidator = foodBodyValidator(false)
+export const updateFoodValidator = foodBodyValidator(true)

@@ -1,23 +1,60 @@
 import { ObjectId } from 'mongodb'
+import { LocalDate, MealSlot, NutritionSnapshot } from './common'
 
-export type OrderStatus = 'Pending' | 'Cooking' | 'Delivering' | 'Completed' | 'Cancelled'
+export type OrderStatus =
+  | 'Pending'
+  | 'Confirmed'
+  | 'Cooking'
+  | 'Ready'
+  | 'Delivering'
+  | 'Completed'
+  | 'Failed'
+  | 'Cancelled'
+  | 'Rejected'
 export type PaymentMethod = 'COD' | 'VNPay' | 'MoMo'
-export type PaymentStatus = 'Pending' | 'Paid' | 'Failed'
+export type PaymentStatus = 'Pending' | 'Paid' | 'Failed' | 'PartiallyRefunded' | 'Refunded'
 export type PackageType = 'ONE_DAY' | 'WEEKLY_7D'
-export type CancelledBy = 'Customer' | 'Admin'
+export type CancelledBy = 'Customer' | 'Admin' | 'Manager' | 'System'
 
-export interface OrderItem {
-  itemId: ObjectId
-  quantity: number
-  price: number // snapshot giá tại thời điểm đặt
-  calories: number // snapshot calories tại thời điểm đặt
-  deliveryDate: Date // ngày giao hàng, đồng thời là ngày khách ăn
+export interface OrderStatusEvent {
+  status: OrderStatus
+  changedAt: Date
+  actorId?: ObjectId
+  reason?: string
 }
 
-export interface PaymentInfo {
-  method: PaymentMethod
-  status: PaymentStatus
-  transactionId?: string
+export interface CancellationRequest {
+  _id: ObjectId
+  scope: 'Order' | 'Delivery'
+  deliveryId?: ObjectId
+  deliveryIds: ObjectId[]
+  requestedBy: ObjectId
+  requestedAt: Date
+  requestVersion: number
+  reason: string
+  status: 'Pending' | 'Approved' | 'Rejected'
+  automatic: boolean
+  decision?: {
+    actorId: ObjectId
+    decidedAt: Date
+    requestVersion: number
+    reason: string
+  }
+}
+
+/** Price and nutrition snapshots are per serving. */
+export interface OrderItem {
+  _id: ObjectId
+  foodId: ObjectId
+  foodName: string
+  image?: string
+  quantity: number
+  price: number
+  calories: number
+  nutrition: NutritionSnapshot
+  mealSlot?: MealSlot
+  mealPlanId?: ObjectId
+  mealPlanItemId?: ObjectId
 }
 
 export interface ShippingBreakdown {
@@ -27,62 +64,135 @@ export interface ShippingBreakdown {
   distanceKm: number
 }
 
-export interface OrderType {
-  _id?: ObjectId
-  userId: ObjectId
+export interface DeliveryPeriod {
+  _id: ObjectId
+  date: LocalDate
+  scheduledAt: Date
+  kitchenStaffIds?: ObjectId[] // Manager assigns staff directly to this delivery; no shifts.
+  assignedShipperId?: ObjectId
+  dispatch?: { actorId: ObjectId; requestVersion: number; dispatchedAt: Date }
+  deliveryResult?: {
+    status: 'Completed' | 'Failed'
+    actorId: ObjectId
+    recordedAt: Date
+    requestVersion: number
+    reason?: string
+    evidenceUrls?: string[]
+    codCollectedAmount?: number
+    codExpectedAmount?: number
+    codDifference?: number // Actual minus expected; never silently adjust the price.
+    transactionId?: ObjectId
+  }
+  failedAt?: Date // Start of the current Failed period for subsequent Manager resolution/24h job.
+  failureResolutions?: Array<{
+    action: 'Retry' | 'Cancel'
+    actorId?: ObjectId
+    actorRole: 'Manager' | 'System'
+    reason: string
+    resolvedAt: Date
+    failedAt: Date
+    requestVersion: number
+    previousShipperId?: ObjectId
+    previousDispatch?: DeliveryPeriod['dispatch']
+    failureResult?: DeliveryPeriod['deliveryResult']
+  }>
+  codSettlement?: {
+    collectedAmount: number
+    refundedAmount: number
+    pendingRefundAmount: number
+    balance: number // Positive: still owed; negative: customer is owed money.
+    updatedAt: Date
+  }
+  codReconciliations?: Array<{
+    action: 'Collect' | 'Refund'
+    actorId: ObjectId
+    amount: number
+    reference: string
+    reason: string
+    requestVersion: number
+    transactionId: ObjectId
+    recordedAt: Date
+  }>
+  cutoffAt?: Date // Set at checkout using kitchen settings.
   items: OrderItem[]
-  packageType: PackageType
-  deliverySchedule: Date[]
-  shippingBreakdowns: ShippingBreakdown[]
-  subtotal: number
-  shippingFee: number
-  grandTotal: number
   status: OrderStatus
-  deliveryAddress: string
-  note: string
-  cancelledBy?: CancelledBy
-  cancelledAt?: Date
-  payment: PaymentInfo
-  createdAt?: Date
-  updatedAt?: Date
+  statusHistory: OrderStatusEvent[]
+  subtotal: number
+  shipping: ShippingBreakdown
+  waivedShippingFee: number
+  refundedAmount: number
+  cancellation?: {
+    kind?: 'CustomerCancellation'
+    reason: string
+    cancelledAt: Date
+    cancelledBy: CancelledBy
+    creditedAmount?: number // Phần giảm khỏi giá trị phải trả, giữ nguyên giá gốc của đơn.
+    refundAmount?: number // Số tiền đã yêu cầu hoàn, chưa đồng nghĩa đã hoàn thành.
+    refundTransactionId?: ObjectId
+  }
 }
 
-export default class Order implements OrderType {
+export interface CancellationPolicySnapshot {
+  description: string
+  refundBeforeCutoffPercent: number
+  refundAfterCutoffPercent: number
+  refundShippingFee: boolean
+}
+
+export interface PaymentInfo {
+  method: PaymentMethod
+  status: PaymentStatus
+  transactionId?: string
+  paidAt?: Date
+  paidAmount?: number
+  refundedAmount?: number
+  codReconciliationRequired?: boolean
+}
+
+/** Embedded stock hold. Update the order and food together in a DB transaction. */
+export interface InventoryHold {
+  status: 'NotReserved' | 'Held' | 'Committed' | 'Released'
+  items: Array<{ foodId: ObjectId; quantity: number }>
+  expiresAt?: Date
+  committedAt?: Date
+  releasedAt?: Date
+}
+
+export default interface Order {
   _id?: ObjectId
   userId: ObjectId
-  items: OrderItem[]
+  orderCode: string
   packageType: PackageType
-  deliverySchedule: Date[]
-  shippingBreakdowns: ShippingBreakdown[]
+  deliveries: DeliveryPeriod[] // One delivery for a day order; seven for a weekly order.
   subtotal: number
   shippingFee: number
   grandTotal: number
   status: OrderStatus
+  statusHistory: OrderStatusEvent[]
   deliveryAddress: string
+  hasFailedDeliveries?: boolean
   note: string
+  payment: PaymentInfo
+  inventoryHold: InventoryHold
+  paymentDueAt?: Date
+  idempotencyKey?: string
+  requestHash?: string
+  cancellationPolicy?: CancellationPolicySnapshot
+  targetCaloriesSnapshot?: number // Mục tiêu dinh dưỡng tại lúc đặt gói tuần.
   cancelledBy?: CancelledBy
   cancelledAt?: Date
-  payment: PaymentInfo
-  createdAt?: Date
-  updatedAt?: Date
-  constructor(order: OrderType) {
-    this._id = order._id
-    this.userId = order.userId
-    this.items = order.items
-    this.packageType = order.packageType || 'ONE_DAY'
-    this.deliverySchedule = order.deliverySchedule
-    this.shippingBreakdowns = order.shippingBreakdowns
-    this.subtotal = order.subtotal
-    this.shippingFee = order.shippingFee
-    this.grandTotal = order.grandTotal
-    this.status = order.status
-    this.deliveryAddress = order.deliveryAddress
-    this.note = order.note
-    this.cancelledBy = order.cancelledBy
-    this.cancelledAt = order.cancelledAt
-    this.payment = order.payment
-    const now = new Date()
-    this.createdAt = order.createdAt || now
-    this.updatedAt = order.updatedAt || now
+  cancellationReason?: string
+  cancellationRequests?: CancellationRequest[]
+  managerDecision?: {
+    status: 'Confirmed' | 'Rejected'
+    actorId: ObjectId
+    reason: string
+    decidedAt: Date
+    requestVersion: number
+    refundTransactionId?: ObjectId
+    refundAmount?: number
   }
+  version: number
+  createdAt: Date
+  updatedAt: Date
 }

@@ -1,7 +1,10 @@
 import axios from "axios";
 
-const legacyBaseUrl = typeof process !== 'undefined' ? process.env.REACT_APP_API_URL : undefined;
-const apiBaseUrl = import.meta.env.VITE_API_URL || legacyBaseUrl || "https://e-commerce-7jh5.onrender.com";
+const apiBaseUrl = import.meta.env.VITE_API_URL?.trim() || (import.meta.env.DEV ? "http://localhost:4000" : "");
+
+if (!apiBaseUrl) {
+  throw new Error("Set VITE_API_URL to your backend URL before building the frontend.");
+}
 
 const api = axios.create({
   baseURL: apiBaseUrl,

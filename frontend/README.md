@@ -22,7 +22,8 @@ VITE_API_URL=http://localhost:4000
 ```
 
 Ghi chú:
-- Nếu không khai báo, hệ thống sẽ dùng mặc định: `https://e-commerce-7jh5.onrender.com`.
+- Khi chạy development, nếu không khai báo thì dùng `http://localhost:4000`.
+- Khi build để deploy, phải khai báo `VITE_API_URL` là URL HTTPS của backend mới; không có URL production mặc định.
 - Dự án đang đọc `import.meta.env.VITE_API_URL` trong `src/services/api.ts`.
 
 ## Chạy dự án
@@ -62,4 +63,5 @@ frontend/
 ## Ghi chú triển khai
 
 - Khi upload file bằng FormData, không set cứng `Content-Type` để browser tự thêm boundary.
-- Với môi trường deploy, cần cấu hình `REACT_APP_API_URL` trỏ đúng backend.
+- Với môi trường deploy, cần cấu hình `VITE_API_URL` trỏ đúng backend trước khi build.
+- Xem [hướng dẫn deploy mới lên Render và Vercel](../docs/deployment.md).

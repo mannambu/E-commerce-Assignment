@@ -5,25 +5,26 @@ import { ObjectId } from 'mongodb'
 
 export const createReviewValidator = validate(
   checkSchema({
+    foodId: { in: ['body'], optional: true, isMongoId: true },
+    orderId: { in: ['body'], isMongoId: true },
+    deliveryId: { in: ['body'], isMongoId: true },
     targetType: {
       in: ['body'],
-      notEmpty: {
-        errorMessage: USERS_MESSAGES.TARGET_TYPE_INVALID
-      },
+      optional: true,
       isIn: {
-        options: [['Food', 'PT']],
+        options: [['Food']],
         errorMessage: USERS_MESSAGES.TARGET_TYPE_INVALID
       }
     },
     targetId: {
       in: ['body'],
-      notEmpty: {
-        errorMessage: USERS_MESSAGES.TARGET_ID_INVALID
-      },
       custom: {
-        options: (value) => {
-          if (!ObjectId.isValid(value)) {
+        options: (value, { req }) => {
+          if (!ObjectId.isValid(req.body.foodId || value)) {
             throw new Error(USERS_MESSAGES.TARGET_ID_INVALID)
+          }
+          if (value && req.body.foodId && String(value).toLowerCase() !== String(req.body.foodId).toLowerCase()) {
+            throw new Error('foodId and targetId must identify the same food')
           }
           return true
         }
@@ -76,17 +77,25 @@ export const getReviewsValidator = validate(
         errorMessage: USERS_MESSAGES.TARGET_TYPE_INVALID
       },
       isIn: {
-        options: [['Food', 'PT']],
+        options: [['Food']],
         errorMessage: USERS_MESSAGES.TARGET_TYPE_INVALID
       }
     },
+    rating: { in: ['query'], optional: true, isInt: { options: { min: 1, max: 5 } } },
+    hasImages: { in: ['query'], optional: true, isIn: { options: [['true', 'false']] } },
+    page: { in: ['query'], optional: true, isInt: { options: { min: 1, max: 1000000 } } },
+    limit: { in: ['query'], optional: true, isInt: { options: { min: 1, max: 100 } } },
     targetId: {
       in: ['params'],
       notEmpty: {
         errorMessage: USERS_MESSAGES.TARGET_ID_INVALID
       },
       custom: {
-        options: (value) => {
+        options: (value, { req }) => {
+          for (const key of ['rating', 'hasImages', 'page', 'limit']) {
+            if (req.query?.[key] !== undefined && typeof req.query[key] !== 'string')
+              throw new Error('Review filters must be scalar query values')
+          }
           if (!ObjectId.isValid(value)) {
             throw new Error(USERS_MESSAGES.TARGET_ID_INVALID)
           }
@@ -150,5 +159,11 @@ export const updateReviewValidator = validate(
       },
       trim: true
     }
+  })
+)
+
+export const hideReviewValidator = validate(
+  checkSchema({
+    reason: { in: ['body'], isString: true, trim: true, isLength: { options: { min: 1, max: 500 } } }
   })
 )

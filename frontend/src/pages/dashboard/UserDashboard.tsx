@@ -16,7 +16,7 @@ import Sidebar from '@/components/dashboard/Sidebar';
 import Header from '@/components/dashboard/Header';
 import api from '@/services/api';
 
-type OrderStatus = 'Pending' | 'Cooking' | 'Delivering' | 'Completed' | 'Cancelled';
+type OrderStatus = 'Pending' | 'Confirmed' | 'Cooking' | 'Delivering' | 'Completed' | 'Cancelled';
 
 type UserOrder = {
   _id: string;
@@ -210,7 +210,7 @@ export default function UserDashboard() {
             </article>
             <article className="bg-white p-5 rounded-[24px] shadow-sm border border-gray-50">
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Đơn đang xử lý</p>
-              <p className="text-2xl font-black text-gray-900 mt-2">{orders.filter((order) => ['Pending', 'Cooking', 'Delivering'].includes(order.status)).length}</p>
+              <p className="text-2xl font-black text-gray-900 mt-2">{orders.filter((order) => ['Pending', 'Confirmed', 'Cooking', 'Delivering'].includes(order.status)).length}</p>
             </article>
             <article className="bg-white p-5 rounded-[24px] shadow-sm border border-gray-50">
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Gói PT đã đăng ký</p>
@@ -439,6 +439,7 @@ function mapGoalLabel(goal?: 'LoseFat' | 'GainMuscle' | 'MaintainWeight') {
 function renderStatusBadge(status: OrderStatus) {
   const colorMap: Record<OrderStatus, string> = {
     Pending: 'bg-amber-50 text-amber-600',
+    Confirmed: 'bg-teal-50 text-teal-600',
     Cooking: 'bg-orange-50 text-orange-600',
     Delivering: 'bg-blue-50 text-blue-600',
     Completed: 'bg-green-50 text-green-600',
@@ -447,6 +448,7 @@ function renderStatusBadge(status: OrderStatus) {
 
   const labelMap: Record<OrderStatus, string> = {
     Pending: 'Chờ xử lý',
+    Confirmed: 'Đã xác nhận',
     Cooking: 'Đang nấu',
     Delivering: 'Đang giao',
     Completed: 'Hoàn thành',

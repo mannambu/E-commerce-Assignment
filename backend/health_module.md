@@ -23,6 +23,3 @@
    Body: { 
     current_food_id: string, target_calories?: number }
    Trả món thay thế gần calories mục tiêu, vẫn tôn trọng allergy rules
-   GET /users/recommendations/pts?limit=3 (có auth)
-   Gợi ý PT theo mục tiêu sức khỏe (LoseFat/GainMuscle/MaintainWeight)
-   Ưu tiên PT có specialty phù hợp + rating cao

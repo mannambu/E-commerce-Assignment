@@ -1,0 +1,33 @@
+import { Request, Response } from 'express'
+import weeklyOrders from '~/services/weekly-orders.services'
+
+type DeliveryParams = { orderId: string; deliveryId: string }
+
+export const previewDeliveryCancellationController = async (req: Request<DeliveryParams>, res: Response) => {
+  const result = await weeklyOrders.previewCancellation(
+    req.decoded_authorization!.user_id,
+    req.params.orderId,
+    req.params.deliveryId
+  )
+  res.json({ message: 'Chi phí và chính sách khi hủy ngày giao', result })
+}
+
+export const cancelDeliveryController = async (req: Request<DeliveryParams>, res: Response) => {
+  const result = await weeklyOrders.cancelDelivery(
+    req.decoded_authorization!.user_id,
+    req.params.orderId,
+    req.params.deliveryId,
+    req.body
+  )
+  res.json({ message: 'Đã xử lý đề nghị hủy; xem kết quả để biết đã hủy hay đang chờ duyệt', result })
+}
+
+export const updateDeliveryStatusController = async (req: Request<DeliveryParams>, res: Response) => {
+  const result = await weeklyOrders.updateDeliveryStatus(
+    req.decoded_authorization!.user_id,
+    req.params.orderId,
+    req.params.deliveryId,
+    req.body
+  )
+  res.json({ message: 'Đã cập nhật trạng thái ngày giao', result })
+}

@@ -1,23 +1,42 @@
 import { config } from 'dotenv'
-import { ObjectId } from 'mongodb'
+import { ClientSession, Filter, ObjectId } from 'mongodb'
+import { randomInt, randomUUID } from 'node:crypto'
+import bcrypt from 'bcryptjs'
+import {
+  RESET_CODE_EXPIRES_MINUTES,
+  RESET_CODE_RESEND_SECONDS,
+  RESET_CODE_MAX_ATTEMPTS
+} from '~/constants/password-reset'
 import { TokenType } from '~/constants/enums'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { USERS_MESSAGES } from '~/constants/messages'
 import { ErrorWithStatus } from '~/models/Errors'
-import { LoginReqBody, RegisterReqBody, UpdateMeReqBody, UpdatePTProfileReqBody } from '~/models/requests/User.request'
+import {
+  GetUsersQuery,
+  LoginReqBody,
+  RegisterReqBody,
+  UpdateMeReqBody,
+  TokenPayload,
+  UpdateUserRoleReqBody
+} from '~/models/requests/User.request'
 import Food from '~/models/schemas/Food.schema'
-import RefreshToken from '~/models/schemas/RefreshToken.schema'
+import Session from '~/models/schemas/Session.schema'
 import User, {
   AccountStatus,
   ActivityLevel,
   HealthGoal,
   HealthProfile,
-  PTProfile,
-  UserRole
+  UserRole,
+  ALL_ROLES,
+  INTERNAL_ROLES
 } from '~/models/schemas/User.schema'
 import databaseService from '~/services/database.services'
-import { hashPassword } from '~/utils/crypto'
+import { hashPassword, hashToken, isLegacyPassword, verifyPassword } from '~/utils/crypto'
+import emailService from './email.services'
+import { pendingNotificationEmail } from '~/utils/notification-email'
 import { signToken, verifyToken } from '~/utils/jwt'
+import trackingService from './tracking.services'
+import { calculateHealthMetrics } from '~/utils/health'
 import { SignOptions } from 'jsonwebtoken'
 
 config()
@@ -34,20 +53,6 @@ const parseExpiresIn = (value: string | undefined, fallbackSeconds: number): Sig
 }
 
 type MealSlot = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack'
-
-const ACTIVITY_MULTIPLIERS: Record<ActivityLevel, number> = {
-  Sedentary: 1.2,
-  Light: 1.375,
-  Moderate: 1.55,
-  Active: 1.725,
-  'Very Active': 1.9
-}
-
-const MACRO_RATIOS: Record<HealthGoal, { protein: number; carb: number; fat: number }> = {
-  LoseFat: { protein: 0.4, carb: 0.3, fat: 0.3 },
-  GainMuscle: { protein: 0.3, carb: 0.45, fat: 0.25 },
-  MaintainWeight: { protein: 0.3, carb: 0.4, fat: 0.3 }
-}
 
 const MEAL_CALORIE_RATIOS: Record<MealSlot, number> = {
   Breakfast: 0.25,
@@ -66,43 +71,6 @@ class UsersService {
           .filter(Boolean)
       )
     )
-  }
-
-  private calculateHealthMetrics(profile: {
-    gender: 'Male' | 'Female'
-    age: number
-    heightCm: number
-    weightKg: number
-    activityLevel: ActivityLevel
-    goal: HealthGoal
-  }) {
-    const bmrRaw =
-      profile.gender === 'Male'
-        ? 10 * profile.weightKg + 6.25 * profile.heightCm - 5 * profile.age + 5
-        : 10 * profile.weightKg + 6.25 * profile.heightCm - 5 * profile.age - 161
-
-    const tdeeRaw = bmrRaw * ACTIVITY_MULTIPLIERS[profile.activityLevel]
-    let targetCaloriesRaw = tdeeRaw
-
-    if (profile.goal === 'LoseFat') {
-      targetCaloriesRaw = tdeeRaw - 500
-    } else if (profile.goal === 'GainMuscle') {
-      targetCaloriesRaw = tdeeRaw + 300
-    }
-
-    const targetCalories = Math.max(1200, Math.round(targetCaloriesRaw))
-    const macroRatio = MACRO_RATIOS[profile.goal]
-
-    return {
-      bmr: Math.round(bmrRaw),
-      tdee: Math.round(tdeeRaw),
-      targetCalories,
-      macroDistribution: {
-        protein: Math.round((targetCalories * macroRatio.protein) / 4),
-        carb: Math.round((targetCalories * macroRatio.carb) / 4),
-        fat: Math.round((targetCalories * macroRatio.fat) / 9)
-      }
-    }
   }
 
   private isFoodAllowed(food: Food, restrictions: string[]) {
@@ -166,112 +134,84 @@ class UsersService {
     }
   }
 
-  private buildGoalKeywords(goal: HealthGoal) {
-    if (goal === 'LoseFat') {
-      return ['lose fat', 'weight loss', 'fat loss', 'đốt mỡ', 'giam mo', 'giam can']
+  private async signSessionTokens(user: User, sessionId: string, rememberMe = false, exp?: number) {
+    const payload = {
+      user_id: user._id!.toString(),
+      role: user.role,
+      status: user.account_status,
+      sessionId,
+      tokenVersion: user.tokenVersion ?? 0
     }
-
-    if (goal === 'GainMuscle') {
-      return ['gain muscle', 'hypertrophy', 'strength', 'tăng cơ', 'tang co']
-    }
-
-    return ['maintain', 'wellness', 'fitness tổng quát', 'general fitness', 'sức khỏe']
-  }
-
-  private getDefaultRefreshTokenExpiresIn() {
-    return parseExpiresIn(process.env.REFRESH_TOKEN_EXPIRES_IN, 7 * 24 * 60 * 60)
-  }
-
-  private signAccessToken({ user_id, status }: { user_id: string; status: AccountStatus }) {
-    return signToken({
-      payload: {
-        user_id,
-        token_type: TokenType.AccessToken,
-        status
-      },
-      privateKey: process.env.JWT_SECRET_ACCESS_TOKEN as string,
-      options: {
-        expiresIn: parseExpiresIn(process.env.ACCESS_TOKEN_EXPIRES_IN, 60 * 15)
-      }
-    })
-  }
-
-  private signRefreshToken({
-    user_id,
-    status,
-    exp,
-    remember_me
-  }: {
-    user_id: string
-    status: AccountStatus
-    exp?: number
-    remember_me?: boolean
-  }) {
-    if (exp) {
-      return signToken({
-        payload: {
-          user_id,
-          token_type: TokenType.RefreshToken,
-          status,
-          exp
-        },
-        privateKey: process.env.JWT_SECRET_REFRESH_TOKEN as string
+    const [access_token, refresh_token] = await Promise.all([
+      signToken({
+        payload: { ...payload, token_type: TokenType.AccessToken },
+        privateKey: process.env.JWT_SECRET_ACCESS_TOKEN as string,
+        options: { expiresIn: parseExpiresIn(process.env.ACCESS_TOKEN_EXPIRES_IN, 15 * 60) }
+      }),
+      signToken({
+        payload: { ...payload, token_type: TokenType.RefreshToken, jti: randomUUID(), ...(exp ? { exp } : {}) },
+        privateKey: process.env.JWT_SECRET_REFRESH_TOKEN as string,
+        options: exp
+          ? {}
+          : {
+              expiresIn: rememberMe
+                ? REMEMBER_ME_SECONDS
+                : parseExpiresIn(process.env.REFRESH_TOKEN_EXPIRES_IN, 7 * 24 * 60 * 60)
+            }
       })
-    }
-
-    return signToken({
-      payload: {
-        user_id,
-        token_type: TokenType.RefreshToken,
-        status
-      },
-      privateKey: process.env.JWT_SECRET_REFRESH_TOKEN as string,
-      options: {
-        expiresIn: remember_me ? REMEMBER_ME_SECONDS : this.getDefaultRefreshTokenExpiresIn()
-      }
-    })
-  }
-
-  private signForgotPasswordToken({ user_id, status }: { user_id: string; status: AccountStatus }) {
-    return signToken({
-      payload: {
-        user_id,
-        token_type: TokenType.ForgotPasswordToken,
-        status
-      },
-      privateKey: process.env.JWT_SECRET_FORGOT_PASSWORD_TOKEN as string,
-      options: {
-        // Link reset password 15 phút
-        expiresIn: 15 * 60
-      }
-    })
-  }
-
-  private signAccessAndRefreshToken({
-    user_id,
-    status,
-    remember_me
-  }: {
-    user_id: string
-    status: AccountStatus
-    remember_me?: boolean
-  }) {
-    return Promise.all([
-      this.signAccessToken({ user_id, status }),
-      this.signRefreshToken({ user_id, status, remember_me })
     ])
+    return { access_token, refresh_token }
   }
 
-  private decodeRefreshToken(refresh_token: string) {
-    return verifyToken({
-      token: refresh_token,
+  private async createSession(user: User, rememberMe = false) {
+    const sessionId = new ObjectId()
+    const tokens = await this.signSessionTokens(user, sessionId.toString(), rememberMe)
+    const { iat, exp } = await verifyToken({
+      token: tokens.refresh_token,
       secretOrPublicKey: process.env.JWT_SECRET_REFRESH_TOKEN as string
     })
+    await databaseService.sessions.insertOne(
+      new Session({
+        _id: sessionId,
+        sessionId,
+        user_id: user._id!,
+        token: hashToken(tokens.refresh_token),
+        tokenVersion: user.tokenVersion ?? 0,
+        iat,
+        exp
+      })
+    )
+    return { ...tokens, role: user.role }
   }
 
-  private async saveRefreshToken(user_id: ObjectId, refresh_token: string) {
-    const { iat, exp } = await this.decodeRefreshToken(refresh_token)
-    await databaseService.refreshTokens.insertOne(new RefreshToken({ user_id, token: refresh_token, iat, exp }))
+  // Every protected request checks both the account and its login session.
+  async validateSession(payload: TokenPayload, refreshToken?: string) {
+    if (
+      !ObjectId.isValid(payload.user_id || '') ||
+      !ObjectId.isValid(payload.sessionId || '') ||
+      !Number.isInteger(payload.tokenVersion) ||
+      !payload.role
+    ) {
+      throw new ErrorWithStatus({ status: 401, message: 'Invalid or revoked session' })
+    }
+    const user = await databaseService.users.findOne({
+      _id: new ObjectId(payload.user_id),
+      account_status: AccountStatus.ACTIVE,
+      role: { $in: ALL_ROLES }
+    })
+    if (!user || user.role !== payload.role || (user.tokenVersion ?? 0) !== payload.tokenVersion) {
+      throw new ErrorWithStatus({ status: 401, message: 'Invalid or revoked session' })
+    }
+    const session = await databaseService.sessions.findOne({
+      sessionId: new ObjectId(payload.sessionId),
+      user_id: user._id,
+      tokenVersion: payload.tokenVersion,
+      revoked_at: null,
+      exp: { $gt: new Date() },
+      ...(refreshToken ? { token: hashToken(refreshToken) } : {})
+    })
+    if (!session) throw new ErrorWithStatus({ status: 401, message: 'Invalid or revoked session' })
+    return user
   }
 
   async checkEmailExist(email: string) {
@@ -286,116 +226,78 @@ class UsersService {
 
   async register(payload: RegisterReqBody) {
     const user_id = new ObjectId()
-    const role = payload.role || UserRole.CUSTOMER
-    // PT mặc định sẽ có trạng thái pending, cần admin duyệt mới active để đăng nhập được
-    const account_status = role === UserRole.PT ? AccountStatus.PENDING : AccountStatus.ACTIVE
     const username = payload.username.trim()
 
-    await databaseService.users.insertOne(
-      new User({
-        _id: user_id,
-        email: payload.email.toLowerCase().trim(),
-        username,
-        password: hashPassword(payload.password),
-        phone: payload.phone,
-        role,
-        account_status,
-        loginAttempts: 0,
-        forgot_password_token: '',
-        healthProfile: payload.healthProfile,
-        ptProfile: payload.ptProfile,
-        notifications: [],
-        weightTracking: [],
-        calorieTracking: [],
-        registeredPTServices: []
-      })
-    )
-
-    // PT cần chờ duyệt, chưa cấp token đăng nhập
-    if (role === UserRole.PT) {
-      return {
-        requires_approval: true,
-        message: USERS_MESSAGES.PT_SUCCESSFULLY_REGISTERED
-      }
-    }
-
-    const [access_token, refresh_token] = await this.signAccessAndRefreshToken({
-      user_id: user_id.toString(),
-      status: AccountStatus.ACTIVE
+    const user = new User({
+      _id: user_id,
+      email: payload.email.toLowerCase().trim(),
+      username,
+      password: await hashPassword(payload.password),
+      phone: payload.phone,
+      role: UserRole.CUSTOMER,
+      account_status: AccountStatus.ACTIVE
     })
-
-    await this.saveRefreshToken(user_id, refresh_token)
-
-    return {
-      access_token,
-      refresh_token,
-      role: UserRole.CUSTOMER
-    }
+    await databaseService.users.insertOne(user)
+    return this.createSession(user)
   }
 
-  async refreshToken({
-    user_id,
-    status,
-    refresh_token,
-    exp
-  }: {
-    user_id: string
-    status: AccountStatus
-    refresh_token: string
-    exp: number
-  }) {
-    const [new_access_token, new_refresh_token] = await Promise.all([
-      this.signAccessToken({ user_id, status }),
-      this.signRefreshToken({ user_id, status, exp }),
-      databaseService.refreshTokens.deleteOne({ token: refresh_token })
-    ])
-
-    const decoded_refresh_token = await this.decodeRefreshToken(new_refresh_token)
-    await databaseService.refreshTokens.insertOne(
-      new RefreshToken({
-        user_id: new ObjectId(user_id),
-        token: new_refresh_token,
-        iat: decoded_refresh_token.iat,
-        exp: decoded_refresh_token.exp
-      })
+  async refreshToken({ refresh_token }: { refresh_token: string }) {
+    const decoded = await verifyToken({
+      token: refresh_token,
+      secretOrPublicKey: process.env.JWT_SECRET_REFRESH_TOKEN as string
+    })
+    if (decoded.token_type !== TokenType.RefreshToken)
+      throw new ErrorWithStatus({ status: 401, message: 'Invalid refresh token' })
+    const user = await this.validateSession(decoded, refresh_token)
+    const tokens = await this.signSessionTokens(user, decoded.sessionId!, false, decoded.exp)
+    // Compare-and-set: only one request can rotate the same refresh token.
+    const result = await databaseService.sessions.updateOne(
+      {
+        sessionId: new ObjectId(decoded.sessionId),
+        user_id: user._id,
+        token: hashToken(refresh_token),
+        revoked_at: null,
+        exp: { $gt: new Date() }
+      },
+      { $set: { token: hashToken(tokens.refresh_token), last_used_at: new Date() } }
     )
-
-    return {
-      access_token: new_access_token,
-      refresh_token: new_refresh_token
-    }
+    if (result.modifiedCount !== 1)
+      throw new ErrorWithStatus({ status: 401, message: 'Refresh token already used or revoked' })
+    return tokens
   }
 
   private async handleFailedLogin(user: User & { _id: ObjectId }) {
-    const nextAttempts = (user.loginAttempts || 0) + 1
-
-    if (nextAttempts >= MAX_LOGIN_ATTEMPTS) {
-      const lockedUntil = new Date(Date.now() + ACCOUNT_LOCK_MINUTES * 60 * 1000)
+    // Increment in MongoDB to avoid losing simultaneous failed attempts.
+    const updated = await databaseService.users.findOneAndUpdate(
+      {
+        _id: user._id,
+        password: user.password,
+        tokenVersion: user.tokenVersion ?? { $exists: false },
+        account_status: user.account_status
+      },
+      { $inc: { loginAttempts: 1 }, $currentDate: { updated_at: true } },
+      { returnDocument: 'after' }
+    )
+    if (updated && updated.loginAttempts >= MAX_LOGIN_ATTEMPTS) {
       await databaseService.users.updateOne(
-        { _id: user._id },
+        {
+          _id: user._id,
+          password: user.password,
+          loginAttempts: { $gte: MAX_LOGIN_ATTEMPTS },
+          tokenVersion: user.tokenVersion ?? { $exists: false }
+        },
         {
           $set: {
             account_status: AccountStatus.LOCKED,
-            locked_until: lockedUntil,
+            locked_until: new Date(Date.now() + ACCOUNT_LOCK_MINUTES * 60 * 1000),
             loginAttempts: 0
           },
+          $inc: { tokenVersion: 1 },
           $currentDate: { updated_at: true }
         }
       )
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.TOO_MANY_LOGIN_ATTEMPTS,
-        status: HTTP_STATUS.BAD_REQUEST
-      })
+      throw new ErrorWithStatus({ message: USERS_MESSAGES.TOO_MANY_LOGIN_ATTEMPTS, status: HTTP_STATUS.BAD_REQUEST })
     }
-
-    await databaseService.users.updateOne(
-      { _id: user._id },
-      {
-        $set: { loginAttempts: nextAttempts },
-        $currentDate: { updated_at: true }
-      }
-    )
-
     throw new ErrorWithStatus({
       message: USERS_MESSAGES.EMAIL_OR_PASSWORD_IS_INCORRECT,
       status: HTTP_STATUS.UNAUTHORIZED
@@ -405,6 +307,7 @@ class UsersService {
   async login(payload: LoginReqBody) {
     const identifier = (payload.identifier || payload.email || '').trim()
     const user = await databaseService.users.findOne({
+      role: { $in: ALL_ROLES },
       $or: [{ email: identifier.toLowerCase() }, { username: identifier }]
     })
 
@@ -415,10 +318,11 @@ class UsersService {
       })
     }
 
-    // PT chưa duyệt không cho đăng nhập
-    if (user.role === UserRole.PT && user.account_status === AccountStatus.PENDING) {
+    if (user.account_status === AccountStatus.LOCKED && !user.locked_until) {
       throw new ErrorWithStatus({
-        message: USERS_MESSAGES.PT_ACCOUNT_PENDING_APPROVAL,
+        message: user.lockReason
+          ? `${USERS_MESSAGES.ACCOUNT_IS_LOCKED}: ${user.lockReason}`
+          : USERS_MESSAGES.ACCOUNT_IS_LOCKED,
         status: HTTP_STATUS.FORBIDDEN
       })
     }
@@ -430,120 +334,155 @@ class UsersService {
       })
     }
 
-    if (hashPassword(payload.password) !== user.password) {
+    if (!(await verifyPassword(payload.password, user.password))) {
       return this.handleFailedLogin(user as User & { _id: ObjectId })
     }
 
-    // Mở khóa nếu đã quá thời gian lock và reset login attempts
-    await databaseService.users.updateOne(
-      { _id: user._id },
+    // Chỉ mở khóa tạm đã hết hạn; tài khoản bị Admin khóa đã bị chặn ở trên.
+    const accountStatus = user.account_status === AccountStatus.LOCKED ? AccountStatus.ACTIVE : user.account_status
+    if (accountStatus !== AccountStatus.ACTIVE) {
+      throw new ErrorWithStatus({
+        message: USERS_MESSAGES.ACCOUNT_IS_INACTIVE,
+        status: HTTP_STATUS.FORBIDDEN
+      })
+    }
+
+    const password = isLegacyPassword(user.password) ? await hashPassword(payload.password) : user.password
+    // Do not overwrite a reset/lock that happened while password verification was running.
+    const result = await databaseService.users.updateOne(
       {
-        $set: {
-          loginAttempts: 0,
-          account_status:
-            user.account_status === AccountStatus.LOCKED
-              ? user.role === UserRole.PT
-                ? AccountStatus.PENDING
-                : AccountStatus.ACTIVE
-              : user.account_status
-        },
+        _id: user._id,
+        password: user.password,
+        account_status: user.account_status,
+        tokenVersion: user.tokenVersion ?? { $exists: false }
+      },
+      {
+        $set: { account_status: accountStatus, loginAttempts: 0, password },
         $unset: { locked_until: '' },
         $currentDate: { updated_at: true }
       }
     )
-
-    const [access_token, refresh_token] = await this.signAccessAndRefreshToken({
-      user_id: user._id!.toString(),
-      status:
-        user.account_status === AccountStatus.LOCKED
-          ? user.role === UserRole.PT
-            ? AccountStatus.PENDING
-            : AccountStatus.ACTIVE
-          : user.account_status,
-      remember_me: payload.remember_me
-    })
-
-    await this.saveRefreshToken(user._id as ObjectId, refresh_token)
-
-    return {
-      access_token,
-      refresh_token,
-      role: user.role
-    }
+    if (!result.matchedCount) throw new ErrorWithStatus({ status: 401, message: 'Account changed; please login again' })
+    return this.createSession({ ...user, password, account_status: accountStatus }, payload.remember_me)
   }
 
   async logout(refresh_token: string) {
-    console.log('Logging out, deleting refresh token:', refresh_token)
-    await databaseService.refreshTokens.deleteOne({ token: refresh_token })
-    return {
-      message: USERS_MESSAGES.LOGOUT_SUCCESS
+    // Revocation stays on the same session even when refresh rotates its token.
+    const decoded = await verifyToken({
+      token: refresh_token,
+      secretOrPublicKey: process.env.JWT_SECRET_REFRESH_TOKEN as string
+    })
+    if (decoded.token_type !== TokenType.RefreshToken || !ObjectId.isValid(decoded.sessionId || '')) {
+      throw new ErrorWithStatus({ status: 401, message: 'Invalid refresh token' })
     }
+    await databaseService.sessions.updateOne(
+      { sessionId: new ObjectId(decoded.sessionId), user_id: new ObjectId(decoded.user_id) },
+      { $set: { revoked_at: new Date() } }
+    )
+    return { message: USERS_MESSAGES.LOGOUT_SUCCESS }
+  }
+
+  async logoutAll(user_id: string) {
+    await databaseService.withTransaction(async (session) => {
+      await databaseService.users.updateOne({ _id: new ObjectId(user_id) }, { $inc: { tokenVersion: 1 } }, { session })
+      await databaseService.sessions.deleteMany({ user_id: new ObjectId(user_id) }, { session })
+    })
+    return { message: USERS_MESSAGES.LOGOUT_SUCCESS }
   }
 
   async forgotPasswordByEmail(email: string) {
-    const user = await databaseService.users.findOne({ email: email.toLowerCase().trim() })
-    if (!user) {
-      // Trả generic message để tránh lộ email tồn tại hay không
-      return {
-        message: USERS_MESSAGES.CHECK_EMAIL_TO_RESET_PASSWORD
-      }
-    }
-
-    const forgot_password_token = await this.signForgotPasswordToken({
-      user_id: user._id!.toString(),
-      status: user.account_status
+    // Check configuration before lookup, so an unconfigured server responds identically for every email.
+    emailService.getResetConfig()
+    const response = { message: USERS_MESSAGES.CHECK_EMAIL_TO_RESET_PASSWORD }
+    const user = await databaseService.users.findOne({
+      email: email.toLowerCase().trim(),
+      role: { $in: ALL_ROLES }
     })
-
-    await databaseService.users.updateOne(
-      { _id: user._id },
+    if (!user) return response
+    if (
+      user.forgot_password_requested_at &&
+      user.forgot_password_requested_at.getTime() > Date.now() - RESET_CODE_RESEND_SECONDS * 1000
+    )
+      return response
+    const code = randomInt(0, 1000000).toString().padStart(6, '0')
+    // Bcrypt có salt riêng để không lưu mã 6 số trực tiếp hoặc hash dễ dò trong DB.
+    const codeHash = await bcrypt.hash(code, 12)
+    const now = new Date()
+    const result = await databaseService.users.updateOne(
+      {
+        _id: user._id,
+        $or: [
+          { forgot_password_requested_at: { $exists: false } },
+          { forgot_password_requested_at: null },
+          { forgot_password_requested_at: { $lte: new Date(now.getTime() - RESET_CODE_RESEND_SECONDS * 1000) } }
+        ]
+      },
       {
         $set: {
-          forgot_password_token
+          forgot_password_token: codeHash,
+          forgot_password_expires_at: new Date(now.getTime() + RESET_CODE_EXPIRES_MINUTES * 60 * 1000),
+          forgot_password_attempts: 0,
+          forgot_password_requested_at: now
         },
         $currentDate: { updated_at: true }
       }
     )
-
-    return {
-      message: USERS_MESSAGES.CHECK_EMAIL_TO_RESET_PASSWORD,
-      forgot_password_token
+    if (!result.modifiedCount) return response // At most one email per account per minute.
+    try {
+      await emailService.sendPasswordReset(user.email, code)
+    } catch {
+      await databaseService.users.updateOne(
+        { _id: user._id, forgot_password_token: codeHash },
+        {
+          $set: { forgot_password_token: '' },
+          $unset: { forgot_password_expires_at: '' }
+        }
+      )
+      console.error('Password reset email failed; check SMTP configuration.')
     }
+    return response
   }
 
-  async resetPassword({
-    user_id,
-    password,
-    forgot_password_token
-  }: {
-    user_id: string
-    password: string
-    forgot_password_token: string
-  }) {
-    const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
-
-    if (!user || !user.forgot_password_token || user.forgot_password_token !== forgot_password_token) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.RESET_PASSWORD_TOKEN_IS_INVALID_OR_USED,
-        status: HTTP_STATUS.UNAUTHORIZED
-      })
-    }
-
-    await databaseService.users.updateOne(
-      { _id: new ObjectId(user_id) },
+  async resetPassword({ email, password, reset_code }: { email: string; password: string; reset_code: string }) {
+    const invalid = () => new ErrorWithStatus({ status: 401, message: USERS_MESSAGES.RESET_CODE_IS_INVALID_OR_EXPIRED })
+    if (typeof email !== 'string' || typeof reset_code !== 'string' || !/^\d{6}$/.test(reset_code)) throw invalid()
+    // Tăng số lần thử trước khi kiểm tra mã; các request đồng thời cũng chỉ được thử tối đa 5 lần.
+    const user = await databaseService.users.findOneAndUpdate(
       {
-        $set: {
-          forgot_password_token: '',
-          password: hashPassword(password)
-        },
-        $currentDate: {
-          updated_at: true
-        }
-      }
+        email: email.toLowerCase().trim(),
+        role: { $in: ALL_ROLES },
+        forgot_password_expires_at: { $gt: new Date() },
+        forgot_password_attempts: { $lt: RESET_CODE_MAX_ATTEMPTS }
+      },
+      { $inc: { forgot_password_attempts: 1 } },
+      { returnDocument: 'after' }
     )
-
-    return {
-      message: USERS_MESSAGES.RESET_PASSWORD_SUCCESS
-    }
+    if (!user || !(await bcrypt.compare(reset_code, user.forgot_password_token))) throw invalid()
+    const passwordHash = await hashPassword(password)
+    await databaseService.withTransaction(async (session) => {
+      const result = await databaseService.users.updateOne(
+        {
+          _id: user._id,
+          forgot_password_token: user.forgot_password_token,
+          forgot_password_expires_at: { $gt: new Date() }
+        },
+        {
+          $set: {
+            password: passwordHash,
+            forgot_password_token: '',
+            forgot_password_attempts: 0,
+            password_changed_at: new Date()
+          },
+          $unset: { forgot_password_expires_at: '' },
+          $inc: { tokenVersion: 1 },
+          $currentDate: { updated_at: true }
+        },
+        { session }
+      )
+      if (result.modifiedCount !== 1) throw invalid()
+      await databaseService.sessions.deleteMany({ user_id: user._id }, { session })
+    })
+    return { message: USERS_MESSAGES.RESET_PASSWORD_SUCCESS }
   }
 
   async getMe(user_id: string) {
@@ -582,56 +521,32 @@ class UsersService {
     return user
   }
 
-  async getAllUsers() {
-    return databaseService.users
-      .find(
-        {}, 
-        { projection: { password: 0, forgot_password_token: 0 } } // Không trả về mật khẩu
-      )
-      .sort({ created_at: -1 })
-      .toArray()
-  }
+  async getAllUsers(query: GetUsersQuery = {}) {
+    const page = Number(query.page || 1)
+    const limit = Number(query.limit || 20)
+    const filter: Filter<User> = { role: { $in: ALL_ROLES } }
+    if (query.role) filter.role = query.role
+    if (query.status) filter.account_status = query.status
 
-  async approvePTAccount(targetUserId: string) {
-    if (!ObjectId.isValid(targetUserId)) {
-      throw new ErrorWithStatus({
-        message: 'ID người dùng không hợp lệ',
-        status: HTTP_STATUS.BAD_REQUEST
-      })
+    const search = query.search?.trim()
+    if (search) {
+      // Tìm chuỗi người dùng nhập, không chạy nó như một biểu thức regex.
+      const keyword = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+      filter.$or = [{ email: keyword }, { username: keyword }, { phone: keyword }]
     }
 
-    const targetObjectId = new ObjectId(targetUserId)
-
-    const user = await databaseService.users.findOne({ _id: targetObjectId })
-    if (!user) {
-      throw new ErrorWithStatus({ message: 'Không tìm thấy người dùng này', status: HTTP_STATUS.NOT_FOUND })
-    }
-
-    if (user.role !== 'PT') { // Nhớ dùng UserRole.PT nếu bạn có import enum
-      throw new ErrorWithStatus({ message: 'Người dùng này không phải là PT', status: HTTP_STATUS.BAD_REQUEST })
-    }
-
-    const nextPTProfile: PTProfile = {
-      experienceYears: user.ptProfile?.experienceYears ?? 0,
-      specialties: user.ptProfile?.specialties ?? [],
-      rating: user.ptProfile?.rating ?? 0,
-      portfolioImages: user.ptProfile?.portfolioImages ?? [],
-      approvedByAdmin: true
-    }
-
-    // Đảm bảo ptProfile luôn là object hợp lệ để tránh lỗi khi profile cũ bị null
-    await databaseService.users.updateOne(
-      { _id: targetObjectId },
-      { 
-        $set: { 
-          account_status: AccountStatus.ACTIVE,
-          ptProfile: nextPTProfile
-        },
-        $currentDate: { updated_at: true } 
-      }
-    )
-
-    return { message: 'Duyệt tài khoản PT thành công' }
+    const [items, total] = await Promise.all([
+      databaseService.users
+        .find(filter, {
+          projection: { _id: 1, email: 1, username: 1, phone: 1, role: 1, account_status: 1, created_at: 1 }
+        })
+        .sort({ created_at: -1, _id: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .toArray(),
+      databaseService.users.countDocuments(filter)
+    ])
+    return { items, page, limit, total }
   }
 
   async updateMe(user_id: string, payload: UpdateMeReqBody) {
@@ -693,269 +608,202 @@ class UsersService {
     return updatedUser
   }
 
-  async updatePTProfile(user_id: string, payload: UpdatePTProfileReqBody) {
-    const user = await databaseService.users.findOne(
-      { _id: new ObjectId(user_id) },
-      { projection: { role: 1, ptProfile: 1 } }
-    )
-
-    if (!user) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.USER_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
-      })
+  async createUser(actorId: string, payload: Omit<RegisterReqBody, 'role'> & { role: UserRole }) {
+    const actor = await databaseService.users.findOne({
+      _id: new ObjectId(actorId),
+      role: UserRole.ADMIN,
+      account_status: AccountStatus.ACTIVE
+    })
+    if (!actor || !(INTERNAL_ROLES as UserRole[]).includes(payload.role)) {
+      throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
     }
-
-    if (user.role !== UserRole.PT) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.ONLY_PT_CAN_UPDATE_PT_PROFILE,
-        status: HTTP_STATUS.FORBIDDEN
-      })
+    const user = new User({
+      _id: new ObjectId(),
+      email: payload.email.trim().toLowerCase(),
+      username: payload.username.trim(),
+      password: await hashPassword(payload.password),
+      phone: payload.phone,
+      role: payload.role
+    })
+    if (await databaseService.users.findOne({ $or: [{ email: user.email }, { username: user.username }] })) {
+      throw new ErrorWithStatus({ status: 409, message: 'Email or username already exists' })
     }
-
-    const nextPTProfile: PTProfile = {
-      experienceYears: payload.experienceYears ?? user.ptProfile?.experienceYears ?? 0,
-      specialties: payload.specialties?.map((item) => item.trim()).filter(Boolean) ?? user.ptProfile?.specialties ?? [],
-      rating: user.ptProfile?.rating ?? 0,
-      portfolioImages:
-        payload.portfolioImages?.map((item) => item.trim()).filter(Boolean) ?? user.ptProfile?.portfolioImages ?? [],
-      approvedByAdmin: user.ptProfile?.approvedByAdmin ?? false
-    }
-
-    const updatedUser = await databaseService.users.findOneAndUpdate(
-      { _id: new ObjectId(user_id) },
-      {
-        $set: {
-          ptProfile: nextPTProfile
+    await databaseService.withTransaction(async (session) => {
+      const currentActor = await databaseService.users.findOne(
+        { _id: actor._id, role: UserRole.ADMIN, account_status: AccountStatus.ACTIVE },
+        { session }
+      )
+      if (!currentActor) throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
+      await databaseService.users.insertOne(user, { session })
+      await databaseService.auditLogs.insertOne(
+        {
+          actorId: actor._id,
+          actorRole: UserRole.ADMIN,
+          action: 'UserCreated',
+          entityType: 'User',
+          entityId: user._id!,
+          after: { email: user.email, role: user.role },
+          reason: 'Admin created account',
+          createdAt: new Date()
         },
-        $currentDate: {
-          updated_at: true
-        }
-      },
-      {
-        returnDocument: 'after',
-        projection: {
-          password: 0,
-          forgot_password_token: 0
-        }
-      }
-    )
-
-    return updatedUser
-  }
-
-  async updateUserStatus(targetUserId: string, status: AccountStatus) {
-    if (!ObjectId.isValid(targetUserId)) {
-      throw new ErrorWithStatus({
-        message: 'ID người dùng không hợp lệ',
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    const targetObjectId = new ObjectId(targetUserId)
-
-    const user = await databaseService.users.findOne({ _id: targetObjectId })
-    if (!user) {
-      throw new ErrorWithStatus({
-        message: 'Không tìm thấy người dùng này',
-        status: HTTP_STATUS.NOT_FOUND
-      })
-    }
-
-    // Không cho phép Admin tự khóa chính mình
-    if (user.role === UserRole.ADMIN && status === AccountStatus.LOCKED) {
-      throw new ErrorWithStatus({
-        message: 'Không thể khóa tài khoản Admin',
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    await databaseService.users.updateOne(
-      { _id: targetObjectId },
-      { 
-        $set: { account_status: status }, 
-        $currentDate: { updated_at: true } 
-      }
-    )
-
+        { session }
+      )
+    })
     return {
-      message: `Cập nhật trạng thái tài khoản thành ${status} thành công`
+      _id: user._id,
+      email: user.email,
+      username: user.username,
+      role: user.role,
+      account_status: user.account_status
     }
   }
 
-  async registerPTService(user_id: string, service_id: string) {
-    const user = await databaseService.users.findOne(
-      { _id: new ObjectId(user_id) },
-      { projection: { role: 1, registeredPTServices: 1 } }
-    )
-
-    if (!user) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.USER_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
-      })
+  private async protectLastAdmin(user: User, session: ClientSession) {
+    if (user.role !== UserRole.ADMIN || user.account_status !== AccountStatus.ACTIVE) return
+    const admins = await databaseService.users
+      .find({ role: UserRole.ADMIN, account_status: AccountStatus.ACTIVE }, { session })
+      .sort({ _id: 1 })
+      .toArray()
+    if (admins.length <= 1) {
+      throw new ErrorWithStatus({ status: 409, message: 'Không thể khóa hoặc hạ quyền Admin hoạt động cuối cùng' })
     }
+    // Both concurrent removals write the same guard. MongoDB retries the loser,
+    // which then reads the new number of active Admins instead of removing both.
+    await databaseService.users.updateOne({ _id: admins[0]._id }, { $inc: { adminGuardVersion: 1 } }, { session })
+  }
 
-    if (user.role !== UserRole.CUSTOMER) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.ONLY_CUSTOMER_CAN_REGISTER_PT_SERVICE,
-        status: HTTP_STATUS.FORBIDDEN
-      })
+  async updateUserStatus(targetUserId: string, status: AccountStatus, actorId: string, reason: string) {
+    if (!ObjectId.isValid(targetUserId) || ![AccountStatus.ACTIVE, AccountStatus.LOCKED].includes(status)) {
+      throw new ErrorWithStatus({ status: 400, message: 'Invalid user or status' })
     }
-
-    const ptService = await databaseService.ptServices.findOne({ _id: new ObjectId(service_id) })
-    if (!ptService || !ptService.isActive) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.PT_SERVICE_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
-      })
+    if (typeof reason !== 'string' || !reason.trim() || reason.trim().length > 500) {
+      throw new ErrorWithStatus({ status: 400, message: 'Lý do phải có từ 1 đến 500 ký tự' })
     }
+    const userId = new ObjectId(targetUserId)
+    const changed = await databaseService.withTransaction(async (session) => {
+      const actor = await databaseService.users.findOne(
+        { _id: new ObjectId(actorId), role: UserRole.ADMIN, account_status: AccountStatus.ACTIVE },
+        { session }
+      )
+      if (!actor) throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
+      const user = await databaseService.users.findOne({ _id: userId }, { session })
+      if (!user) throw new ErrorWithStatus({ status: 404, message: USERS_MESSAGES.USER_NOT_FOUND })
 
-    type RegisteredServiceRaw = ObjectId | { serviceId: ObjectId | string }
-    const registeredRaw = (user.registeredPTServices || []) as RegisteredServiceRaw[]
-
-    const registeredServiceIds = registeredRaw
-      .map((item) => {
-        if (typeof item === 'object' && item !== null && 'serviceId' in item) {
-          return String(item.serviceId)
-        }
-        return String(item)
-      })
-      .filter(Boolean)
-
-    if (registeredServiceIds.includes(String(ptService._id))) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.PT_SERVICE_ALREADY_REGISTERED,
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    await databaseService.users.updateOne(
-      { _id: new ObjectId(user_id) },
-      {
-        $push: {
-          registeredPTServices: {
-            serviceId: ptService._id,
-            remainingSessions: ptService.sessions, // Gán số buổi ban đầu
-            totalSessions: ptService.sessions,
-            registeredAt: new Date()
-          } as any // Ép kiểu tạm nếu schema TS báo lỗi
+      // Khóa tạm do đăng nhập sai vẫn phải chuyển thành khóa lâu dài khi Admin yêu cầu.
+      const isTemporaryLock = status === AccountStatus.LOCKED && user.locked_until != null
+      if (user.account_status === status && !isTemporaryLock) return false
+      if (status === AccountStatus.LOCKED) await this.protectLastAdmin(user, session)
+      await databaseService.users.updateOne(
+        { _id: userId },
+        {
+          $set: {
+            account_status: status,
+            lockReason: status === AccountStatus.LOCKED ? reason.trim() : '',
+            loginAttempts: 0,
+            forgot_password_token: ''
+          },
+          $unset: { locked_until: '', forgot_password_expires_at: '' },
+          $inc: { tokenVersion: 1 },
+          $currentDate: { updated_at: true }
         },
-        $currentDate: { updated_at: true }
-      }
-    )
-
-    return {
-      message: USERS_MESSAGES.PT_SERVICE_REGISTERED_SUCCESS,
-      result: ptService
-    }
+        { session }
+      )
+      await databaseService.sessions.deleteMany({ user_id: userId }, { session })
+      await databaseService.auditLogs.insertOne(
+        {
+          actorId: actor._id,
+          actorRole: UserRole.ADMIN,
+          action: status === AccountStatus.LOCKED ? 'AccountLocked' : 'AccountUnlocked',
+          entityType: 'User',
+          entityId: userId,
+          before: { account_status: user.account_status, locked_until: user.locked_until ?? null },
+          after: { account_status: status, locked_until: null },
+          reason: reason.trim(),
+          createdAt: new Date()
+        },
+        { session }
+      )
+      const notifiedAt = new Date()
+      await databaseService.notifications.insertOne(
+        {
+          userId,
+          type: 'Account',
+          priority: 'Urgent',
+          entityType: 'User',
+          entityId: userId,
+          eventKey: `account-status:${userId}:${(user.tokenVersion || 0) + 1}`,
+          title: status === AccountStatus.LOCKED ? 'Tài khoản đã bị khóa' : 'Tài khoản đã được mở khóa',
+          message: `Tài khoản của bạn đã được Admin ${status === AccountStatus.LOCKED ? 'khóa' : 'mở khóa'}. Lý do: ${reason.trim()}`,
+          email: pendingNotificationEmail(notifiedAt),
+          createdAt: notifiedAt
+        },
+        { session }
+      )
+      return true
+    })
+    return { message: changed ? 'Đã cập nhật trạng thái tài khoản' : 'Trạng thái tài khoản không thay đổi', changed }
   }
 
-  async getMyRegisteredPTServices(user_id: string) {
-    const user = await databaseService.users.findOne(
-      { _id: new ObjectId(user_id) },
-      { projection: { role: 1, registeredPTServices: 1 } }
-    )
-
-    if (!user) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.USER_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
-      })
+  async updateUserRole(targetUserId: string, payload: UpdateUserRoleReqBody, actorId: string) {
+    if (!ObjectId.isValid(targetUserId) || !ALL_ROLES.includes(payload.role)) {
+      throw new ErrorWithStatus({ status: 400, message: 'Tài khoản hoặc vai trò không hợp lệ' })
     }
-
-    if (user.role !== UserRole.CUSTOMER) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.ONLY_CUSTOMER_CAN_REGISTER_PT_SERVICE,
-        status: HTTP_STATUS.FORBIDDEN
-      })
+    if (typeof payload.reason !== 'string' || !payload.reason.trim() || payload.reason.trim().length > 500) {
+      throw new ErrorWithStatus({ status: 400, message: 'Lý do phải có từ 1 đến 500 ký tự' })
     }
+    const userId = new ObjectId(targetUserId)
+    const changed = await databaseService.withTransaction(async (session) => {
+      const actor = await databaseService.users.findOne(
+        { _id: new ObjectId(actorId), role: UserRole.ADMIN, account_status: AccountStatus.ACTIVE },
+        { session }
+      )
+      if (!actor) throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
+      const user = await databaseService.users.findOne({ _id: userId }, { session })
+      if (!user) throw new ErrorWithStatus({ status: 404, message: USERS_MESSAGES.USER_NOT_FOUND })
+      if (user.role === payload.role) return false
+      if (payload.role !== UserRole.ADMIN) await this.protectLastAdmin(user, session)
 
-    type RegisteredServiceRaw =
-      | ObjectId
-      | {
-          serviceId: ObjectId | string
-          remainingSessions?: number
-          totalSessions?: number
-          registeredAt?: Date
-        }
-
-    const registeredRaw = (user.registeredPTServices || []) as RegisteredServiceRaw[]
-
-    const normalizedRegistrations = registeredRaw
-      .map((item) => {
-        if (typeof item === 'object' && item !== null && 'serviceId' in item) {
-          return {
-            serviceId: String(item.serviceId),
-            remainingSessions: Number(item.remainingSessions ?? 0),
-            totalSessions: Number(item.totalSessions ?? 0),
-            registeredAt: item.registeredAt
-          }
-        }
-
-        return {
-          serviceId: String(item),
-          remainingSessions: 0,
-          totalSessions: 0,
-          registeredAt: undefined
-        }
-      })
-      .filter((item) => Boolean(item.serviceId))
-
-    if (normalizedRegistrations.length === 0) {
-      return {
-        services: []
-      }
-    }
-
-    const serviceObjectIds = normalizedRegistrations
-      .filter((item) => ObjectId.isValid(item.serviceId))
-      .map((item) => new ObjectId(item.serviceId))
-
-    if (serviceObjectIds.length === 0) {
-      return {
-        services: []
-      }
-    }
-
-    const services = await databaseService.ptServices.find({ _id: { $in: serviceObjectIds } }).toArray()
-
-    const serviceMap = new Map(services.map((service) => [String(service._id), service]))
-    const orderedServices = normalizedRegistrations
-      .map((registration) => {
-        const service = serviceMap.get(registration.serviceId)
-        if (!service) return null
-
-        return {
-          ...service,
-          remainingSessions: registration.remainingSessions,
-          totalSessions: registration.totalSessions,
-          registeredAt: registration.registeredAt
-        }
-      })
-      .filter((service) => Boolean(service))
-
-    return {
-      services: orderedServices
-    }
+      await databaseService.users.updateOne(
+        { _id: userId },
+        { $set: { role: payload.role }, $inc: { tokenVersion: 1 }, $currentDate: { updated_at: true } },
+        { session }
+      )
+      await databaseService.sessions.deleteMany({ user_id: userId }, { session })
+      await databaseService.auditLogs.insertOne(
+        {
+          actorId: actor._id,
+          actorRole: UserRole.ADMIN,
+          action: 'RoleChanged',
+          entityType: 'User',
+          entityId: userId,
+          before: { role: user.role },
+          after: { role: payload.role },
+          reason: payload.reason.trim(),
+          createdAt: new Date()
+        },
+        { session }
+      )
+      return true
+    })
+    return { message: changed ? 'Đã cập nhật vai trò tài khoản' : 'Vai trò tài khoản không thay đổi', changed }
   }
 
   async changePassword(user_id: string, new_password: string) {
-    await databaseService.users.updateOne(
-      { _id: new ObjectId(user_id) },
-      {
-        $set: {
-          password: hashPassword(new_password)
+    const password = await hashPassword(new_password)
+    await databaseService.withTransaction(async (session) => {
+      await databaseService.users.updateOne(
+        { _id: new ObjectId(user_id) },
+        {
+          $set: { password, forgot_password_token: '', password_changed_at: new Date() },
+          $unset: { forgot_password_expires_at: '' },
+          $inc: { tokenVersion: 1 },
+          $currentDate: { updated_at: true }
         },
-        $currentDate: {
-          updated_at: true
-        }
-      }
-    )
-
-    return {
-      message: USERS_MESSAGES.RESET_PASSWORD_SUCCESS
-    }
+        { session }
+      )
+      await databaseService.sessions.deleteMany({ user_id: new ObjectId(user_id) }, { session })
+    })
+    return { message: USERS_MESSAGES.RESET_PASSWORD_SUCCESS }
   }
 
   async upsertHealthProfile(
@@ -971,7 +819,7 @@ class UsersService {
     }
   ) {
     const allergies = this.normalizeRules(payload.allergies)
-    const metrics = this.calculateHealthMetrics(payload)
+    const metrics = calculateHealthMetrics(payload)
 
     const healthProfile: HealthProfile = {
       ...payload,
@@ -979,22 +827,8 @@ class UsersService {
       ...metrics
     }
 
-    const updated = await databaseService.users.findOneAndUpdate(
-      { _id: new ObjectId(user_id) },
-      {
-        $set: {
-          healthProfile
-        },
-        $currentDate: { updated_at: true }
-      },
-      {
-        returnDocument: 'after',
-        projection: {
-          password: 0,
-          forgot_password_token: 0
-        }
-      }
-    )
+    await trackingService.saveHealthProfile(user_id, healthProfile, 'ProfileUpdate')
+    const updated = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
 
     return {
       profile: updated?.healthProfile,
@@ -1059,7 +893,7 @@ class UsersService {
     }
 
     const targetCalories =
-      user.healthProfile.targetCalories || this.calculateHealthMetrics(user.healthProfile).targetCalories
+      user.healthProfile.targetCalories || calculateHealthMetrics(user.healthProfile).targetCalories
 
     const plans = Array.from({ length: days }).map((_, index) => {
       const date = new Date()
@@ -1152,57 +986,6 @@ class UsersService {
       },
       targetCalories: expectedCalories,
       calorieDelta: nextFood.calories - expectedCalories
-    }
-  }
-
-  async recommendPTs(user_id: string, limit = 3) {
-    const user = await databaseService.users.findOne(
-      { _id: new ObjectId(user_id) },
-      { projection: { healthProfile: 1 } }
-    )
-
-    if (!user?.healthProfile) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.HEALTH_PROFILE_REQUIRED_FOR_RECOMMENDATION,
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    const keywords = this.buildGoalKeywords(user.healthProfile.goal)
-
-    const pts = await databaseService.users
-      .find({
-        role: UserRole.PT,
-        account_status: AccountStatus.ACTIVE,
-        'ptProfile.approvedByAdmin': true
-      })
-      .project<User & { ptProfile?: PTProfile }>({
-        password: 0,
-        forgot_password_token: 0
-      })
-      .toArray()
-
-    const scored = pts
-      .map((pt) => {
-        const specialties = (pt.ptProfile?.specialties || []).map((item) => item.toLowerCase())
-        const score = keywords.reduce(
-          (sum, keyword) => sum + (specialties.some((specialty) => specialty.includes(keyword)) ? 1 : 0),
-          0
-        )
-        return {
-          ...pt,
-          score
-        }
-      })
-      .sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score
-        return (b.ptProfile?.rating || 0) - (a.ptProfile?.rating || 0)
-      })
-      .slice(0, limit)
-
-    return {
-      goal: user.healthProfile.goal,
-      suggestions: scored
     }
   }
 }

@@ -4,7 +4,7 @@ import Sidebar from '@/components/dashboard/Sidebar';
 import Header from '@/components/dashboard/Header';
 import api from '@/services/api';
 
-type OrderStatus = 'Pending' | 'Cooking' | 'Delivering' | 'Completed' | 'Cancelled';
+type OrderStatus = 'Pending' | 'Confirmed' | 'Cooking' | 'Delivering' | 'Completed' | 'Cancelled';
 
 type AdminOrder = {
   _id: string;
@@ -21,10 +21,11 @@ type AdminOrder = {
   };
 };
 
-const statusOrder: OrderStatus[] = ['Pending', 'Cooking', 'Delivering', 'Completed', 'Cancelled'];
+const statusOrder: OrderStatus[] = ['Pending', 'Confirmed', 'Cooking', 'Delivering', 'Completed', 'Cancelled'];
 
 const statusLabel: Record<OrderStatus, string> = {
   Pending: 'Chờ xử lý',
+  Confirmed: 'Đã xác nhận',
   Cooking: 'Đang chế biến',
   Delivering: 'Đang giao',
   Completed: 'Hoàn tất',
@@ -32,7 +33,7 @@ const statusLabel: Record<OrderStatus, string> = {
 };
 
 function nextStatus(current: OrderStatus): 'Cooking' | 'Delivering' | 'Completed' | null {
-  if (current === 'Pending') return 'Cooking';
+  if (current === 'Confirmed') return 'Cooking';
   if (current === 'Cooking') return 'Delivering';
   if (current === 'Delivering') return 'Completed';
   return null;
@@ -79,6 +80,7 @@ export default function AdminOrders() {
   const groupedOrders = useMemo(() => {
     const map: Record<OrderStatus, AdminOrder[]> = {
       Pending: [],
+      Confirmed: [],
       Cooking: [],
       Delivering: [],
       Completed: [],

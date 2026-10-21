@@ -1,259 +1,259 @@
-import { ObjectId } from 'mongodb'
-import HTTP_STATUS from '~/constants/httpStatus'
-import { USERS_MESSAGES } from '~/constants/messages'
+import { ClientSession, MongoServerError, ObjectId } from 'mongodb'
 import { ErrorWithStatus } from '~/models/Errors'
-import Review, { ReviewTargetType } from '~/models/schemas/Review.schema'
-import databaseService from './database.services'
-import { UserRole, AccountStatus } from '~/models/schemas/User.schema'
+import Review from '~/models/schemas/Review.schema'
+import { AccountStatus, UserRole } from '~/models/schemas/User.schema'
+import database from './database.services'
+import { validEvidenceUrls } from '~/utils/delivery'
+import { pendingNotificationEmail } from '~/utils/notification-email'
 
-type CreateReviewPayload = {
-  targetType: ReviewTargetType
-  targetId: string
+export type CreateReviewPayload = {
+  foodId: string
+  orderId: string
+  deliveryId: string
   rating: number
   comment: string
   images?: string[]
 }
-
-class ReviewService {
-  async createReview(reviewerId: string, payload: CreateReviewPayload) {
-    const { targetType, targetId, rating, comment, images } = payload
-
-    if (!ObjectId.isValid(targetId)) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.TARGET_ID_INVALID,
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    const targetObjectId = new ObjectId(targetId)
-
-    // 1) Check target exists
-    if (targetType === 'Food') {
-      const food = await databaseService.foods.findOne({ _id: targetObjectId, isActive: true })
-      if (!food) {
-        throw new ErrorWithStatus({
-          message: USERS_MESSAGES.TARGET_NOT_FOUND,
-          status: HTTP_STATUS.NOT_FOUND
-        })
-      }
-    } else {
-      const pt = await databaseService.users.findOne({
-        _id: targetObjectId,
-        role: 'PT' as UserRole,
-        account_status: 'Active' as AccountStatus
-      })
-      if (!pt) {
-        throw new ErrorWithStatus({
-          message: USERS_MESSAGES.TARGET_NOT_FOUND,
-          status: HTTP_STATUS.NOT_FOUND
-        })
-      }
-    }
-
-    // 2) Check verified purchase (Đã mua hàng/Đã đăng ký dịch vụ chưa?)
-    let isVerified = false
-
-    if (targetType === 'Food') {
-      // Đối với Food: Tìm xem có đơn hàng Completed nào chứa món ăn này không
-      const completedOrder = await databaseService.orders.findOne({
-        userId: new ObjectId(reviewerId),
-        status: 'Completed',
-        items: {
-          $elemMatch: {
-            itemId: targetObjectId
-          }
-        }
-      })
-      if (completedOrder) isVerified = true
-    } else if (targetType === 'PT') {
-      // Đối với PT: Kiểm tra xem user này có đang học gói nào của PT này không
-      const user = await databaseService.users.findOne({ _id: new ObjectId(reviewerId) })
-      
-      // Lấy danh sách ID các gói tập user đã mua (hỗ trợ cả dữ liệu cũ dạng chuỗi và dữ liệu mới dạng Object)
-      const registeredServiceIds = (user?.registeredPTServices || []).map((reg: any) => {
-        if (reg && typeof reg === 'object' && reg.serviceId) {
-          return new ObjectId(reg.serviceId)
-        }
-        return new ObjectId(reg)
-      })
-
-      if (registeredServiceIds.length > 0) {
-        // Kiểm tra xem trong các gói tập user đã mua, có gói nào thuộc về PT đang được đánh giá (targetObjectId) không
-        const matchingService = await databaseService.ptServices.findOne({
-          _id: { $in: registeredServiceIds },
-          ptId: targetObjectId
-        })
-        
-        if (matchingService) isVerified = true
-      }
-    }
-
-    // Nếu chưa từng mua Food hoặc chưa từng đăng ký PT này -> Chặn không cho đánh giá
-    if (!isVerified) {
-      throw new ErrorWithStatus({
-        message: 'Bạn chỉ có thể đánh giá khi đã mua hoặc sử dụng dịch vụ',
-        status: HTTP_STATUS.FORBIDDEN
-      })
-    }
-
-    // 3) Optional: prevent duplicate review for same target
-    const existingReview = await databaseService.reviews.findOne({
-      reviewerId: new ObjectId(reviewerId),
-      targetType,
-      targetId: targetObjectId
-    })
-
-    if (existingReview) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.REVIEW_ALREADY_EXISTS,
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    const newReview = new Review({
-      reviewerId: new ObjectId(reviewerId),
-      targetType,
-      targetId: targetObjectId,
-      rating,
-      comment: comment.trim(),
-      images: images || [],
-      verifiedPurchase: true
-    })
-
-    const result = await databaseService.reviews.insertOne(newReview)
-
-    await this.updateAverageRating(payload.targetType, payload.targetId)
-
-    return {
-      _id: result.insertedId,
-      ...newReview
-    }
-  }
-
-  async getReviews(targetType: ReviewTargetType, targetId: string) {
-    if (!ObjectId.isValid(targetId)) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.TARGET_ID_INVALID,
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    return databaseService.reviews
-      .find({
-        targetType,
-        targetId: new ObjectId(targetId)
-      })
-      .sort({ createdAt: -1 })
-      .toArray()
-  }
-
-  async updateReview(userId: string, reviewId: string, payload: Partial<CreateReviewPayload>) {
-    // 1. Tìm đánh giá
-    const review = await databaseService.reviews.findOne({ _id: new ObjectId(reviewId) })
-    
-    if (!review) {
-      throw new ErrorWithStatus({
-        message: 'Không tìm thấy đánh giá này',
-        status: HTTP_STATUS.NOT_FOUND
-      })
-    }
-
-    // 2. Kiểm tra quyền sở hữu (Chỉ người viết mới được sửa)
-    if (review.reviewerId.toString() !== userId) {
-      throw new ErrorWithStatus({
-        message: 'Bạn không có quyền sửa đánh giá của người khác',
-        status: HTTP_STATUS.FORBIDDEN
-      })
-    }
-
-    // 3. Logic 7 ngày: Kiểm tra xem đã quá 7 ngày kể từ lúc tạo chưa
-    const now = new Date()
-    const diffTime = Math.abs(now.getTime() - (review.createdAt?.getTime() || now.getTime()))
-    const diffDays = diffTime / (1000 * 60 * 60 * 24)
-
-    if (diffDays > 7) {
-      throw new ErrorWithStatus({
-        message: 'Đã quá 7 ngày kể từ lúc viết, bạn không thể chỉnh sửa đánh giá này nữa',
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    // 4. Cập nhật dữ liệu
-    const updateData: any = {}
-    if (payload.rating !== undefined) updateData.rating = payload.rating
-    if (payload.comment !== undefined) updateData.comment = payload.comment
-    if (payload.images !== undefined) updateData.images = payload.images
-
-    await databaseService.reviews.updateOne(
-      { _id: new ObjectId(reviewId) },
-      { $set: updateData }
-    )
-
-    await this.updateAverageRating(review.targetType, review.targetId.toString())
-
-    return {
-      message: 'Cập nhật đánh giá thành công'
-    }
-  }
-
-  async deleteReview(userId: string, reviewId: string) {
-    // 1. Tìm đánh giá xem có tồn tại không
-    const review = await databaseService.reviews.findOne({ _id: new ObjectId(reviewId) })
-    
-    if (!review) {
-      throw new ErrorWithStatus({
-        message: 'Không tìm thấy đánh giá này',
-        status: HTTP_STATUS.NOT_FOUND
-      })
-    }
-
-    // 2. Tìm thông tin User đang thực hiện request để check Role
-    const user = await databaseService.users.findOne({ _id: new ObjectId(userId) })
-    
-    // 3. Kiểm tra quyền: CHỈ ADMIN MỚI ĐƯỢC XÓA
-    if (!user || user.role !== UserRole.ADMIN) {
-      throw new ErrorWithStatus({
-        message: 'Chỉ có Quản trị viên (Admin) mới có quyền xóa đánh giá',
-        status: HTTP_STATUS.FORBIDDEN
-      })
-    }
-
-    // 4. Thực hiện xóa
-    await databaseService.reviews.deleteOne({ _id: new ObjectId(reviewId) })
-
-    await this.updateAverageRating(review.targetType, review.targetId.toString())
-
-    return {
-      message: 'Xóa đánh giá thành công (Dành cho Admin)'
-    }
-  }
-
-  async updateAverageRating(targetType: 'Food' | 'PT', targetId: string) {
-    const targetObjectId = new ObjectId(targetId)
-
-    // Dùng Aggregation để tính trung bình cộng tất cả số sao (rating)
-    const result = await databaseService.reviews.aggregate([
-      { $match: { targetType, targetId: targetObjectId } },
-      { $group: { _id: null, averageRating: { $avg: '$rating' } } }
-    ]).toArray()
-
-    // Lấy kết quả, làm tròn 1 chữ số thập phân (VD: 4.6). Nếu chưa có ai đánh giá thì về 0.
-    const newRating = result.length > 0 ? Number(result[0].averageRating.toFixed(1)) : 0
-
-    // Cập nhật ngược lại vào Database của PT hoặc Food
-    if (targetType === 'PT') {
-      await databaseService.users.updateOne(
-        { _id: targetObjectId },
-        { $set: { 'ptProfile.rating': newRating } }
-      )
-    } else if (targetType === 'Food') {
-      await databaseService.foods.updateOne(
-        { _id: targetObjectId },
-        { $set: { rating: newRating } }
-      )
-    }
-  }
+type EditReviewPayload = { rating?: number; comment?: string; images?: string[] }
+export const REVIEW_EDIT_MS = 7 * 24 * 60 * 60 * 1000
+function fail(status: number, message: string): never {
+  throw new ErrorWithStatus({ status, message })
+}
+function id(value: string) {
+  if (typeof value !== 'string' || !/^[a-f\d]{24}$/i.test(value)) fail(400, 'ID không hợp lệ')
+  return new ObjectId(value)
+}
+function content(payload: EditReviewPayload, create = false) {
+  if (
+    (create || payload.rating !== undefined) &&
+    (!Number.isInteger(payload.rating) || payload.rating! < 1 || payload.rating! > 5)
+  )
+    fail(400, 'Số sao phải là số nguyên từ 1 đến 5')
+  if (
+    (create || payload.comment !== undefined) &&
+    (typeof payload.comment !== 'string' || !payload.comment.trim() || payload.comment.trim().length > 5000)
+  )
+    fail(400, 'Nội dung đánh giá phải có từ 1 đến 5000 ký tự')
+  if (payload.images !== undefined && !validEvidenceUrls(payload.images))
+    fail(400, 'Ảnh phải là danh sách tối đa 10 URL HTTPS hợp lệ')
 }
 
-const reviewService = new ReviewService()
-export default reviewService
+class ReviewService {
+  private async actor(actorId: string, role: UserRole, session: ClientSession) {
+    const filter = { _id: id(actorId), role, account_status: AccountStatus.ACTIVE }
+    if (!(await database.users.updateOne(filter, { $inc: { assignmentVersion: 1 } }, { session })).matchedCount)
+      fail(403, 'Tài khoản không có quyền hoặc không còn Active')
+    return filter._id
+  }
+  private async lockFood(foodId: ObjectId, session: ClientSession) {
+    if (!(await database.foods.updateOne({ _id: foodId }, { $inc: { reviewVersion: 1 } }, { session })).matchedCount)
+      fail(404, 'Không tìm thấy món ăn')
+  }
+  private async updateAverageRating(foodId: ObjectId, session: ClientSession) {
+    const [result] = await database.reviews
+      .aggregate<{
+        average: number
+        count: number
+      }>(
+        [
+          { $match: { foodId, isHidden: false } },
+          { $group: { _id: null, average: { $avg: '$rating' }, count: { $sum: 1 } } }
+        ],
+        { session }
+      )
+      .toArray()
+    await database.foods.updateOne(
+      { _id: foodId },
+      {
+        $set: {
+          rating: result ? Number(result.average.toFixed(1)) : 0,
+          reviewCount: result?.count || 0
+        }
+      },
+      { session }
+    )
+  }
+  async createReview(reviewerId: string, payload: CreateReviewPayload) {
+    const foodId = id(payload.foodId),
+      orderId = id(payload.orderId),
+      deliveryId = id(payload.deliveryId)
+    content(payload, true)
+    try {
+      return await database.withTransaction(async (session) => {
+        const actorId = await this.actor(reviewerId, UserRole.CUSTOMER, session)
+        const order = await database.orders.findOne(
+          {
+            _id: orderId,
+            userId: actorId,
+            deliveries: { $elemMatch: { _id: deliveryId, status: 'Completed', 'items.foodId': foodId } }
+          },
+          { session }
+        )
+        if (!order) fail(403, 'Chỉ được đánh giá món thuộc ngày Completed trong đơn của mình')
+        await this.lockFood(foodId, session)
+        if (
+          await database.reviews.findOne(
+            {
+              orderId,
+              foodId,
+              $or: [{ deliveryId }, { deliveryId: { $exists: false } }, { deliveryId: { $type: 10 } }]
+            },
+            { session }
+          )
+        )
+          fail(409, 'Món/ngày này đã có đánh giá hoặc review cũ cần xác định ngày giao')
+        const now = new Date()
+        const review: Review = {
+          _id: new ObjectId(),
+          reviewerId: actorId,
+          orderId,
+          deliveryId,
+          foodId,
+          rating: payload.rating,
+          comment: payload.comment.trim(),
+          images: payload.images || [],
+          verifiedPurchase: true,
+          isHidden: false,
+          createdAt: now,
+          updatedAt: now
+        }
+        await database.reviews.insertOne(review, { session })
+        await this.updateAverageRating(foodId, session)
+        return review
+      })
+    } catch (error) {
+      if (error instanceof MongoServerError && error.code === 11000) fail(409, 'Đánh giá bị trùng với dữ liệu đã có')
+      throw error
+    }
+  }
+  async getReviews(
+    foodId: string,
+    options: { rating?: number; hasImages?: boolean; page?: number; limit?: number } = {}
+  ) {
+    const foodObjectId = id(foodId)
+    const page = options.page ?? 1,
+      limit = options.limit ?? 20
+    if (
+      !Number.isSafeInteger(page) ||
+      page < 1 ||
+      page > 1000000 ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 100 ||
+      (options.rating !== undefined &&
+        (!Number.isInteger(options.rating) || options.rating < 1 || options.rating > 5)) ||
+      (options.hasImages !== undefined && typeof options.hasImages !== 'boolean')
+    )
+      fail(400, 'Bộ lọc không hợp lệ')
+    return database.reviews
+      .find(
+        {
+          foodId: foodObjectId,
+          isHidden: false,
+          ...(options.rating !== undefined ? { rating: options.rating } : {}),
+          ...(options.hasImages !== undefined ? { 'images.0': { $exists: options.hasImages } } : {})
+        },
+        { projection: { hiddenBy: 0, hiddenAt: 0, hiddenReason: 0 } }
+      )
+      .sort({ createdAt: -1, _id: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .toArray()
+  }
+  async updateReview(userId: string, reviewId: string, payload: EditReviewPayload) {
+    const reviewObjectId = id(reviewId)
+    if (
+      !Object.keys(payload).length ||
+      Object.keys(payload).some((key) => !['rating', 'comment', 'images'].includes(key))
+    )
+      fail(400, 'Chỉ sửa rating, comment, images; không thay đơn/ngày/món hoặc người viết')
+    content(payload)
+    return database.withTransaction(async (session) => {
+      const actorId = await this.actor(userId, UserRole.CUSTOMER, session)
+      const review = await database.reviews.findOne({ _id: reviewObjectId }, { session })
+      if (!review) fail(404, 'Không tìm thấy đánh giá')
+      if (!review.reviewerId.equals(actorId)) fail(403, 'Chỉ tác giả được sửa đánh giá')
+      const now = new Date()
+      if (
+        !(review.createdAt instanceof Date) ||
+        !Number.isFinite(review.createdAt.getTime()) ||
+        review.createdAt > now ||
+        now.getTime() - review.createdAt.getTime() >= REVIEW_EDIT_MS
+      )
+        fail(409, 'Đánh giá đã hết hạn sửa 7 ngày hoặc thiếu thời điểm tạo hợp lệ')
+      await this.lockFood(review.foodId, session)
+      await database.reviews.updateOne(
+        { _id: reviewObjectId },
+        {
+          $set: {
+            ...(payload.rating !== undefined ? { rating: payload.rating } : {}),
+            ...(payload.comment !== undefined ? { comment: payload.comment.trim() } : {}),
+            ...(payload.images !== undefined ? { images: payload.images } : {}),
+            updatedAt: now
+          }
+        },
+        { session }
+      )
+      await this.updateAverageRating(review.foodId, session)
+      return { message: 'Đã cập nhật đánh giá' }
+    })
+  }
+  async hideReview(adminId: string, reviewId: string, reason: string) {
+    const reviewObjectId = id(reviewId)
+    if (typeof reason !== 'string' || !reason.trim() || reason.trim().length > 500)
+      fail(400, 'Cần lý do ẩn từ 1 đến 500 ký tự')
+    return database.withTransaction(async (session) => {
+      const actorId = await this.actor(adminId, UserRole.ADMIN, session)
+      const review = await database.reviews.findOne({ _id: reviewObjectId }, { session })
+      if (!review) fail(404, 'Không tìm thấy đánh giá')
+      if (review.isHidden) return { message: 'Đánh giá đã được ẩn', changed: false }
+      const now = new Date()
+      await this.lockFood(review.foodId, session)
+      await database.reviews.updateOne(
+        { _id: reviewObjectId },
+        {
+          $set: {
+            isHidden: true,
+            hiddenBy: actorId,
+            hiddenAt: now,
+            hiddenReason: reason.trim(),
+            updatedAt: now
+          }
+        },
+        { session }
+      )
+      await this.updateAverageRating(review.foodId, session)
+      await database.auditLogs.insertOne(
+        {
+          actorId,
+          actorRole: UserRole.ADMIN,
+          action: 'ReviewHidden',
+          entityType: 'Review',
+          entityId: reviewObjectId,
+          before: { isHidden: false },
+          after: { isHidden: true, foodId: review.foodId, orderId: review.orderId, deliveryId: review.deliveryId },
+          reason: reason.trim(),
+          createdAt: now
+        },
+        { session }
+      )
+      await database.notifications.insertOne(
+        {
+          userId: review.reviewerId,
+          type: 'Review',
+          priority: 'Normal',
+          entityType: 'Review',
+          entityId: reviewObjectId,
+          eventKey: `review-hidden:${reviewObjectId}`,
+          email: pendingNotificationEmail(now),
+          title: 'Đánh giá đã được ẩn',
+          message: reason.trim(),
+          createdAt: now
+        },
+        { session }
+      )
+      return { message: 'Đã ẩn đánh giá và thông báo lý do cho tác giả', changed: true }
+    })
+  }
+}
+export default new ReviewService()

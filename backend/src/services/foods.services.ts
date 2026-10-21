@@ -1,7 +1,11 @@
 import { Filter, ObjectId } from 'mongodb'
+import { escapeRegExp } from 'lodash'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { ErrorWithStatus } from '~/models/Errors'
-import Food, { FoodType } from '~/models/schemas/Food.schema'
+import Food from '~/models/schemas/Food.schema'
+import { CreateFoodReqBody, UpdateFoodReqBody } from '~/models/requests/Food.request'
+import { normalizeSearchText } from '~/models/schemas/common'
+import { HealthGoal, UserRole } from '~/models/schemas/User.schema'
 import databaseService from './database.services'
 
 type GetFoodsQuery = {
@@ -9,36 +13,220 @@ type GetFoodsQuery = {
   limit?: string
   search?: string
   tags?: string
+  goalTags?: string
+  excludeAllergens?: string
+  excludeMyAllergens?: string
   minPrice?: string
   maxPrice?: string
   minCalories?: string
   maxCalories?: string
-  isCombo?: string
   sortBy?: string
   order?: 'asc' | 'desc'
 }
 
+// Legacy documents have no normalizedName. Match their Vietnamese names in MongoDB
+// before counting/pagination, without loading the catalogue or rewriting old records.
+const VIETNAMESE_LETTERS: Record<string, string> = {
+  a: 'aàáảãạăằắẳẵặâầấẩẫậ',
+  e: 'eèéẻẽẹêềếểễệ',
+  i: 'iìíỉĩị',
+  o: 'oòóỏõọôồốổỗộơờớởỡợ',
+  u: 'uùúủũụưừứửữự',
+  y: 'yỳýỷỹỵ',
+  d: 'dđ'
+}
+
+function legacyNamePattern(normalizedSearch: string) {
+  return Array.from(normalizedSearch)
+    .map((character) => {
+      if (character === ' ') return '\\s+'
+      const letters = VIETNAMESE_LETTERS[character]
+      // Accept both precomposed vowels and decomposed Unicode combining marks.
+      return letters ? `[${letters}][\u0300-\u036f]*` : escapeRegExp(character)
+    })
+    .join('')
+}
+
+function withAvailability(food: Food) {
+  const availableQuantity = Math.max(0, food.stock - (food.reservedStock ?? 0))
+  return {
+    ...food,
+    availability: {
+      isActive: food.isActive,
+      availableQuantity,
+      inStock: availableQuantity > 0,
+      canAddToCart: food.isActive && availableQuantity > 0
+    }
+  }
+}
+
+type AllergyContext = { evaluated: boolean; rules: string[] }
+
+const isVeganRule = (rule: string) => ['vegan', 'an chay'].includes(rule)
+
+// Use the same literal, accent-insensitive pattern for MongoDB filtering and response warnings.
+function allergenPatterns(rules: string[]) {
+  return rules
+    .filter((rule) => !isVeganRule(rule))
+    .map((allergen) => ({
+      allergen,
+      pattern: new RegExp(legacyNamePattern(allergen), 'i')
+    }))
+}
+
+function allergyWarning(food: Food, context: AllergyContext) {
+  const matchedIngredients = new Set<string>()
+  const matchedAllergens: string[] = []
+  for (const { allergen, pattern } of allergenPatterns(context.rules)) {
+    let matched = (food.tags ?? []).some((tag) => pattern.test(tag))
+    for (const ingredient of food.ingredients ?? []) {
+      if ([ingredient.name, ...(ingredient.allergyTags ?? [])].some((value) => pattern.test(value))) {
+        matched = true
+        matchedIngredients.add(ingredient.name)
+      }
+    }
+    if (matched) matchedAllergens.push(allergen)
+  }
+  return {
+    evaluated: context.evaluated,
+    hasMatch: matchedAllergens.length > 0,
+    matchedAllergens,
+    matchedIngredients: [...matchedIngredients],
+    message:
+      matchedAllergens.length > 0 ? `Món có thành phần trùng dị ứng của bạn: ${matchedAllergens.join(', ')}` : null
+  }
+}
+
 class FoodService {
-  async getFoods(query: GetFoodsQuery, isAdmin: boolean = false) {
-    const page = Math.max(1, Number(query.page) || 1)
-    const limit = Math.max(1, Number(query.limit) || 10)
+  private async getAllergyContext(customerId?: string): Promise<AllergyContext> {
+    // Identity comes from a validated Customer session, never a query/body field.
+    const customer = customerId
+      ? await databaseService.users.findOne(
+          { _id: new ObjectId(customerId), role: UserRole.CUSTOMER },
+          { projection: { 'healthProfile.allergies': 1 } }
+        )
+      : null
+    const allergies = customer?.healthProfile?.allergies
+    return {
+      evaluated: Array.isArray(allergies),
+      rules: [
+        ...new Set(
+          (allergies ?? [])
+            .flatMap((rule) => rule.split(/[,/]/))
+            .map(normalizeSearchText)
+            .filter(Boolean)
+        )
+      ]
+    }
+  }
+
+  async getFoods(query: GetFoodsQuery, isAdmin: boolean = false, customerId?: string) {
+    const invalid = (message: string): never => {
+      throw new ErrorWithStatus({ status: HTTP_STATUS.UNPROCESSABLE_ENTITY, message })
+    }
+    for (const key of [
+      'page',
+      'limit',
+      'search',
+      'tags',
+      'goalTags',
+      'excludeAllergens',
+      'excludeMyAllergens',
+      'minPrice',
+      'maxPrice',
+      'minCalories',
+      'maxCalories',
+      'sortBy',
+      'order'
+    ] as const) {
+      if (query[key] !== undefined && typeof query[key] !== 'string') invalid(`${key} phải là một chuỗi duy nhất`)
+    }
+    const positiveInteger = (value: string | undefined, fallback: number, field: string) => {
+      if (value === undefined) return fallback
+      if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) < 1) {
+        invalid(`${field} phải là số nguyên dương`)
+      }
+      return Number(value)
+    }
+    const page = positiveInteger(query.page, 1, 'page')
+    const limit = positiveInteger(query.limit, 10, 'limit')
+    if (limit > 100) invalid('limit không được vượt quá 100')
     const skip = (page - 1) * limit
+    if (!Number.isSafeInteger(skip)) invalid('page vượt quá phạm vi hỗ trợ')
+    for (const [min, max] of [
+      ['minPrice', 'maxPrice'],
+      ['minCalories', 'maxCalories']
+    ] as const) {
+      for (const key of [min, max]) {
+        const value = query[key]
+        if (
+          value !== undefined &&
+          value !== '' &&
+          (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value) || !Number.isFinite(Number(value)))
+        ) {
+          invalid(`${key} phải là số hữu hạn không âm`)
+        }
+      }
+      if (query[min] && query[max] && Number(query[min]) > Number(query[max]))
+        invalid(`${min} không được lớn hơn ${max}`)
+    }
+    const csv = (value?: string) => [
+      ...new Set(
+        (value || '')
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      )
+    ]
+    const goals = csv(query.goalTags)
+    const allowedGoals: HealthGoal[] = ['LoseFat', 'GainMuscle', 'MaintainWeight']
+    if (goals.some((goal) => !allowedGoals.includes(goal as HealthGoal))) invalid('goalTags không hợp lệ')
+    if (query.excludeMyAllergens !== undefined && !['true', 'false'].includes(query.excludeMyAllergens)) {
+      invalid('excludeMyAllergens phải là true hoặc false')
+    }
+    const excludeMyAllergens = query.excludeMyAllergens !== 'false'
+    // Turning off exclusion must not turn off personal warnings.
+    const allergyContext = await this.getAllergyContext(isAdmin ? undefined : customerId)
+    const personalRules = excludeMyAllergens ? allergyContext.rules : []
+    const excludedRules = [
+      ...new Set([...csv(query.excludeAllergens).map(normalizeSearchText), ...personalRules])
+    ].filter(Boolean)
 
     // Khởi tạo object match rỗng
     const match: Filter<Food> = {}
 
-    // THÊM ĐOẠN NÀY ĐỂ BẢO MẬT HIỂN THỊ:
-    // Nếu KHÔNG PHẢI Admin -> Bắt buộc chỉ lấy những món đang bán
+    // Filter sellable stock before counting and pagination. Admin keeps the full catalogue.
     if (!isAdmin) {
       match.isActive = true
+      match.$expr = { $gt: [{ $subtract: ['$stock', { $ifNull: ['$reservedStock', 0] }] }, 0] }
+    }
+    if (goals.length) match.goalTags = { $in: goals as HealthGoal[] }
+    if (excludedRules.length) {
+      // Keep legacy free-text ingredient matching, with literal Vietnamese-aware patterns.
+      // Old profiles may store the vegan restriction in allergies.
+      const vegan = excludedRules.some(isVeganRule)
+      const patterns = allergenPatterns(excludedRules).map(({ pattern }) => pattern)
+      if (vegan) match.$and = [{ tags: { $in: [/^vegan$/i] } }]
+      if (patterns.length) {
+        match.$nor = [
+          { 'ingredients.allergyTags': { $in: patterns } },
+          { 'ingredients.name': { $in: patterns } },
+          { tags: { $in: patterns } }
+        ]
+      }
     }
 
-    // Search theo tên món, không phân biệt hoa thường
-    if (query.search?.trim()) {
-      match.name = {
-        $regex: query.search.trim(),
-        $options: 'i'
-      }
+    const search = normalizeSearchText(query.search || '')
+    if (search) {
+      match.$or = [
+        { normalizedName: { $regex: escapeRegExp(search), $options: 'i' } },
+        {
+          $and: [
+            { $or: [{ normalizedName: { $exists: false } }, { normalizedName: '' }] },
+            { name: { $regex: legacyNamePattern(search), $options: 'i' } }
+          ]
+        }
+      ]
     }
 
     // Filter theo tags: ?tags=Vegan,GlutenFree
@@ -51,12 +239,6 @@ class FoodService {
       if (tagsArray.length > 0) {
         match.tags = { $in: tagsArray }
       }
-    }
-
-    if (query.isCombo === 'true') {
-      match.isCombo = true
-    } else if (query.isCombo === 'false') {
-      match.isCombo = false
     }
 
     // Filter theo khoảng giá
@@ -83,6 +265,10 @@ class FoodService {
 
     // Chỉ cho phép sort theo các field an toàn
     const allowedSortFields = ['createdAt', 'price', 'calories', 'name'] as const
+    if (query.sortBy !== undefined && !allowedSortFields.includes(query.sortBy as (typeof allowedSortFields)[number])) {
+      invalid('sortBy không hợp lệ')
+    }
+    if (query.order !== undefined && !['asc', 'desc'].includes(query.order)) invalid('order không hợp lệ')
     const sortBy = allowedSortFields.includes(query.sortBy as (typeof allowedSortFields)[number])
       ? (query.sortBy as (typeof allowedSortFields)[number])
       : 'createdAt'
@@ -90,7 +276,8 @@ class FoodService {
     const sortOrder = query.order === 'desc' ? -1 : 1
 
     const sort: Record<string, 1 | -1> = {
-      [sortBy]: sortOrder
+      [sortBy]: sortOrder,
+      _id: sortOrder
     }
 
     const [foods, total] = await Promise.all([
@@ -99,7 +286,7 @@ class FoodService {
     ])
 
     return {
-      foods,
+      foods: foods.map((food) => ({ ...withAvailability(food), allergyWarning: allergyWarning(food, allergyContext) })),
       pagination: {
         page,
         limit,
@@ -109,6 +296,10 @@ class FoodService {
       filters: {
         search: query.search || '',
         tags: query.tags || '',
+        goalTags: goals.join(','),
+        excludeAllergens: query.excludeAllergens || '',
+        excludeMyAllergens,
+        personalAllergyFilterApplied: personalRules.length > 0,
         minPrice: query.minPrice || '',
         maxPrice: query.maxPrice || '',
         minCalories: query.minCalories || '',
@@ -119,7 +310,7 @@ class FoodService {
     }
   }
 
-  async getFoodById(food_id: string) {
+  async getFoodById(food_id: string, customerId?: string) {
     if (!ObjectId.isValid(food_id)) {
       throw new ErrorWithStatus({
         message: 'Food ID không hợp lệ',
@@ -139,14 +330,15 @@ class FoodService {
       })
     }
 
-    return food
+    // An active but sold-out item remains readable by direct URL.
+    const allergyContext = await this.getAllergyContext(customerId)
+    return { ...withAvailability(food), allergyWarning: allergyWarning(food, allergyContext) }
   }
 
-  async createFood(payload: FoodType) {
+  async createFood(payload: CreateFoodReqBody) {
     const food = new Food({
       name: payload.name.trim(),
       description: payload.description.trim(),
-      details: payload.details?.trim() || '',
       images: payload.images,
       price: payload.price,
       calories: payload.calories,
@@ -162,18 +354,18 @@ class FoodService {
       tags: payload.tags.map((tag) => tag.trim()),
       stock: payload.stock,
       isActive: payload.isActive ?? true,
-      isCombo: payload.isCombo ?? false
+      goalTags: payload.goalTags || []
     })
 
     const result = await databaseService.foods.insertOne(food)
 
     return {
-      _id: result.insertedId,
-      ...food
+      ...food,
+      _id: result.insertedId
     }
   }
 
-  async updateFood(food_id: string, payload: any) {
+  async updateFood(food_id: string, payload: UpdateFoodReqBody) {
     if (!ObjectId.isValid(food_id)) {
       throw new ErrorWithStatus({
         message: 'ID món ăn không hợp lệ',
@@ -181,16 +373,45 @@ class FoodService {
       })
     }
 
+    const update: Partial<Food> = {}
+    if (payload.name !== undefined) {
+      update.name = payload.name.trim()
+      update.normalizedName = normalizeSearchText(update.name)
+    }
+    for (const key of [
+      'description',
+      'images',
+      'price',
+      'calories',
+      'nutrition',
+      'ingredients',
+      'tags',
+      'goalTags',
+      'stock',
+      'isActive'
+    ] as const) {
+      if (payload[key] !== undefined) Object.assign(update, { [key]: payload[key] })
+    }
     const updatedFood = await databaseService.foods.findOneAndUpdate(
-      { _id: new ObjectId(food_id) },
-      { 
-        $set: payload,
+      {
+        _id: new ObjectId(food_id),
+        // Admin không được hạ tồn kho xuống dưới số phần đang giữ cho checkout.
+        ...(update.stock !== undefined ? { $expr: { $lte: [{ $ifNull: ['$reservedStock', 0] }, update.stock] } } : {})
+      },
+      {
+        $set: update,
         $currentDate: { updatedAt: true }
       },
       { returnDocument: 'after' } // Trả về data mới sau khi update
     )
 
     if (!updatedFood) {
+      if (update.stock !== undefined && (await databaseService.foods.findOne({ _id: new ObjectId(food_id) }))) {
+        throw new ErrorWithStatus({
+          message: 'Tồn kho mới thấp hơn số phần đang được giữ cho đơn hàng',
+          status: HTTP_STATUS.CONFLICT
+        })
+      }
       throw new ErrorWithStatus({
         message: 'Không tìm thấy món ăn',
         status: HTTP_STATUS.NOT_FOUND

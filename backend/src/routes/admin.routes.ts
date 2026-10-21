@@ -2,8 +2,24 @@ import { Router } from 'express'
 import { getDashboardStatsController, getFoodDiaryLogsController } from '~/controllers/admin.controllers'
 import { accessTokenValidator, isAdminValidator } from '~/middlewares/users.middlewares'
 import { wrapRequestHandler } from '~/utils/handlers'
+import { getCommerceSettingsController, updateCommerceSettingsController } from '~/controllers/settings.controllers'
+import { commerceSettingsValidator } from '~/middlewares/weekly-orders.middlewares'
 
 const adminRouter = Router()
+
+adminRouter.get(
+  '/commerce-settings',
+  accessTokenValidator,
+  isAdminValidator,
+  wrapRequestHandler(getCommerceSettingsController)
+)
+adminRouter.patch(
+  '/commerce-settings',
+  accessTokenValidator,
+  isAdminValidator,
+  commerceSettingsValidator,
+  wrapRequestHandler(updateCommerceSettingsController)
+)
 
 /**
  * Description. Get system statistics for Admin Dashboard
@@ -25,11 +41,6 @@ adminRouter.get(
  * Header: { Authorization: Bearer <access_token> }
  * Query: { days?: number }
  */
-adminRouter.get(
-  '/food-diary',
-  accessTokenValidator,
-  isAdminValidator,
-  wrapRequestHandler(getFoodDiaryLogsController)
-)
+adminRouter.get('/food-diary', accessTokenValidator, isAdminValidator, wrapRequestHandler(getFoodDiaryLogsController))
 
 export default adminRouter

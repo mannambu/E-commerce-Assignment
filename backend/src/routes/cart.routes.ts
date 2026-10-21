@@ -1,6 +1,8 @@
 import { Router } from 'express'
 import {
   addCartItemController,
+  addCartItemsController,
+  changeCartModeController,
   clearComboCartController,
   clearCartController,
   clearFoodCartController,
@@ -9,17 +11,22 @@ import {
   getFoodCartController,
   refreshCartController,
   removeCartItemController,
-  updateCartItemQuantityController
+  updateCartItemController
 } from '~/controllers/cart.controllers'
-import { accessTokenValidator } from '~/middlewares/users.middlewares'
+import { accessTokenValidator, isCustomerValidator } from '~/middlewares/users.middlewares'
 import {
   addCartItemValidator,
+  addCartItemsValidator,
+  cartQueryValidator,
+  clearCartValidator,
+  changeCartModeValidator,
   removeCartItemValidator,
-  updateCartItemQuantityValidator
+  updateCartItemValidator
 } from '~/middlewares/cart.middlewares'
 import { wrapRequestHandler } from '~/utils/handlers'
 
 const cartRouter = Router()
+cartRouter.use(accessTokenValidator, isCustomerValidator)
 
 /**
  * Description. Get current user's cart summary
@@ -27,47 +34,41 @@ const cartRouter = Router()
  * Method: GET
  * Header: { Authorization: Bearer <access_token> }
  */
-cartRouter.get('/', accessTokenValidator, wrapRequestHandler(getCartController))
-cartRouter.get('/food', accessTokenValidator, wrapRequestHandler(getFoodCartController))
-cartRouter.get('/combo', accessTokenValidator, wrapRequestHandler(getComboCartController))
+cartRouter.get('/', cartQueryValidator, wrapRequestHandler(getCartController))
+cartRouter.get('/food', wrapRequestHandler(getFoodCartController))
+cartRouter.get('/combo', wrapRequestHandler(getComboCartController))
+
+// Đổi chế độ chỉ khi giỏ rỗng; không tự xóa món của khách.
+cartRouter.patch('/mode', changeCartModeValidator, wrapRequestHandler(changeCartModeController))
+cartRouter.post('/items/bulk', addCartItemsValidator, wrapRequestHandler(addCartItemsController))
 
 /**
  * Description. Add a food item into current user's cart
  * Path: /items
  * Method: POST
  * Header: { Authorization: Bearer <access_token> }
- * Body: { itemId: string, quantity: number }
+ * Body: { itemId, quantity, cartType?, deliveryDate?, mealSlot?, version? }
  */
-cartRouter.post('/items', accessTokenValidator, addCartItemValidator, wrapRequestHandler(addCartItemController))
+cartRouter.post('/items', addCartItemValidator, wrapRequestHandler(addCartItemController))
 
 /**
- * Description. Update food item quantity in current user's cart
- * Path: /items/:itemId
+ * Description. Update quantity/date/meal of one cart line
+ * Path: /items/:lineId
  * Method: PATCH
  * Header: { Authorization: Bearer <access_token> }
- * Params: { itemId: string }
- * Body: { quantity: number }
+ * Params: { lineId: string } (_id của dòng giỏ)
+ * Body: { quantity?: number, deliveryDate?: string | null, mealSlot?: string | null, version?: number }
  */
-cartRouter.patch(
-  '/items/:itemId',
-  accessTokenValidator,
-  updateCartItemQuantityValidator,
-  wrapRequestHandler(updateCartItemQuantityController)
-)
+cartRouter.patch('/items/:lineId', updateCartItemValidator, wrapRequestHandler(updateCartItemController))
 
 /**
  * Description. Remove one food item from current user's cart
- * Path: /items/:itemId
+ * Path: /items/:lineId
  * Method: DELETE
  * Header: { Authorization: Bearer <access_token> }
- * Params: { itemId: string }
+ * Params: { lineId: string }
  */
-cartRouter.delete(
-  '/items/:itemId',
-  accessTokenValidator,
-  removeCartItemValidator,
-  wrapRequestHandler(removeCartItemController)
-)
+cartRouter.delete('/items/:lineId', removeCartItemValidator, wrapRequestHandler(removeCartItemController))
 
 /**
  * Description. Clear all food items in current user's cart
@@ -75,9 +76,9 @@ cartRouter.delete(
  * Method: DELETE
  * Header: { Authorization: Bearer <access_token> }
  */
-cartRouter.delete('/', accessTokenValidator, wrapRequestHandler(clearCartController))
-cartRouter.delete('/food', accessTokenValidator, wrapRequestHandler(clearFoodCartController))
-cartRouter.delete('/combo', accessTokenValidator, wrapRequestHandler(clearComboCartController))
+cartRouter.delete('/', clearCartValidator, wrapRequestHandler(clearCartController))
+cartRouter.delete('/food', clearCartValidator, wrapRequestHandler(clearFoodCartController))
+cartRouter.delete('/combo', clearCartValidator, wrapRequestHandler(clearComboCartController))
 
 /**
  * Description. Refresh cart summary by latest food information
@@ -85,6 +86,6 @@ cartRouter.delete('/combo', accessTokenValidator, wrapRequestHandler(clearComboC
  * Method: POST
  * Header: { Authorization: Bearer <access_token> }
  */
-cartRouter.post('/refresh', accessTokenValidator, wrapRequestHandler(refreshCartController))
+cartRouter.post('/refresh', wrapRequestHandler(refreshCartController))
 
 export default cartRouter

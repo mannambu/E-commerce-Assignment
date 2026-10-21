@@ -18,7 +18,7 @@ class MediasService {
     try {
       // 1. Đẩy file lên Cloudinary
       const result = await cloudinary.uploader.upload(filepath, {
-        folder: 'pt-ecommerce' // Đổi tên thư mục này theo ý bạn
+        folder: 'ecommerce'
       })
 
       // 2. Upload xong thì xóa file tạm ở dưới máy tính/server đi

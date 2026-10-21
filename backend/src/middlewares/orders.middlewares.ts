@@ -1,12 +1,13 @@
 import { checkSchema } from 'express-validator'
 import { USERS_MESSAGES } from '~/constants/messages'
 import { validate } from '~/utils/validation'
+import { parseDeliveryStart } from '~/utils/delivery'
 
 const PAYMENT_METHODS = ['COD', 'VNPay', 'MoMo']
 const PACKAGE_TYPES = ['ONE_DAY', 'WEEKLY_7D']
 const CART_TYPES = ['FOOD', 'COMBO']
 const PAYMENT_STATUSES = ['Pending', 'Paid', 'Failed']
-const ORDER_NEXT_STATUSES = ['Cooking', 'Delivering', 'Completed']
+const ORDER_NEXT_STATUSES = ['Cooking', 'Ready', 'Delivering', 'Completed']
 
 export const quoteOrderValidator = validate(
   checkSchema(
@@ -24,10 +25,15 @@ export const quoteOrderValidator = validate(
         notEmpty: {
           errorMessage: USERS_MESSAGES.DELIVERY_DATE_IS_REQUIRED
         },
-        isISO8601: {
-          errorMessage: USERS_MESSAGES.DELIVERY_DATE_IS_REQUIRED
+        isString: true,
+        custom: {
+          options: (value, { req }) => {
+            parseDeliveryStart(value, req.body.deliveryTime)
+            return true
+          }
         }
       },
+      deliveryTime: { optional: true, isString: true, matches: { options: /^([01]\d|2[0-3]):[0-5]\d$/ } },
       packageType: {
         optional: true,
         isIn: {
@@ -44,10 +50,12 @@ export const quoteOrderValidator = validate(
       },
       distanceKm: {
         optional: true,
+        custom: { options: (value) => !Array.isArray(value) && Number.isFinite(Number(value)) },
         isFloat: {
           options: { min: 0 },
           errorMessage: USERS_MESSAGES.DISTANCE_KM_MUST_BE_A_NON_NEGATIVE_NUMBER
-        }
+        },
+        toFloat: true
       },
       paymentMethod: {
         notEmpty: {
@@ -69,7 +77,48 @@ export const quoteOrderValidator = validate(
   )
 )
 
+export const checkoutIdentityValidator = validate(
+  checkSchema(
+    {
+      idempotencyKey: {
+        isString: true,
+        matches: { options: /^[A-Za-z0-9_-]{8,128}$/, errorMessage: 'idempotencyKey cần 8–128 ký tự chữ, số, _ hoặc -' }
+      },
+      cartVersion: {
+        isInt: {
+          options: { min: 0, max: Number.MAX_SAFE_INTEGER },
+          errorMessage: 'cartVersion phải là phiên bản giỏ đã xác nhận'
+        },
+        toInt: true
+      }
+    },
+    ['body']
+  )
+)
+
 export const createOrderValidator = quoteOrderValidator
+
+export const managerOrderDecisionValidator = validate(
+  checkSchema(
+    {
+      status: { isIn: { options: [['Confirmed', 'Rejected']] } },
+      version: { isInt: { options: { min: 0, max: Number.MAX_SAFE_INTEGER } }, toInt: true },
+      reason: {
+        custom: {
+          options: (value, { req }) =>
+            value === undefined
+              ? req.body.status !== 'Rejected'
+              : typeof value === 'string' &&
+                value.trim().length <= 500 &&
+                (req.body.status !== 'Rejected' || value.trim().length > 0),
+          errorMessage: 'Lý do phải là chuỗi tối đa 500 ký tự; không được bỏ trống khi từ chối'
+        },
+        customSanitizer: { options: (value) => (typeof value === 'string' ? value.trim() : value) }
+      }
+    },
+    ['body']
+  )
+)
 
 export const orderIdParamValidator = validate(
   checkSchema(

@@ -1,323 +1,408 @@
-import { ObjectId } from 'mongodb'
+import { ClientSession, ObjectId } from 'mongodb'
 import HTTP_STATUS from '~/constants/httpStatus'
 import { USERS_MESSAGES } from '~/constants/messages'
 import { ErrorWithStatus } from '~/models/Errors'
-import Cart, { CartTypeValue } from '~/models/schemas/Cart.schema'
+import Cart, { CartItem, CartTypeValue, MAX_CART_LINES } from '~/models/schemas/Cart.schema'
+import MealPlan from '~/models/schemas/MealPlan.schema'
+import { NutritionSnapshot, toLocalDate } from '~/models/schemas/common'
+import {
+  AddCartItemReqBody,
+  AddCartItemsReqBody,
+  ChangeCartModeReqBody,
+  UpdateCartItemReqBody
+} from '~/models/requests/CartOrder.request'
 import databaseService from '~/services/database.services'
 
-interface FoodProjection {
-  _id: ObjectId
-  name: string
-  images: string[]
-  calories: number
-  price: number
-  isActive: boolean
-  stock: number
-  isCombo: boolean
-}
-
-export interface CartSummaryItem {
-  itemId: ObjectId
-  quantity: number
+export interface CartSummaryItem extends CartItem {
   itemName: string
   image: string | null
   unitPrice: number
   unitCalories: number
+  nutrition: NutritionSnapshot
   lineTotal: number
   lineCalories: number
-  availability: {
-    isActive: boolean
-    inStock: boolean
-  }
+  availability: { isActive: boolean; inStock: boolean; availableQuantity: number }
 }
 
+type CartIssue = { code: string; message: string; lineId?: string }
+
 class CartService {
-  private async getOrCreateCart(userId: string, cartType: CartTypeValue) {
+  private async getOrCreateCart(userId: string) {
     const userObjectId = new ObjectId(userId)
-    const existing = await databaseService.carts.findOne({ userId: userObjectId, cartType })
-
-    if (existing) return existing
-
-    const newCart = new Cart({
-      userId: userObjectId,
-      cartType,
-      items: []
-    })
-
-    await databaseService.carts.insertOne(newCart)
-    return newCart
-  }
-
-  private async getFoodMap(foodIds: ObjectId[]) {
-    if (foodIds.length === 0) return new Map<string, FoodProjection>()
-    const foods = await databaseService.foods
-      .find({ _id: { $in: foodIds } })
-      .project({ _id: 1, name: 1, images: 1, calories: 1, price: 1, isActive: 1, stock: 1, isCombo: 1 })
-      .toArray()
-
-    return new Map(foods.map((food) => [String(food._id), food as FoodProjection]))
-  }
-
-  async buildCartSummaryByType(userId: string, cartType: CartTypeValue) {
-    const cart = await this.getOrCreateCart(userId, cartType)
-
-    const foodIds = cart.items.map((item) => item.itemId)
-    const foodMap = await this.getFoodMap(foodIds)
-
-    const normalizedItems: CartSummaryItem[] = []
-
-    for (const item of cart.items) {
-      const food = foodMap.get(String(item.itemId))
-      if (!food) continue
-
-      const unitPrice = Number(food.price || 0)
-      const unitCalories = Number(food.calories || 0)
-      normalizedItems.push({
-        itemId: item.itemId,
-        quantity: item.quantity,
-        itemName: food.name,
-        image: Array.isArray(food.images) ? food.images[0] || null : null,
-        unitPrice,
-        unitCalories,
-        lineTotal: unitPrice * item.quantity,
-        lineCalories: unitCalories * item.quantity,
-        availability: {
-          isActive: Boolean(food.isActive),
-          inStock: Number(food.stock || 0) >= item.quantity
-        }
-      })
+    const empty = new Cart({ _id: new ObjectId(), userId: userObjectId, cartType: 'FOOD', items: [] })
+    try {
+      await databaseService.carts.updateOne({ userId: userObjectId }, { $setOnInsert: empty }, { upsert: true })
+    } catch (error) {
+      if ((error as { code?: number }).code !== 11000) throw error
     }
+    const cart = await databaseService.carts.findOne({ userId: userObjectId })
+    if (!cart) throw new Error('Không thể tải giỏ hàng')
+    return new Cart(cart)
+  }
 
-    const summary = normalizedItems.reduce(
-      (acc, item) => {
-        acc.itemCount += Number(item?.quantity || 0)
-        acc.subtotal += Number(item?.lineTotal || 0)
-        acc.totalCalories += Number(item?.lineCalories || 0)
-        return acc
-      },
+  private checkVersion(cart: Cart, version?: number) {
+    if (version !== undefined && version !== cart.version) {
+      throw new ErrorWithStatus({ message: 'Giỏ đã thay đổi, vui lòng tải lại', status: HTTP_STATUS.CONFLICT })
+    }
+  }
+
+  private async saveCart(cart: Cart, previousVersion: number) {
+    const result = await databaseService.carts.updateOne(
+      { _id: cart._id, version: previousVersion },
       {
-        itemCount: 0,
-        subtotal: 0,
-        totalCalories: 0
+        $set: { items: cart.items, cartType: cart.cartType },
+        $inc: { version: 1 },
+        $currentDate: { updatedAt: true }
       }
     )
+    if (!result.matchedCount) {
+      throw new ErrorWithStatus({ message: 'Giỏ đã thay đổi, vui lòng tải lại', status: HTTP_STATUS.CONFLICT })
+    }
+    cart.version = previousVersion + 1
+  }
 
+  private checkMode(cart: Cart, cartType: CartTypeValue) {
+    if (!['FOOD', 'COMBO'].includes(cartType)) {
+      throw new ErrorWithStatus({ message: USERS_MESSAGES.CART_TYPE_IS_INVALID, status: HTTP_STATUS.BAD_REQUEST })
+    }
+    if (cart.items.length && cartType !== cart.cartType) {
+      throw new ErrorWithStatus({
+        message: 'Hãy xóa giỏ hiện tại trước khi đổi chế độ mua',
+        status: HTTP_STATUS.CONFLICT
+      })
+    }
+  }
+
+  private parseDeliveryDate(value: string) {
+    try {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('Sai định dạng')
+      return toLocalDate(value)
+    } catch {
+      throw new ErrorWithStatus({ message: 'Ngày giao phải hợp lệ theo YYYY-MM-DD', status: HTTP_STATUS.BAD_REQUEST })
+    }
+  }
+
+  private getScheduleIssues(cart: Cart, requireFullWeek: boolean): CartIssue[] {
+    const issues: CartIssue[] = []
+    const today = toLocalDate(new Date())
+    for (const item of cart.items) {
+      if (cart.cartType === 'COMBO' && !item.deliveryDate) {
+        issues.push({ code: 'MISSING_DATE', message: 'Món trong gói tuần phải có ngày giao', lineId: String(item._id) })
+      } else if (item.deliveryDate && item.deliveryDate < today) {
+        issues.push({ code: 'PAST_DATE', message: 'Ngày giao đã qua, hãy chọn lại ngày', lineId: String(item._id) })
+      }
+    }
+    const dates = [...new Set(cart.items.flatMap((item) => (item.deliveryDate ? [item.deliveryDate] : [])))].sort()
+    if (cart.cartType === 'FOOD' && dates.length > 1) {
+      issues.push({ code: 'MULTIPLE_DATES', message: 'Giỏ mua lẻ chỉ giao trong một ngày' })
+    }
+    if (cart.cartType === 'COMBO' && dates.length) {
+      const span = (Date.parse(dates[dates.length - 1]) - Date.parse(dates[0])) / 86400000
+      if (span > 6) issues.push({ code: 'WEEK_TOO_LONG', message: 'Các ngày giao phải nằm trong cùng một gói 7 ngày' })
+      if (requireFullWeek && dates.length !== 7) {
+        issues.push({
+          code: 'INCOMPLETE_WEEK',
+          message: 'Gói tuần cần có món cho đủ 7 ngày liên tiếp trước khi đặt hàng'
+        })
+      }
+    }
+    return issues
+  }
+
+  private async summarize(cart: Cart, cartType: CartTypeValue, session?: ClientSession) {
+    const items = cart.cartType === cartType ? cart.items : []
+    const foods = await databaseService.foods
+      .find({ _id: { $in: items.map((item) => item.itemId) } }, { session })
+      .toArray()
+    const foodMap = new Map(foods.map((food) => [String(food._id), food]))
+    const quantities = new Map<string, number>()
+    for (const item of items) {
+      quantities.set(String(item.itemId), (quantities.get(String(item.itemId)) || 0) + item.quantity)
+    }
+    const issues = this.getScheduleIssues(new Cart({ ...cart, cartType, items }), true)
+    if (!items.length) issues.push({ code: 'EMPTY_CART', message: USERS_MESSAGES.CART_IS_EMPTY })
+    const normalizedItems: CartSummaryItem[] = items.map((item) => {
+      const food = foodMap.get(String(item.itemId))
+      const price = food?.price || 0
+      const calories = food?.calories || 0
+      const availableQuantity = food ? Math.max(0, food.stock - (food.reservedStock ?? 0)) : 0
+      const isActive = Boolean(food?.isActive)
+      const inStock = availableQuantity >= quantities.get(String(item.itemId))!
+      if (!isActive || !inStock) {
+        issues.push({
+          code: !food
+            ? 'FOOD_REMOVED'
+            : !isActive
+              ? 'FOOD_INACTIVE'
+              : availableQuantity === 0
+                ? 'OUT_OF_STOCK'
+                : 'INSUFFICIENT_STOCK',
+          message: !isActive
+            ? 'Món không còn kinh doanh, hãy xóa khỏi giỏ'
+            : `Món chỉ còn ${availableQuantity} phần cho toàn bộ giỏ`,
+          lineId: String(item._id)
+        })
+      }
+      return {
+        ...item,
+        itemName: food?.name || 'Món không còn kinh doanh',
+        image: food?.images[0] || null,
+        unitPrice: price,
+        unitCalories: calories,
+        nutrition: food?.nutrition || { protein: 0, carb: 0, fat: 0 },
+        lineTotal: price * item.quantity,
+        lineCalories: calories * item.quantity,
+        availability: {
+          isActive,
+          inStock,
+          availableQuantity
+        }
+      }
+    })
     return {
       cartId: cart._id,
       userId: cart.userId,
-      cartType: cart.cartType,
+      cartType,
+      version: cart.version,
       items: normalizedItems,
-      summary
+      canCheckout: issues.length === 0,
+      issues,
+      summary: {
+        lineCount: normalizedItems.length,
+        itemCount: normalizedItems.reduce((sum, item) => sum + item.quantity, 0),
+        subtotal: normalizedItems.reduce((sum, item) => sum + item.lineTotal, 0),
+        totalCalories: normalizedItems.reduce((sum, item) => sum + item.lineCalories, 0),
+        deliveryDates: [...new Set(items.flatMap((item) => (item.deliveryDate ? [item.deliveryDate] : [])))].sort(),
+        // Chưa có địa chỉ thì chưa tính ship; /orders/quote trả phí cụ thể.
+        shippingFee: null,
+        shippingPolicy: cartType === 'COMBO' ? 'FIRST_DAY_ONLY' : 'PER_ORDER'
+      }
     }
+  }
+
+  async buildCartSummaryByType(userId: string, cartType: CartTypeValue, session?: ClientSession) {
+    if (session) {
+      // Checkout chỉ đọc giỏ có sẵn trong transaction; không tạo giỏ rỗng mới.
+      const cart = await databaseService.carts.findOne({ userId: new ObjectId(userId) }, { session })
+      if (!cart) throw new ErrorWithStatus({ message: USERS_MESSAGES.CART_IS_EMPTY, status: 400 })
+      return this.summarize(new Cart(cart), cartType, session)
+    }
+    return this.summarize(await this.getOrCreateCart(userId), cartType)
   }
 
   async buildCartSummary(userId: string) {
-    const [foodCart, comboCart] = await Promise.all([
-      this.buildCartSummaryByType(userId, 'FOOD'),
-      this.buildCartSummaryByType(userId, 'COMBO')
-    ])
-
-    return {
-      foodCart,
-      comboCart
-    }
+    const cart = await this.getOrCreateCart(userId)
+    // Hai phần response cho UI cũ; DB chỉ có một giỏ, phần còn lại luôn rỗng.
+    const [foodCart, comboCart] = await Promise.all([this.summarize(cart, 'FOOD'), this.summarize(cart, 'COMBO')])
+    return { currentCart: cart.cartType === 'FOOD' ? foodCart : comboCart, foodCart, comboCart }
   }
 
-  private async ensurePurchasableFood(itemId: ObjectId) {
+  private async checkStock(itemId: ObjectId, quantity: number) {
     const food = await databaseService.foods.findOne({ _id: itemId })
-    if (!food || !food.isActive || food.stock <= 0) {
+    if (!food?.isActive || !Number.isSafeInteger(quantity) || quantity > food.stock - (food.reservedStock ?? 0)) {
       throw new ErrorWithStatus({
-        message: USERS_MESSAGES.CART_ITEM_NOT_AVAILABLE,
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    return {
-      price: Number(food.price),
-      stock: Number(food.stock),
-      cartType: food.isCombo ? ('COMBO' as const) : ('FOOD' as const)
-    }
-  }
-
-  private validateQuantityRules(quantity: number, foodStock?: number) {
-    if (quantity <= 0) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.CART_QUANTITY_MUST_BE_POSITIVE,
-        status: HTTP_STATUS.BAD_REQUEST
-      })
-    }
-
-    if (typeof foodStock === 'number' && quantity > foodStock) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.CART_FOOD_QUANTITY_EXCEEDS_STOCK,
+        message: `${food?.name || 'Món ăn'}: ${USERS_MESSAGES.CART_ITEM_NOT_AVAILABLE}`,
         status: HTTP_STATUS.BAD_REQUEST
       })
     }
   }
 
-  private async findCartContainingItem(userId: string, itemObjectId: ObjectId) {
-    const [foodCart, comboCart] = await Promise.all([
-      this.getOrCreateCart(userId, 'FOOD'),
-      this.getOrCreateCart(userId, 'COMBO')
-    ])
-
-    if (foodCart.items.some((item) => String(item.itemId) === String(itemObjectId))) {
-      return foodCart
-    }
-
-    if (comboCart.items.some((item) => String(item.itemId) === String(itemObjectId))) {
-      return comboCart
-    }
-
-    return null
+  async addItem(userId: string, payload: AddCartItemReqBody) {
+    return this.addItems(userId, { cartType: payload.cartType, version: payload.version, items: [payload] })
   }
 
-  async addItem(userId: string, payload: { itemId: string; quantity: number }) {
-    const itemObjectId = new ObjectId(payload.itemId)
-    const quantity = Number(payload.quantity)
-
-    if (!Number.isFinite(quantity) || quantity <= 0) {
+  private async checkMealPlan(userId: ObjectId, item: CartItem, session?: ClientSession) {
+    if (!item.mealPlanId && !item.mealPlanItemId) return
+    if (!item.mealPlanId || !item.mealPlanItemId) {
       throw new ErrorWithStatus({
-        message: USERS_MESSAGES.CART_QUANTITY_MUST_BE_POSITIVE,
+        message: 'Phải gửi cả mã thực đơn và mã món trong thực đơn',
         status: HTTP_STATUS.BAD_REQUEST
       })
     }
-
-    const purchasable = await this.ensurePurchasableFood(itemObjectId)
-    const cart = await this.getOrCreateCart(userId, purchasable.cartType)
-
-    const existing = cart.items.find((item) => String(item.itemId) === String(itemObjectId))
-
-    const nextQuantity = existing ? existing.quantity + quantity : quantity
-    this.validateQuantityRules(nextQuantity, purchasable.stock)
-
-    if (existing) {
-      existing.quantity = nextQuantity
-      existing.priceAtOrder = purchasable.price
-    } else {
-      cart.items.push({
-        itemId: itemObjectId,
-        quantity: nextQuantity,
-        priceAtOrder: purchasable.price
+    const plan = await databaseService.mealPlans.findOne({ _id: item.mealPlanId, userId }, { session })
+    const day = plan?.days.find((day) => day.date === item.deliveryDate)
+    const meal = day?.meals.find((meal) => meal._id.equals(item.mealPlanItemId!))
+    if (
+      !plan ||
+      (plan.status && plan.status !== 'Draft') ||
+      !meal ||
+      !meal.foodId.equals(item.itemId) ||
+      meal.slot !== item.mealSlot
+    ) {
+      throw new ErrorWithStatus({
+        message: 'Món không khớp thực đơn đang chọn của bạn hoặc thực đơn đã được đặt',
+        status: HTTP_STATUS.BAD_REQUEST
       })
     }
-
-    await databaseService.carts.updateOne(
-      { _id: cart._id },
-      {
-        $set: {
-          items: cart.items
-        },
-        $currentDate: { updatedAt: true }
-      }
-    )
-
-    return this.buildCartSummaryByType(userId, cart.cartType)
+    return plan
   }
 
-  async updateItemQuantity(userId: string, payload: { itemId: string; quantity: number }) {
-    const itemObjectId = new ObjectId(payload.itemId)
-    const cart = await this.findCartContainingItem(userId, itemObjectId)
-
-    if (!cart) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.CART_ITEM_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
-      })
+  async finishCheckout(
+    userId: string,
+    cartId: ObjectId,
+    version: number,
+    items: CartItem[],
+    orderId: ObjectId,
+    session: ClientSession
+  ) {
+    // Kiểm tra lại nguồn thực đơn vì người dùng có thể đổi món ở tab khác.
+    const plans = new Map<string, MealPlan>()
+    for (const item of items) {
+      const plan = await this.checkMealPlan(new ObjectId(userId), item, session)
+      if (plan) plans.set(String(plan._id), plan)
     }
-
-    const target = cart.items.find((item) => String(item.itemId) === String(itemObjectId))
-
-    if (!target) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.CART_ITEM_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
-      })
+    for (const plan of plans.values()) {
+      const result = await databaseService.mealPlans.updateOne(
+        // Đã đọc và kiểm tra Draft trong session; MongoDB sẽ retry nếu có ghi đồng thời vào plan.
+        { _id: plan._id, userId: new ObjectId(userId) },
+        { $set: { status: 'Ordered', orderId, updatedAt: new Date(), version: (plan.version ?? 0) + 1 } },
+        { session }
+      )
+      if (!result.matchedCount)
+        throw new ErrorWithStatus({ message: 'Thực đơn đã thay đổi, vui lòng tải lại', status: 409 })
     }
-
-    if (payload.quantity <= 0) {
-      cart.items = cart.items.filter((item) => String(item.itemId) !== String(itemObjectId))
-    } else {
-      const purchasable = await this.ensurePurchasableFood(itemObjectId)
-      this.validateQuantityRules(payload.quantity, purchasable.stock)
-      target.quantity = payload.quantity
-      target.priceAtOrder = purchasable.price
-    }
-
-    await databaseService.carts.updateOne(
-      { _id: cart._id },
-      {
-        $set: {
-          items: cart.items
-        },
-        $currentDate: { updatedAt: true }
-      }
+    const result = await databaseService.carts.updateOne(
+      { _id: cartId, userId: new ObjectId(userId), version },
+      { $set: { items: [], updatedAt: new Date() }, $inc: { version: 1 } },
+      { session }
     )
-
-    return this.buildCartSummaryByType(userId, cart.cartType)
+    if (!result.matchedCount) throw new ErrorWithStatus({ message: 'Giỏ đã thay đổi, vui lòng tải lại', status: 409 })
   }
 
-  async removeItem(userId: string, itemId: string) {
-    const itemObjectId = new ObjectId(itemId)
-    const cart = await this.findCartContainingItem(userId, itemObjectId)
-
-    if (!cart) {
+  async addItems(userId: string, payload: AddCartItemsReqBody) {
+    if (!payload.items.length || payload.items.length > MAX_CART_LINES) {
       throw new ErrorWithStatus({
-        message: USERS_MESSAGES.CART_ITEM_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
+        message: `Mỗi lần thêm từ 1 đến ${MAX_CART_LINES} dòng`,
+        status: HTTP_STATUS.BAD_REQUEST
       })
     }
-
-    const before = cart.items.length
-
-    cart.items = cart.items.filter((item) => String(item.itemId) !== itemId)
-
-    if (before === cart.items.length) {
-      throw new ErrorWithStatus({
-        message: USERS_MESSAGES.CART_ITEM_NOT_FOUND,
-        status: HTTP_STATUS.NOT_FOUND
-      })
-    }
-
-    await databaseService.carts.updateOne(
-      { _id: cart._id },
-      {
-        $set: {
-          items: cart.items
-        },
-        $currentDate: { updatedAt: true }
+    const cart = await this.getOrCreateCart(userId)
+    this.checkVersion(cart, payload.version)
+    const previousVersion = cart.version
+    const cartType = payload.cartType ?? cart.cartType
+    this.checkMode(cart, cartType)
+    cart.cartType = cartType
+    const foodIds = new Map<string, ObjectId>()
+    for (const input of payload.items) {
+      const quantity = Number(input.quantity)
+      if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+        throw new ErrorWithStatus({
+          message: USERS_MESSAGES.CART_QUANTITY_MUST_BE_POSITIVE,
+          status: HTTP_STATUS.BAD_REQUEST
+        })
       }
-    )
-
-    return this.buildCartSummaryByType(userId, cart.cartType)
+      const item: CartItem = {
+        itemId: new ObjectId(input.itemId),
+        quantity,
+        deliveryDate: input.deliveryDate === undefined ? undefined : this.parseDeliveryDate(input.deliveryDate),
+        mealSlot: input.mealSlot,
+        mealPlanId: input.mealPlanId ? new ObjectId(input.mealPlanId) : undefined,
+        mealPlanItemId: input.mealPlanItemId ? new ObjectId(input.mealPlanItemId) : undefined
+      }
+      await this.checkMealPlan(cart.userId, item)
+      cart.addItem(item)
+      foodIds.set(String(item.itemId), item.itemId)
+    }
+    if (cart.items.length > MAX_CART_LINES) {
+      throw new ErrorWithStatus({ message: `Giỏ hàng tối đa ${MAX_CART_LINES} dòng`, status: HTTP_STATUS.BAD_REQUEST })
+    }
+    const issues = this.getScheduleIssues(cart, false)
+    if (issues.length) throw new ErrorWithStatus({ message: issues[0].message, status: HTTP_STATUS.BAD_REQUEST })
+    for (const itemId of foodIds.values()) {
+      const total = cart.items
+        .filter((item) => item.itemId.equals(itemId))
+        .reduce((sum, item) => sum + item.quantity, 0)
+      await this.checkStock(itemId, total)
+    }
+    // Ghi một lần sau khi tất cả dòng hợp lệ, tránh thêm gói tuần dở dang.
+    await this.saveCart(cart, previousVersion)
+    return this.summarize(cart, cartType)
   }
 
-  async clearCartByType(userId: string, cartType: CartTypeValue) {
-    const cart = await this.getOrCreateCart(userId, cartType)
+  private findLine(cart: Cart, id: string) {
+    const line = cart.items.find((item) => String(item._id) === id)
+    if (line) return line
+    // Tương thích itemId cũ nếu chỉ có một dòng. Gói tuần phải gửi _id của dòng.
+    const matches = cart.items.filter((item) => String(item.itemId) === id)
+    if (matches.length === 1) return matches[0]
+    throw new ErrorWithStatus({
+      message: matches.length ? 'Món có nhiều ngày/bữa, hãy dùng mã dòng giỏ hàng' : USERS_MESSAGES.CART_ITEM_NOT_FOUND,
+      status: matches.length ? HTTP_STATUS.BAD_REQUEST : HTTP_STATUS.NOT_FOUND
+    })
+  }
 
-    await databaseService.carts.updateOne(
-      { _id: cart._id },
-      {
-        $set: {
-          items: []
-        },
-        $currentDate: { updatedAt: true }
+  async updateItem(userId: string, lineId: string, payload: UpdateCartItemReqBody) {
+    const cart = await this.getOrCreateCart(userId)
+    this.checkVersion(cart, payload.version)
+    const line = this.findLine(cart, lineId)
+    const quantity = payload.quantity === undefined ? line.quantity : Number(payload.quantity)
+    if (!Number.isSafeInteger(quantity) || quantity < 0) {
+      throw new ErrorWithStatus({
+        message: USERS_MESSAGES.CART_QUANTITY_MUST_BE_ZERO_OR_POSITIVE,
+        status: HTTP_STATUS.BAD_REQUEST
+      })
+    }
+    const previousVersion = cart.version
+    cart.items = cart.items.filter((item) => item !== line)
+    if (quantity > 0) {
+      const updated: CartItem = {
+        ...line,
+        quantity,
+        deliveryDate:
+          payload.deliveryDate === undefined
+            ? line.deliveryDate
+            : payload.deliveryDate === null
+              ? undefined
+              : this.parseDeliveryDate(payload.deliveryDate),
+        mealSlot: payload.mealSlot === undefined ? line.mealSlot : (payload.mealSlot ?? undefined)
       }
-    )
+      await this.checkMealPlan(cart.userId, updated)
+      // Đổi ngày/bữa trùng dòng khác thì gộp số lượng, giữ mã dòng đích.
+      cart.addItem(updated)
+      const issues = this.getScheduleIssues(cart, false)
+      if (issues.length) throw new ErrorWithStatus({ message: issues[0].message, status: HTTP_STATUS.BAD_REQUEST })
+      const total = cart.items
+        .filter((item) => item.itemId.equals(line.itemId))
+        .reduce((sum, item) => sum + item.quantity, 0)
+      await this.checkStock(line.itemId, total)
+    }
+    await this.saveCart(cart, previousVersion)
+    return this.summarize(cart, cart.cartType)
+  }
 
+  async removeItem(userId: string, lineId: string, version?: number) {
+    return this.updateItem(userId, lineId, { quantity: 0, version })
+  }
+
+  async changeMode(userId: string, payload: ChangeCartModeReqBody) {
+    const cart = await this.getOrCreateCart(userId)
+    this.checkVersion(cart, payload.version)
+    this.checkMode(cart, payload.cartType)
+    if (cart.cartType !== payload.cartType) {
+      cart.cartType = payload.cartType
+      await this.saveCart(cart, cart.version)
+    }
+    return this.summarize(cart, cart.cartType)
+  }
+
+  async clearCartByType(userId: string, cartType: CartTypeValue, version?: number) {
+    const cart = await this.getOrCreateCart(userId)
+    this.checkVersion(cart, version)
+    if (cart.cartType === cartType && cart.items.length) {
+      cart.items = []
+      await this.saveCart(cart, cart.version)
+    }
     return this.buildCartSummaryByType(userId, cartType)
   }
 
-  async clearCart(userId: string) {
-    const [foodCart, comboCart] = await Promise.all([
-      this.clearCartByType(userId, 'FOOD'),
-      this.clearCartByType(userId, 'COMBO')
-    ])
-
-    return {
-      foodCart,
-      comboCart
+  async clearCart(userId: string, version?: number) {
+    const cart = await this.getOrCreateCart(userId)
+    this.checkVersion(cart, version)
+    if (cart.items.length) {
+      cart.items = []
+      await this.saveCart(cart, cart.version)
     }
+    return this.buildCartSummary(userId)
   }
 
   async refreshCart(userId: string) {
@@ -325,5 +410,4 @@ class CartService {
   }
 }
 
-const cartService = new CartService()
-export default cartService
+export default new CartService()

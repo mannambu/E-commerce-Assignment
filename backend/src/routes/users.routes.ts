@@ -1,24 +1,27 @@
 import { Router } from 'express'
 import {
   accessTokenValidator,
+  createUserValidator,
+  getUsersValidator,
   checkEmailExistQueryValidator,
   checkUsernameExistQueryValidator,
   forgotPasswordValidator,
   healthProfileIntakeValidator,
   loginValidator,
   mealRecommendationValidator,
-  recommendPTQueryValidator,
   refreshTokenValidator,
   registerValidator,
   resetPasswordValidator,
-  ptServiceIdParamValidator,
   swapMealRecommendationValidator,
   updateMeValidator,
-  updatePTProfileValidator,
   isAdminValidator,
-  updateUserStatusValidator
+  isCustomerValidator,
+  updateUserStatusValidator,
+  updateUserRoleValidator
 } from '~/middlewares/users.middlewares'
 import {
+  logoutAllController,
+  createUserController,
   checkEmailExistController,
   checkUsernameExistController,
   forgotPasswordController,
@@ -28,18 +31,14 @@ import {
   loginController,
   logoutController,
   recommendMealsController,
-  recommendPTController,
   refreshTokenController,
   registerController,
-  registerPTServiceController,
-  getMyRegisteredPTServicesController,
   resetPasswordController,
   swapMealRecommendationController,
   updateMeController,
-  updatePTProfileController,
   updateUserStatusController,
-  getAllUsersController,
-  approvePTController
+  updateUserRoleController,
+  getAllUsersController
 } from '~/controllers/users.controllers'
 import { wrapRequestHandler } from '~/utils/handlers'
 
@@ -49,7 +48,7 @@ const usersRouter = Router()
  * Description. Register a new user
  * Path: /register
  * Method: POST
- * Body: {email: string, username: string, password: string, confirm_password: string, phone: string, role?: 'Customer' | 'PT', healthProfile?: HealthProfile, ptProfile?: PTProfile
+ * Body: {email: string, username: string, password: string, confirm_password: string, phone: string, role?: 'Customer', healthProfile?: HealthProfile
  * }
  */
 usersRouter.post('/register', registerValidator, wrapRequestHandler(registerController))
@@ -69,7 +68,15 @@ usersRouter.post('/login', loginValidator, wrapRequestHandler(loginController))
  * Header: { Authorization: Bearer <access_token> }
  * Body: { refresh_token: string }
  */
-usersRouter.post('/logout', accessTokenValidator, refreshTokenValidator, wrapRequestHandler(logoutController))
+usersRouter.post('/logout', refreshTokenValidator, wrapRequestHandler(logoutController))
+usersRouter.post('/logout-all', accessTokenValidator, wrapRequestHandler(logoutAllController))
+usersRouter.post(
+  '/',
+  accessTokenValidator,
+  isAdminValidator,
+  createUserValidator,
+  wrapRequestHandler(createUserController)
+)
 
 /**
  * Description. Check if email is already used
@@ -107,7 +114,7 @@ usersRouter.post('/forgot-password', forgotPasswordValidator, wrapRequestHandler
  * Description. Reset password
  * Path: /reset-password
  * Method: POST
- * Body: { user_id: string, forgot_password_token: string, password: string, confirm_password: string }
+ * Body: { email: string, reset_code: string, password: string, confirm_password: string }
  */
 usersRouter.post('/reset-password', resetPasswordValidator, wrapRequestHandler(resetPasswordController))
 
@@ -129,43 +136,7 @@ usersRouter.get('/me', accessTokenValidator, wrapRequestHandler(getMeController)
 usersRouter.patch('/me', accessTokenValidator, updateMeValidator, wrapRequestHandler(updateMeController))
 
 /**
- * Description. Update PT profile for current PT account
- * Path: /me/pt-profile
- * Method: PATCH
- * Header: { Authorization: Bearer <access_token> }
- * Body: { experienceYears?: number, specialties?: string[], portfolioImages?: string[] }
- */
-usersRouter.patch(
-  '/me/pt-profile',
-  accessTokenValidator,
-  updatePTProfileValidator,
-  wrapRequestHandler(updatePTProfileController)
-)
-
-/**
- * Description. Register a PT service package for current customer
- * Path: /me/pt-services/:service_id/register
- * Method: POST
- * Header: { Authorization: Bearer <access_token> }
- * Params: { service_id: string }
- */
-usersRouter.post(
-  '/me/pt-services/:service_id/register',
-  accessTokenValidator,
-  ptServiceIdParamValidator,
-  wrapRequestHandler(registerPTServiceController)
-)
-
-/**
- * Description. Get all PT service packages registered by current customer
- * Path: /me/pt-services
- * Method: GET
- * Header: { Authorization: Bearer <access_token> }
- */
-usersRouter.get('/me/pt-services', accessTokenValidator, wrapRequestHandler(getMyRegisteredPTServicesController))
-
-/**
- * Description. Get ALL users (Admin only)
+ * Description. Search and paginate all five roles (Admin only)
  * Path: /
  * Method: GET
  * Header: { Authorization: Bearer <access_token> }
@@ -174,15 +145,16 @@ usersRouter.get(
   '/',
   accessTokenValidator,
   isAdminValidator, // Chỉ Admin mới được xem
+  getUsersValidator,
   wrapRequestHandler(getAllUsersController)
 )
 
 /**
- * Description. Update user account status (Ban / Unban)
+ * Description. Lock / unlock an account; protect the last active Admin
  * Path: /:user_id/status
  * Method: PATCH
  * Header: { Authorization: Bearer <access_token> }
- * Body: { status: 'Active' | 'Banned' }
+ * Body: { status: 'Active' | 'Locked', reason: string }
  */
 usersRouter.patch(
   '/:user_id/status',
@@ -190,6 +162,15 @@ usersRouter.patch(
   isAdminValidator, // Chỉ Admin mới được khóa tài khoản
   updateUserStatusValidator,
   wrapRequestHandler(updateUserStatusController)
+)
+
+// Admin changes roles with a reason; all old sessions are revoked.
+usersRouter.patch(
+  '/:user_id/role',
+  accessTokenValidator,
+  isAdminValidator,
+  updateUserRoleValidator,
+  wrapRequestHandler(updateUserRoleController)
 )
 
 /**
@@ -202,6 +183,7 @@ usersRouter.patch(
 usersRouter.post(
   '/health-profile',
   accessTokenValidator,
+  isCustomerValidator,
   healthProfileIntakeValidator,
   wrapRequestHandler(healthProfileIntakeController)
 )
@@ -212,7 +194,12 @@ usersRouter.post(
  * Method: GET
  * Header: { Authorization: Bearer <access_token> }
  */
-usersRouter.get('/health-metrics', accessTokenValidator, wrapRequestHandler(healthMetricsController))
+usersRouter.get(
+  '/health-metrics',
+  accessTokenValidator,
+  isCustomerValidator,
+  wrapRequestHandler(healthMetricsController)
+)
 
 /**
  * Description. Recommend meal plan by target calories and restrictions
@@ -224,6 +211,7 @@ usersRouter.get('/health-metrics', accessTokenValidator, wrapRequestHandler(heal
 usersRouter.post(
   '/recommendations/meals',
   accessTokenValidator,
+  isCustomerValidator,
   mealRecommendationValidator,
   wrapRequestHandler(recommendMealsController)
 )
@@ -238,35 +226,9 @@ usersRouter.post(
 usersRouter.post(
   '/recommendations/meals/swap',
   accessTokenValidator,
+  isCustomerValidator,
   swapMealRecommendationValidator,
   wrapRequestHandler(swapMealRecommendationController)
-)
-
-/**
- * Description. Recommend personal trainers by user goal
- * Path: /recommendations/pts
- * Method: GET
- * Header: { Authorization: Bearer <access_token> }
- * Query: { limit?: 1..10 }
- */
-usersRouter.get(
-  '/recommendations/pts',
-  accessTokenValidator,
-  recommendPTQueryValidator,
-  wrapRequestHandler(recommendPTController)
-)
-
-/**
- * Description. Approve a PT account (Admin only)
- * Path: /:user_id/approve-pt
- * Method: PATCH
- * Header: { Authorization: Bearer <access_token> }
- */
-usersRouter.patch(
-  '/:user_id/approve-pt',
-  accessTokenValidator,
-  isAdminValidator, // Chỉ Admin mới có quyền duyệt
-  wrapRequestHandler(approvePTController)
 )
 
 export default usersRouter

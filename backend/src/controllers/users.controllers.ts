@@ -3,20 +3,20 @@ import HTTP_STATUS from '~/constants/httpStatus'
 import { ParamsDictionary } from 'express-serve-static-core'
 import {
   ForgotPasswordReqBody,
+  GetUsersQuery,
   HealthProfileIntakeReqBody,
   LoginReqBody,
   MealRecommendationReqBody,
   LogoutReqBody,
-  RecommendPTReqQuery,
   RefreshTokenReqBody,
   RegisterReqBody,
   ResetPasswordReqBody,
   SwapMealRecommendationReqBody,
   UpdateMeReqBody,
-  UpdatePTProfileReqBody,
+  UpdateUserRoleReqBody,
+  UpdateUserStatusReqBody,
   TokenPayload
 } from '~/models/requests/User.request'
-import { AccountStatus } from '~/models/schemas/User.schema'
 import usersService from '~/services/user.services'
 import { USERS_MESSAGES } from '~/constants/messages'
 
@@ -54,15 +54,7 @@ export const refreshTokenController = async (
   req: Request<ParamsDictionary, Record<string, never>, RefreshTokenReqBody>,
   res: Response
 ) => {
-  const decoded_refresh_token = (req as unknown as { decoded_refresh_token: TokenPayload }).decoded_refresh_token
-  const { refresh_token } = req.body
-
-  const result = await usersService.refreshToken({
-    user_id: decoded_refresh_token.user_id,
-    status: (decoded_refresh_token.status as AccountStatus) || AccountStatus.ACTIVE,
-    refresh_token,
-    exp: decoded_refresh_token.exp
-  })
+  const result = await usersService.refreshToken({ refresh_token: req.body.refresh_token })
 
   return res.status(HTTP_STATUS.OK).json(result)
 }
@@ -80,12 +72,12 @@ export const resetPasswordController = async (
   req: Request<ParamsDictionary, Record<string, never>, ResetPasswordReqBody>,
   res: Response
 ) => {
-  const { user_id, password, forgot_password_token } = req.body
+  const { email, password, reset_code } = req.body
 
   const result = await usersService.resetPassword({
-    user_id,
+    email,
     password,
-    forgot_password_token
+    reset_code
   })
 
   return res.status(HTTP_STATUS.OK).json(result)
@@ -139,8 +131,11 @@ export const getMeController = async (req: Request, res: Response) => {
   })
 }
 
-export const getAllUsersController = async (req: Request, res: Response) => {
-  const result = await usersService.getAllUsers()
+export const getAllUsersController = async (
+  req: Request<ParamsDictionary, unknown, unknown, GetUsersQuery>,
+  res: Response
+) => {
+  const result = await usersService.getAllUsers(req.query)
   return res.status(HTTP_STATUS.OK).json({
     message: 'Lấy danh sách người dùng thành công',
     result
@@ -159,41 +154,23 @@ export const updateMeController = async (
   })
 }
 
-export const updatePTProfileController = async (
-  req: Request<ParamsDictionary, Record<string, never>, UpdatePTProfileReqBody>,
+export const updateUserStatusController = async (
+  req: Request<{ user_id: string }, unknown, UpdateUserStatusReqBody>,
   res: Response
 ) => {
-  const decoded_authorization = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-  const result = await usersService.updatePTProfile(decoded_authorization.user_id, req.body)
-  return res.status(HTTP_STATUS.OK).json({
-    message: USERS_MESSAGES.PT_PROFILE_UPDATED_SUCCESS,
-    result
-  })
-}
+  const { user_id } = req.params
+  const { status, reason } = req.body
 
-export const updateUserStatusController = async (req: Request, res: Response) => {
-  const { user_id } = req.params as { user_id: string }
-  const { status } = req.body
-
-  const result = await usersService.updateUserStatus(user_id, status)
+  const result = await usersService.updateUserStatus(user_id, status, req.decoded_authorization!.user_id, reason)
   return res.status(HTTP_STATUS.OK).json(result)
 }
 
-export const registerPTServiceController = async (req: Request<{ service_id: string }>, res: Response) => {
-  const decoded_authorization = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-  const result = await usersService.registerPTService(decoded_authorization.user_id, req.params.service_id)
-
+export const updateUserRoleController = async (
+  req: Request<{ user_id: string }, unknown, UpdateUserRoleReqBody>,
+  res: Response
+) => {
+  const result = await usersService.updateUserRole(req.params.user_id, req.body, req.decoded_authorization!.user_id)
   return res.status(HTTP_STATUS.OK).json(result)
-}
-
-export const getMyRegisteredPTServicesController = async (req: Request, res: Response) => {
-  const decoded_authorization = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-  const result = await usersService.getMyRegisteredPTServices(decoded_authorization.user_id)
-
-  return res.status(HTTP_STATUS.OK).json({
-    message: USERS_MESSAGES.REGISTERED_PT_SERVICES_RETRIEVED_SUCCESS,
-    result
-  })
 }
 
 export const recommendMealsController = async (
@@ -226,23 +203,12 @@ export const swapMealRecommendationController = async (
   })
 }
 
-export const recommendPTController = async (
-  req: Request<ParamsDictionary, Record<string, never>, Record<string, never>, RecommendPTReqQuery>,
-  res: Response
-) => {
-  const decoded_authorization = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-  const limit = Number(req.query.limit || 3)
-  const result = await usersService.recommendPTs(decoded_authorization.user_id, limit)
-
-  return res.status(HTTP_STATUS.OK).json({
-    message: USERS_MESSAGES.PT_RECOMMENDATION_GENERATED_SUCCESS,
-    result
-  })
+export const logoutAllController = async (req: Request, res: Response) => {
+  const result = await usersService.logoutAll(req.decoded_authorization!.user_id)
+  return res.json(result)
 }
 
-export const approvePTController = async (req: Request, res: Response) => {
-  const { user_id } = req.params as { user_id: string }
-  const result = await usersService.approvePTAccount(user_id)
-  
-  return res.status(HTTP_STATUS.OK).json(result)
+export const createUserController = async (req: Request, res: Response) => {
+  const result = await usersService.createUser(req.decoded_authorization!.user_id, req.body)
+  return res.status(201).json({ message: 'Account created', result })
 }

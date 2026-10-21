@@ -11,6 +11,12 @@ import {
 } from '~/models/requests/CartOrder.request'
 import { TokenPayload } from '~/models/requests/User.request'
 import ordersService from '~/services/orders.services'
+import orderDecisions from '~/services/order-decisions.services'
+
+export const managerOrderDecisionController = async (req: Request<{ orderId: string }>, res: Response) => {
+  const result = await orderDecisions.decide(req.decoded_authorization!.user_id, req.params.orderId, req.body)
+  return res.json({ message: result.replayed ? 'Yêu cầu đã được xử lý' : 'Đã ghi nhận quyết định của Manager', result })
+}
 
 export const quoteOrderController = async (
   req: Request<ParamsDictionary, Record<string, never>, QuoteOrderReqBody>,
@@ -32,7 +38,7 @@ export const createOrderController = async (
   const decoded = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
   const result = await ordersService.createOrder(decoded.user_id, req.body)
 
-  return res.status(HTTP_STATUS.CREATED).json({
+  return res.status(result.replayed ? HTTP_STATUS.OK : HTTP_STATUS.CREATED).json({
     message: USERS_MESSAGES.ORDER_CREATED_SUCCESS,
     result
   })
@@ -40,7 +46,7 @@ export const createOrderController = async (
 
 export const getAllOrdersController = async (req: Request, res: Response) => {
   const decoded_authorization = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-  
+
   const result = await ordersService.getAllOrders(decoded_authorization.user_id)
 
   return res.status(HTTP_STATUS.OK).json({
@@ -71,7 +77,13 @@ export const getMyOrderDetailController = async (req: Request<{ orderId: string 
 
 export const cancelOrderController = async (req: Request<{ orderId: string }>, res: Response) => {
   const decoded = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-  const result = await ordersService.cancelOrder(decoded.user_id, req.params.orderId)
+  const result = await ordersService.cancelOrder(
+    decoded.user_id,
+    req.params.orderId,
+    req.body?.exceptionReason,
+    req.body?.version,
+    req.body?.reason
+  )
 
   return res.status(HTTP_STATUS.OK).json(result)
 }

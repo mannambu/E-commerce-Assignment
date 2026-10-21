@@ -11,7 +11,10 @@ type ReviewParams = {
 
 export const createReviewController = async (req: Request, res: Response) => {
   const decoded_authorization = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
-  const result = await reviewService.createReview(decoded_authorization.user_id, req.body)
+  const result = await reviewService.createReview(decoded_authorization.user_id, {
+    ...req.body,
+    foodId: req.body.foodId || req.body.targetId
+  })
 
   return res.status(HTTP_STATUS.CREATED).json({
     message: USERS_MESSAGES.CREATE_REVIEW_SUCCESS,
@@ -20,8 +23,13 @@ export const createReviewController = async (req: Request, res: Response) => {
 }
 
 export const getReviewsController = async (req: Request<ReviewParams>, res: Response) => {
-  const { targetType, targetId } = req.params
-  const result = await reviewService.getReviews(targetType as 'Food' | 'PT', targetId)
+  const { targetId } = req.params
+  const result = await reviewService.getReviews(targetId, {
+    ...(req.query.rating !== undefined ? { rating: Number(req.query.rating) } : {}),
+    ...(req.query.hasImages !== undefined ? { hasImages: req.query.hasImages === 'true' } : {}),
+    ...(req.query.page !== undefined ? { page: Number(req.query.page) } : {}),
+    ...(req.query.limit !== undefined ? { limit: Number(req.query.limit) } : {})
+  })
 
   return res.status(HTTP_STATUS.OK).json({
     message: USERS_MESSAGES.GET_REVIEWS_SUCCESS,
@@ -38,11 +46,11 @@ export const updateReviewController = async (req: Request, res: Response) => {
   return res.status(HTTP_STATUS.OK).json(result)
 }
 
-export const deleteReviewController = async (req: Request, res: Response) => {
+export const hideReviewController = async (req: Request, res: Response) => {
   const decoded_authorization = (req as unknown as { decoded_authorization: TokenPayload }).decoded_authorization
   const { review_id } = req.params as { review_id: string }
 
-  const result = await reviewService.deleteReview(decoded_authorization.user_id, review_id)
+  const result = await reviewService.hideReview(decoded_authorization.user_id, review_id, req.body.reason)
 
   return res.status(HTTP_STATUS.OK).json(result)
 }

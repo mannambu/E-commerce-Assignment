@@ -2,62 +2,21 @@ import { Request, Response } from 'express'
 import { ParamsDictionary } from 'express-serve-static-core'
 import HTTP_STATUS from '~/constants/httpStatus'
 import foodService from '~/services/foods.services'
-import { FoodType } from '~/models/schemas/Food.schema'
-import { verifyToken } from '~/utils/jwt'
-import { TokenPayload } from '~/models/requests/User.request'
-import databaseService from '~/services/database.services'
-import { ObjectId } from 'mongodb'
+import { CreateFoodReqBody, UpdateFoodReqBody } from '~/models/requests/Food.request'
 import { UserRole } from '~/models/schemas/User.schema'
 
 type FoodParams = {
   food_id: string
 }
 
-type FoodListQuery = {
-  page?: string
-  limit?: string
-  search?: string
-  tags?: string
-  minPrice?: string
-  maxPrice?: string
-  minCalories?: string
-  maxCalories?: string
-  isCombo?: string
-  sortBy?: string
-  order?: 'asc' | 'desc'
-}
-
 export const getFoodsController = async (req: Request, res: Response) => {
-  let isAdmin = false
+  // Middleware đã xác thực cả JWT, tài khoản và phiên đăng nhập.
+  const isAdmin = req.decoded_authorization?.role === UserRole.ADMIN
+  const customerId =
+    req.decoded_authorization?.role === UserRole.CUSTOMER ? req.decoded_authorization.user_id : undefined
+  const result = await foodService.getFoods(req.query, isAdmin, customerId)
 
-  // 1. Kiểm tra xem Request có đính kèm Token không (Vì API này public)
-  const authorization = req.headers.authorization
-  if (authorization) {
-    const access_token = authorization.split(' ')[1]
-    try {
-      // Giải mã token (Dùng try-catch để lỡ token hết hạn/sai thì không bị crash, mà chỉ rớt xuống quyền Khách)
-      const decoded_authorization = (await verifyToken({
-        token: access_token,
-        secretOrPublicKey: process.env.JWT_SECRET_ACCESS_TOKEN as string
-      })) as TokenPayload
-
-      // Kiểm tra Role trong DB xem có đúng là Admin không
-      const user = await databaseService.users.findOne({
-        _id: new ObjectId(decoded_authorization.user_id)
-      })
-
-      if (user && user.role === UserRole.ADMIN) {
-        isAdmin = true
-      }
-    } catch {
-      // Token không hợp lệ thì phớt lờ, coi như là Khách vãng lai
-      isAdmin = false
-    }
-  }
-
-  // 2. Truyền query param từ URL và cờ isAdmin xuống Service
-  const result = await foodService.getFoods(req.query, isAdmin)
-
+  res.set('Cache-Control', 'private, no-store')
   return res.status(HTTP_STATUS.OK).json({
     message: 'Lấy danh sách món ăn thành công',
     result
@@ -65,15 +24,21 @@ export const getFoodsController = async (req: Request, res: Response) => {
 }
 
 export const getFoodDetailController = async (req: Request<FoodParams>, res: Response) => {
-  const result = await foodService.getFoodById(req.params.food_id)
+  const customerId =
+    req.decoded_authorization?.role === UserRole.CUSTOMER ? req.decoded_authorization.user_id : undefined
+  const result = await foodService.getFoodById(req.params.food_id, customerId)
 
+  res.set('Cache-Control', 'private, no-store')
   return res.status(HTTP_STATUS.OK).json({
     message: 'Lấy chi tiết món ăn thành công',
     result
   })
 }
 
-export const createFoodController = async (req: Request<ParamsDictionary, any, FoodType>, res: Response) => {
+export const createFoodController = async (
+  req: Request<ParamsDictionary, unknown, CreateFoodReqBody>,
+  res: Response
+) => {
   const result = await foodService.createFood(req.body)
 
   return res.status(HTTP_STATUS.CREATED).json({
@@ -82,7 +47,7 @@ export const createFoodController = async (req: Request<ParamsDictionary, any, F
   })
 }
 
-export const updateFoodController = async (req: Request<FoodParams, any, FoodType>, res: Response) => {
+export const updateFoodController = async (req: Request<FoodParams, unknown, UpdateFoodReqBody>, res: Response) => {
   const { food_id } = req.params as FoodParams
   // req.body đã được filter sạch sẽ qua updateFoodValidator
   const result = await foodService.updateFood(food_id, req.body)
