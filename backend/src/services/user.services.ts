@@ -37,6 +37,7 @@ import { pendingNotificationEmail } from '~/utils/notification-email'
 import { signToken, verifyToken } from '~/utils/jwt'
 import trackingService from './tracking.services'
 import { calculateHealthMetrics } from '~/utils/health'
+import { toLocalDate } from '~/models/schemas/common'
 import { SignOptions } from 'jsonwebtoken'
 
 config()
@@ -92,20 +93,40 @@ class UsersService {
     return !restrictions.some((rule) => source.includes(rule))
   }
 
-  private buildMealPlanForDay(foods: Food[], targetCalories: number) {
-    const used = new Set<string>()
+  private buildMealPlanForDay(foods: Food[], targetCalories: number, recentUsedIds?: Set<string>) {
+    const dayUsed = new Set<string>()
 
     const meals = (Object.keys(MEAL_CALORIE_RATIOS) as MealSlot[]).map((slot) => {
       const slotTargetCalories = Math.round(targetCalories * MEAL_CALORIE_RATIOS[slot])
 
-      const candidates = foods.filter((food) => !used.has(String(food._id)))
+      // 1. Lọc món chưa dùng trong ngày
+      let candidates = foods.filter((food) => !dayUsed.has(String(food._id)))
+
+      // 2. Nếu có recentUsedIds (qua các ngày trong tuần), ưu tiên món chưa dùng gần đây để tăng đa dạng
+      if (recentUsedIds && candidates.some((f) => !recentUsedIds.has(String(f._id)))) {
+        const freshCandidates = candidates.filter((f) => !recentUsedIds.has(String(f._id)))
+        if (freshCandidates.length > 0) {
+          candidates = freshCandidates
+        }
+      }
+
       const pool = candidates.length > 0 ? candidates : foods
-      const selected = [...pool].sort(
+
+      // Sắp xếp các món theo độ lệch calo so với mục tiêu bữa ăn
+      const sorted = [...pool].sort(
         (a, b) => Math.abs(a.calories - slotTargetCalories) - Math.abs(b.calories - slotTargetCalories)
-      )[0]
+      )
+
+      // Chọn ngẫu nhiên trong nhóm ứng viên phù hợp nhất (top 3) để đa dạng hóa khi làm mới
+      const topPoolSize = Math.min(3, sorted.length)
+      const topPool = sorted.slice(0, topPoolSize)
+      const selected = topPool[Math.floor(Math.random() * topPool.length)] || sorted[0]
 
       if (selected?._id) {
-        used.add(String(selected._id))
+        dayUsed.add(String(selected._id))
+        if (recentUsedIds) {
+          recentUsedIds.add(String(selected._id))
+        }
       }
 
       return {
@@ -930,14 +951,30 @@ class UsersService {
     const targetCalories =
       user.healthProfile.targetCalories || calculateHealthMetrics(user.healthProfile).targetCalories
 
+    const now = new Date()
+    const todayVN = toLocalDate(now)
+    const [y, m, d] = todayVN.split('-').map(Number)
+
+    // Xác định ngày bắt đầu:
+    // Đơn lẻ 1 ngày (FOOD): bắt đầu từ hôm nay theo giờ Việt Nam
+    // Gói tuần 7 ngày (COMBO): bếp chốt lúc 20:00 ngày hôm trước, nên nếu trước 20:00 VN thì bắt đầu từ ngày mai, nếu sau 20:00 VN thì ngày kia
+    const vnHour = (now.getUTCHours() + 7) % 24
+    const startOffset = days === 1 ? 0 : vnHour < 20 ? 1 : 2
+
+    const weeklyUsed = new Set<string>()
+
     const plans = Array.from({ length: days }).map((_, index) => {
-      const date = new Date()
-      date.setDate(date.getDate() + index)
+      const curDate = new Date(Date.UTC(y, m - 1, d + startOffset + index, 12, 0, 0))
+      const dateStr = toLocalDate(curDate)
+
+      if (weeklyUsed.size >= Math.max(1, allowedFoods.length - 2)) {
+        weeklyUsed.clear()
+      }
 
       return {
         day: index + 1,
-        date: date.toISOString().split('T')[0],
-        ...this.buildMealPlanForDay(allowedFoods, targetCalories)
+        date: dateStr,
+        ...this.buildMealPlanForDay(allowedFoods, targetCalories, weeklyUsed)
       }
     })
 
@@ -994,9 +1031,11 @@ class UsersService {
       })
       .toArray()
 
-    const nextFood = candidates
-      .filter((food) => this.isFoodAllowed(food, restrictions))
-      .sort((a, b) => Math.abs(a.calories - expectedCalories) - Math.abs(b.calories - expectedCalories))[0]
+    const allowedCandidates = candidates.filter((food) => this.isFoodAllowed(food, restrictions))
+    const sortedCandidates = [...allowedCandidates].sort(
+      (a, b) => Math.abs(a.calories - expectedCalories) - Math.abs(b.calories - expectedCalories)
+    )
+    const nextFood = sortedCandidates[0]
 
     if (!nextFood) {
       throw new ErrorWithStatus({
@@ -1019,6 +1058,14 @@ class UsersService {
         nutrition: nextFood.nutrition,
         images: nextFood.images
       },
+      candidates: sortedCandidates.slice(0, 10).map((f) => ({
+        _id: f._id,
+        name: f.name,
+        calories: f.calories,
+        price: f.price,
+        nutrition: f.nutrition,
+        images: f.images
+      })),
       targetCalories: expectedCalories,
       calorieDelta: nextFood.calories - expectedCalories
     }

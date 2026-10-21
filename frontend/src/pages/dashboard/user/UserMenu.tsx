@@ -108,7 +108,7 @@ export default function UserMenu() {
       setErrorStatus('none');
       setErrorMessage('');
 
-      const res = await api.post('/users/recommendations/meals', { days });
+      const res = await api.post(`/users/recommendations/meals?t=${Date.now()}`, { days });
       const result: RecommendationResponse = res.data?.result;
 
       if (!result || !result.plans || result.plans.length === 0) {
@@ -242,20 +242,27 @@ export default function UserMenu() {
     try {
       if (mode === 'today') {
         const todayMeals = currentPlan?.meals || [];
+        const itemsToAdd: Array<{ itemId: string; quantity: number; deliveryDate?: string; mealSlot?: string }> = [];
+
         for (const meal of todayMeals) {
           if (meal.food?._id) {
-            await addItem(
-              { id: meal.food._id, name: meal.food.name, price: meal.food.price, calories: meal.food.calories },
-              1,
-              {
-                deliveryDate: currentPlan?.date,
-                mealSlot: meal.slot,
-                cartType: 'FOOD',
-              }
-            );
+            itemsToAdd.push({
+              itemId: meal.food._id,
+              quantity: 1,
+              deliveryDate: currentPlan?.date,
+              mealSlot: meal.slot,
+            });
           }
         }
-        setCartSuccessMessage('Đã thêm 4 bữa của hôm nay vào giỏ hàng!');
+
+        if (itemsToAdd.length === 0) return;
+
+        const res = await addBulkItems(itemsToAdd, 'FOOD');
+        if (res.success) {
+          setCartSuccessMessage('Đã thêm 4 bữa của hôm nay vào giỏ hàng!');
+        } else {
+          alert(res.message || 'Không thể thêm thực đơn vào giỏ hàng');
+        }
       } else {
         // Gói tuần 7 ngày × 4 bữa = 28 món
         const bulkItems: Array<{ itemId: string; quantity: number; deliveryDate?: string; mealSlot?: string }> = [];
@@ -272,6 +279,8 @@ export default function UserMenu() {
             }
           });
         });
+
+        if (bulkItems.length === 0) return;
 
         const res = await addBulkItems(bulkItems, 'COMBO');
         if (res.success) {

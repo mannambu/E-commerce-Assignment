@@ -18,13 +18,14 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import Navbar from '@/components/layout/Navbar';
 import { cn } from '@/lib/utils';
+import { getVietnamLocalDate, getVietnamLocalDateWithOffset } from '@/lib/date';
 import { useCart } from '@/context/CartContext';
 import { useAuth, UserAddress } from '@/context/AuthContext';
 import api from '@/services/api';
 
 export default function Checkout() {
   const navigate = useNavigate();
-  const { subtotal, cartType, fetchCart } = useCart();
+  const { subtotal, cartType, items, fetchCart } = useCart();
   const { user } = useAuth();
 
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'vnpay' | 'momo'>('cod');
@@ -46,11 +47,7 @@ export default function Checkout() {
   const [address, setAddress] = useState('');
   const [selectedAddressId, setSelectedAddressId] = useState<string>('custom');
 
-  const [deliveryDate, setDeliveryDate] = useState(() => {
-    const date = new Date();
-    date.setDate(date.getDate() + 1);
-    return date.toISOString().slice(0, 10);
-  });
+  const [deliveryDate, setDeliveryDate] = useState(() => getVietnamLocalDateWithOffset(1));
   const [note, setNote] = useState('');
 
   const [fieldErrors, setFieldErrors] = useState<{
@@ -60,7 +57,7 @@ export default function Checkout() {
     deliveryDate?: string;
   }>({});
 
-  const minDeliveryDate = new Date().toISOString().slice(0, 10);
+  const minDeliveryDate = getVietnamLocalDate();
 
   const paymentMap: Record<string, 'COD' | 'VNPay' | 'MoMo'> = {
     cod: 'COD',
@@ -98,6 +95,17 @@ export default function Checkout() {
       }
     }
   };
+
+  // Đồng bộ ngày giao nếu giỏ hàng đã có lịch giao cụ thể (ví dụ gói tuần COMBO hoặc gợi ý thực đơn)
+  useEffect(() => {
+    const datesInCart = items
+      .map((i) => i.deliveryDate)
+      .filter((d): d is string => Boolean(d))
+      .sort();
+    if (datesInCart.length > 0 && datesInCart[0] !== deliveryDate) {
+      setDeliveryDate(datesInCart[0]);
+    }
+  }, [items]);
 
   // Quote pricing
   useEffect(() => {

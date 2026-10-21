@@ -30,7 +30,7 @@ Dự án **FitBite (Healthy Meal Platform)** đã được rà soát, tái cấu
 ### 2.1. Tài khoản Test Customer Gmail Thực
 - **Email:** `phuc.nguyen28102005p@hcmut.edu.vn` (nhận dạng case-insensitive: `Phuc.nguyen28102005p@hcmut.edu.vn`)
 - **Tên đăng nhập (Username):** `Huy Phúc` (hỗ trợ tiếng Việt có dấu và khoảng trắng)
-- **Mật khẩu (Password):** `123456Phuc!`
+- **Mật khẩu (Password):** `123456Phuc!` đổi thành `Phuc123456!`
 - **Vai trò (Role):** `Customer`
 - **Trạng thái:** `Active`
 - **Hồ sơ sức khỏe (HealthProfile):** Đã khởi tạo đầy đủ (Nam, 21 tuổi, 172cm, 68kg, Moderate, LoseFat, Target 2,050 kcal).
@@ -184,3 +184,38 @@ npm run dev             # Khởi chạy Vite dev server tại http://localhost:5
 - **Bếp (Kitchen Staff):** `kitchen@fitbite.local` / Mật khẩu: `Kitchen123!`
 - **Giao hàng (Delivery Staff):** `shipper@fitbite.local` / Mật khẩu: `Shipper123!`
 - **Quản trị viên (Admin):** `admin@fitbite.local` / Mật khẩu: `Admin123!`
+
+---
+
+## 7. CẬP NHẬT SỬA LỖI UI/UX & MÚI GIỜ HỆ THỐNG (22/10/2026)
+
+### 7.1. Chuẩn hóa thanh điều hướng Navbar (`frontend/src/components/layout/Navbar.tsx`)
+- **Vấn đề:** Giao diện có 2 nút "Dashboard" đồng thời (một ở thanh menu chính giữa và một ở góc phải cạnh Giỏ hàng/Đăng xuất).
+- **Khắc phục:**
+  - Thay thế mục "Dashboard" thừa trong `navLinks` bằng liên kết **"Gợi ý thực đơn"** (`/dashboard/menu`) kèm biểu tượng `Sparkles`, kết nối trực tiếp khách hàng tới màn hình gợi ý cá nhân hóa `WF-08`.
+  - Giữ nút Dashboard ở góc phải cho điều hướng vai trò tương ứng (`Customer` về `/dashboard/user`, nhân viên về workspace).
+
+### 7.2. Khắc phục lỗi thêm gợi ý thực đơn vào giỏ hàng & Gói tuần 7 ngày (`UserMenu.tsx`, `user.services.ts`, `Checkout.tsx`)
+- **Nguyên nhân:** 
+  - Hàm `date.toISOString().split('T')[0]` tại Backend và Frontend lấy theo giờ UTC (sau 00:00 giờ VN vẫn là ngày hôm trước UTC), dẫn tới `deliveryDate` bị gán ngày hôm qua.
+  - Bộ kiểm tra giỏ hàng (`cart.services.ts`) so sánh `deliveryDate < today` (theo giờ VN) trả về lỗi `HTTP 400 Bad Request: Ngày giao đã qua, hãy chọn lại ngày`.
+  - Gói 7 ngày COMBO bắt đầu từ ngày hôm qua nên ngày nào kiểm thử cũng báo "đã qua ngày giao".
+- **Khắc phục:**
+  - Chuẩn hóa hàm tính ngày `toLocalDate(new Date())` và `getVietnamLocalDate()` theo múi giờ `Asia/Ho_Chi_Minh`.
+  - Gói tuần 7 ngày tự động tính ngày giao sớm nhất hợp lệ dựa trên giờ chốt bếp (20:00 VN): nếu trước 20:00 bắt đầu từ ngày mai, nếu sau 20:00 bắt đầu từ ngày kia.
+  - Chuyển thao tác thêm món cả ngày `today` trong `UserMenu.tsx` sang gọi `addBulkItems(itemsToAdd, 'FOOD')` nguyên tử, đồng thời kiểm tra cẩn thận `res.success` để thông báo lỗi chính xác khi thêm thất bại thay vì báo thành công giả lập.
+  - Tự động đồng bộ ngày nhận hàng trên trang thanh toán `Checkout.tsx` khớp với ngày giao của các món có sẵn trong giỏ hàng.
+
+### 7.3. Khắc phục lỗi Cập nhật Calories không cập nhật vào "Calories hôm nay" (`UserDiary.tsx`)
+- **Nguyên nhân:** Ô nhập ngày ghi nhận calories mặc định dùng `new Date().toISOString().split('T')[0]` dẫn tới ngày UTC (21/10/2026), trong khi giờ Việt Nam đã là 22/10/2026. Dữ liệu ghi nhận vào ngày hôm qua nên API `GET /tracking/calories/today` (so với ngày hôm nay) vẫn trả về 0 kcal.
+- **Khắc phục:**
+  - Chuyển toàn bộ giá trị mặc định của `calorieDate` và `weightDate` sang `getVietnamLocalDate()`.
+  - Khi lưu calories thành công, tự động gọi lại `fetchTrackingData()` để cập nhật tức thì thẻ "CALORIES HÔM NAY" và thanh tiến độ dinh dưỡng.
+
+### 7.4. Đa dạng hóa gợi ý thực đơn khi "Làm mới thực đơn" (`backend/src/services/user.services.ts`)
+- **Nguyên nhân:** Thuật toán cũ sắp xếp ứng viên calo theo một thứ tự tĩnh tuyệt đối (`sort(...)`), dẫn đến việc mọi lần bấm "Làm mới" và mọi ngày trong tuần đều hiển thị đúng 4 món y hệt nhau.
+- **Khắc phục:**
+  - Lấy nhóm top ứng viên có lượng calo phù hợp nhất cho từng bữa (`top 3`), sau đó chọn ngẫu nhiên có trọng số nhằm tạo sự phong phú khi người dùng ấn "Làm mới thực đơn".
+  - Bổ sung bộ theo dõi `weeklyUsed` xuyên suốt các ngày trong gói 7 ngày để hạn chế lặp món, giúp thực đơn từ Thứ Hai đến Chủ Nhật phong phú và đa dạng.
+  - API đổi món `/users/recommendations/meals/swap` trả về danh sách `candidates` (tối đa 10 món thay thế phù hợp) giúp khách hàng dễ dàng lựa chọn trong modal đổi món.
+

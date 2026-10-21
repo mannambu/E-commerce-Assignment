@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ShoppingCart, Menu, X, Utensils, LayoutDashboard } from 'lucide-react';
+import { ShoppingCart, Menu, X, Utensils, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
@@ -15,7 +15,7 @@ export default function Navbar() {
 
   const navLinks = [
     { name: 'Thực đơn', path: '/food-catalog', icon: <Utensils size={18} /> },
-    { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard size={18} /> },
+    { name: 'Gợi ý thực đơn', path: '/dashboard/menu', icon: <Sparkles size={18} /> },
   ];
 
   const dashboardPath =

@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { cn } from '@/lib/utils';
+import { getVietnamLocalDate } from '@/lib/date';
 
 type CalorieEntry = {
   sourceType: 'Order' | 'Manual' | 'Legacy';
@@ -48,14 +49,14 @@ export default function UserDiary() {
   const [targetCalories, setTargetCalories] = useState(2000);
   const [todayCalories, setTodayCalories] = useState(0);
   const [calorieHistory, setCalorieHistory] = useState<DailyHistory[]>([]);
-  const [calorieDate, setCalorieDate] = useState(new Date().toISOString().split('T')[0]);
+  const [calorieDate, setCalorieDate] = useState(() => getVietnamLocalDate());
   const [manualCalories, setManualCalories] = useState('');
   const [calorieNote, setCalorieNote] = useState('');
   const [isSubmittingCalories, setIsSubmittingCalories] = useState(false);
 
   // Weight State
   const [weightHistory, setWeightHistory] = useState<WeightRecord[]>([]);
-  const [weightDate, setWeightDate] = useState(new Date().toISOString().split('T')[0]);
+  const [weightDate, setWeightDate] = useState(() => getVietnamLocalDate());
   const [inputWeight, setInputWeight] = useState('');
   const [isSubmittingWeight, setIsSubmittingWeight] = useState(false);
 
@@ -174,7 +175,8 @@ export default function UserDiary() {
 
       setManualCalories('');
       setCalorieNote('');
-      setSuccessNotice(`Đã ghi nhận thêm ${calories} kcal vào ngày ${new Date(calorieDate).toLocaleDateString('vi-VN')}!`);
+      const [y, m, d] = calorieDate.split('-');
+      setSuccessNotice(`Đã ghi nhận thêm ${calories} kcal vào ngày ${d}/${m}/${y}!`);
       setTimeout(() => setSuccessNotice(null), 3500);
 
       await fetchTrackingData();
