@@ -38,44 +38,49 @@ api.interceptors.request.use(
   },
 );
 
+let refreshInFlight: Promise<string> | null = null;
+const endSession = () => {
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+  localStorage.removeItem('userRole');
+  window.location.assign('/login');
+};
+
+// Share token rotation when several admin panels load concurrently.
+export const waitForSessionRefresh = async () => {
+  if (refreshInFlight) await refreshInFlight;
+};
+
 // Response Interceptor: Xử lý tự động Refresh Token khi lỗi 401
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
 
-    // Nếu lỗi 401 (Unauthorized) và chưa từng retry
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    const authEndpoint = /\/users\/(login|register|logout|logout-all|forgot-password|reset-password|refresh-token)(?:\?|$)/.test(originalRequest?.url || '');
+    if (error.response?.status === 401 && originalRequest && !authEndpoint) {
+      if (originalRequest._retry || !localStorage.getItem('refresh_token')) {
+        endSession();
+        return Promise.reject(error);
+      }
       originalRequest._retry = true;
       try {
-        const refreshToken = localStorage.getItem("refresh_token");
-        if (!refreshToken) throw new Error("No refresh token available");
-
-        // Gọi API refresh token
-        const res = await axios.post(
-          `${api.defaults.baseURL}/users/refresh-token`,
-          {
-            refresh_token: refreshToken,
-          },
-        );
-
-        // API Spec: endpoint auth trả về trực tiếp object (không có result)
-        const { access_token, refresh_token: new_refresh_token } = res.data;
-
-        localStorage.setItem("access_token", access_token);
-        if (new_refresh_token) {
-          localStorage.setItem("refresh_token", new_refresh_token);
+        if (!refreshInFlight) {
+          refreshInFlight = axios.post(`${api.defaults.baseURL}/users/refresh-token`, {
+            refresh_token: localStorage.getItem('refresh_token')
+          }).then(res => {
+            const { access_token, refresh_token } = res.data;
+            localStorage.setItem('access_token', access_token);
+            if (refresh_token) localStorage.setItem('refresh_token', refresh_token);
+            return access_token as string;
+          }).finally(() => { refreshInFlight = null; });
         }
-
-        // Đổi token trong header và gọi lại request ban đầu
+        const access_token = await refreshInFlight;
         originalRequest.headers.Authorization = `Bearer ${access_token}`;
         return api(originalRequest);
       } catch (refreshError) {
-        // Nếu refresh token cũng hết hạn hoặc lỗi -> Xóa token, đẩy về login
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("refresh_token");
-        localStorage.removeItem("userRole");
-        window.location.href = "/login";
+        // A network/server error is retryable; a revoked session is not.
+        if (axios.isAxiosError(refreshError) && refreshError.response?.status === 401) endSession();
         return Promise.reject(refreshError);
       }
     }

@@ -22,6 +22,8 @@ const AdminMenu = lazy(() => import('./pages/dashboard/admin/AdminMenu'));
 const AdminFoodDiary = lazy(() => import('./pages/dashboard/admin/FoodDiary'));
 const AdminAnalytics = lazy(() => import('./pages/dashboard/admin/AdminAnalytics'));
 const AdminOrders = lazy(() => import('./pages/dashboard/admin/AdminOrders'));
+const AdminUsers = lazy(() => import('./pages/dashboard/admin/AdminUsers'));
+const AdminSettings = lazy(() => import('./pages/dashboard/admin/AdminSettings'));
 const AdminFinanceRevenue = lazy(() => import('./pages/dashboard/admin/finance/Revenue'));
 const AdminFinanceExpenses = lazy(() => import('./pages/dashboard/admin/finance/Expenses'));
 const AdminFinanceTransactions = lazy(() => import('./pages/dashboard/admin/finance/Transactions'));
@@ -42,7 +44,7 @@ const DashboardRedirect = () => {
   const { user } = useAuth();
 
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role === 'Admin') return <Navigate to="/dashboard/admin" replace />;
+  if (user.role === 'Admin') return <Navigate to="/dashboard/admin/users" replace />;
   return <Navigate to="/dashboard/user" replace />;
 };
 
@@ -174,6 +176,8 @@ function AppRoutes() {
           />
 
           {/* Admin Routes */}
+          <Route path="/dashboard/admin/users" element={<ProtectedRoute allowedRoles={['Admin']}><AdminUsers /></ProtectedRoute>} />
+          <Route path="/dashboard/admin/settings" element={<ProtectedRoute allowedRoles={['Admin']}><AdminSettings /></ProtectedRoute>} />
           <Route
             path="/dashboard/admin"
             element={

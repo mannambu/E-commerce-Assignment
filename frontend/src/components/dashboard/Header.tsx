@@ -6,7 +6,7 @@ import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import api from '@/services/api';
+import api, { waitForSessionRefresh } from '@/services/api';
 
 interface HeaderProps {
   title: string;
@@ -176,6 +176,7 @@ export default function Header({ title, userName, userRole, avatar, hideSearch =
 
   const handleLogout = async () => {
     try {
+      await waitForSessionRefresh();
       const refreshToken = localStorage.getItem('refresh_token');
       if (refreshToken) {
         await api.post('/users/logout', { refresh_token: refreshToken });
@@ -251,7 +252,7 @@ export default function Header({ title, userName, userRole, avatar, hideSearch =
       const followUpTasks: Promise<unknown>[] = [];
       let hasFollowUpFailure = false;
 
-      if (canUpdateHealthProfile) {
+      if (isCustomer && canUpdateHealthProfile) {
         const allergies = formAllergies
           .split(',')
           .map((item) => item.trim())
@@ -345,7 +346,7 @@ export default function Header({ title, userName, userRole, avatar, hideSearch =
                 </div>
                 <div className="max-h-80 overflow-y-auto">
                   {notifications.length === 0 ? (
-                    <p className="p-4 text-xs font-medium text-gray-500 text-center">Chưa có thông báo nào.</p>
+                    <p className="p-4 text-xs font-medium text-gray-500 text-center">{isCustomer ? 'Chưa có thông báo nào.' : 'Thông báo quản trị được gửi qua email tài khoản.'}</p>
                   ) : (
                     notifications.map((n, idx) => (
                       <div key={n._id || idx} className="p-3 hover:bg-gray-50 rounded-xl transition-colors">
@@ -439,7 +440,7 @@ export default function Header({ title, userName, userRole, avatar, hideSearch =
             <Row label="Ngày tạo" value={profile?.created_at ? new Date(profile.created_at).toLocaleString('vi-VN') : 'N/A'} />
             <Row label="Cập nhật gần nhất" value={profile?.updated_at ? new Date(profile.updated_at).toLocaleString('vi-VN') : 'N/A'} />
 
-            <div className="pt-2">
+            {isCustomer && <div className="pt-2">
               <p className="text-xs font-black text-gray-500 uppercase tracking-wider mb-2">Hồ sơ sức khỏe</p>
               <Row label="Giới tính" value={profile?.healthProfile?.gender || 'Chưa cập nhật'} />
               <Row label="Tuổi" value={profile?.healthProfile?.age ? String(profile.healthProfile.age) : 'Chưa cập nhật'} />
@@ -460,10 +461,7 @@ export default function Header({ title, userName, userRole, avatar, hideSearch =
                   ? `P:${profile.healthProfile.macroDistribution.protein || 0} C:${profile.healthProfile.macroDistribution.carb || 0} F:${profile.healthProfile.macroDistribution.fat || 0}`
                   : 'N/A'}
               />
-            </div>
-
-
-
+            </div>}
           </div>
           <div className="pt-4 flex justify-end">
             <Button onClick={() => setShowProfileModal(false)} className="rounded-xl">Đóng</Button>
@@ -503,6 +501,7 @@ export default function Header({ title, userName, userRole, avatar, hideSearch =
             <Input label="Số điện thoại" value={formPhone} onChange={(e) => setFormPhone(e.target.value)} />
             <Input label="Ngày sinh" type="date" value={formDateOfBirth} onChange={(e) => setFormDateOfBirth(e.target.value)} />
 
+            {isCustomer && <>
             <div className="pt-1 border-t border-gray-100" />
             <p className="text-xs font-black text-gray-500 uppercase tracking-wider">
               Hồ sơ sức khỏe {hasHealthProfile ? '(đang có dữ liệu)' : '(chưa thiết lập)'}
@@ -564,6 +563,7 @@ export default function Header({ title, userName, userRole, avatar, hideSearch =
             </div>
 
 
+            </>}
             {settingsError ? <p className="text-sm font-medium text-red-500">{settingsError}</p> : null}
           </div>
           <div className="pt-5 flex justify-end gap-2">

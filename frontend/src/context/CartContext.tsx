@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import api from '@/services/api';
+import { useAuth } from './AuthContext';
 
 interface CartItem {
   id: string | number;
@@ -49,17 +50,22 @@ const getValidStoredToken = () => {
 };
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
+  const { user, loading: authLoading } = useAuth();
   const [items, setItems] = useState<CartItem[]>([]);
   const [subtotal, setSubtotal] = useState(0);
-  const initializedRef = useRef(false);
+  const accountRef = useRef(user?._id);
+  accountRef.current = user?._id;
 
   // Lấy giỏ hàng từ Backend
   const fetchCart = async () => {
+    if (authLoading || user?.role !== 'Customer') return;
+    const accountId = user._id;
     const token = getValidStoredToken();
     if (!token) return; // Nếu chưa đăng nhập thì không gọi API giỏ hàng
 
     try {
       const res = await api.get('/cart');
+      if (accountRef.current !== accountId) return;
       const foodCart = res.data.result.foodCart;
       
       if (foodCart && foodCart.items) {
@@ -86,10 +92,11 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    if (initializedRef.current) return;
-    initializedRef.current = true;
-    fetchCart();
-  }, []);
+    if (authLoading) return;
+    setItems([]);
+    setSubtotal(0);
+    if (user?.role === 'Customer') fetchCart();
+  }, [user?._id, user?.role, authLoading]);
 
   const addItem = async (newItem: Omit<CartItem, 'qty'>, quantity: number = 1) => {
     try {

@@ -60,7 +60,7 @@ export default function Login() {
 
       // Điều hướng theo Role
       if (role === 'Admin') {
-        navigate('/dashboard/admin');
+        navigate('/dashboard/admin/users');
       } else {
         navigate('/dashboard/user');
       }

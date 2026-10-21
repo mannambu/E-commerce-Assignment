@@ -1,243 +1,288 @@
-import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ChefHat, Loader2, Search, Truck, XCircle } from 'lucide-react';
-import Sidebar from '@/components/dashboard/Sidebar';
-import Header from '@/components/dashboard/Header';
+import { useState, type FormEvent } from 'react';
+import AdminPage, { AdminModal, Notice, actionClass, fieldClass, panelClass, secondaryClass, useAdminResource } from '@/components/dashboard/AdminPage';
+import { type AdminOrder, type Delivery, type OrderStatus, orderStatuses, statusLabels, paymentLabels, nextDeliveryStatus, dateTime, localDate, money, apiError } from '@/lib/admin';
 import api from '@/services/api';
 
-type OrderStatus = 'Pending' | 'Confirmed' | 'Cooking' | 'Delivering' | 'Completed' | 'Cancelled';
+type ExceptionAction = { kind: 'status' | 'cancel'; delivery?: Delivery; next?: OrderStatus; };
+type CancellationPreview = { version: number; foodCredit: number; shippingCredit: number; creditedAmount: number; refundAmount: number; remainingPayable: number; cutoffAt: string; };
 
-type AdminOrder = {
-  _id: string;
-  userId?: string;
-  status: OrderStatus;
-  packageType?: 'ONE_DAY' | 'WEEKLY_7D';
-  subtotal?: number;
-  shippingFee?: number;
-  grandTotal?: number;
-  createdAt?: string;
-  payment?: {
-    method?: 'COD' | 'VNPay' | 'MoMo';
-    status?: 'Pending' | 'Paid' | 'Failed';
-  };
-};
-
-const statusOrder: OrderStatus[] = ['Pending', 'Confirmed', 'Cooking', 'Delivering', 'Completed', 'Cancelled'];
-
-const statusLabel: Record<OrderStatus, string> = {
-  Pending: 'Chờ xử lý',
-  Confirmed: 'Đã xác nhận',
-  Cooking: 'Đang chế biến',
-  Delivering: 'Đang giao',
-  Completed: 'Hoàn tất',
-  Cancelled: 'Đã hủy'
-};
-
-function nextStatus(current: OrderStatus): 'Cooking' | 'Delivering' | 'Completed' | null {
-  if (current === 'Confirmed') return 'Cooking';
-  if (current === 'Cooking') return 'Delivering';
-  if (current === 'Delivering') return 'Completed';
-  return null;
-}
-
-export default function AdminOrders() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [isActingOrderId, setIsActingOrderId] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [orders, setOrders] = useState<AdminOrder[]>([]);
-
-  const fetchOrders = async () => {
+function OrderDetail({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void; }) {
+  const resource = useAdminResource<AdminOrder>('/orders/' + id);
+  const order = resource.data;
+  const [action, setAction] = useState<ExceptionAction | null>(null);
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [busy, setBusy] = useState(false);
+  const preview = useAdminResource<CancellationPreview>(action?.kind === 'cancel' && action.delivery ? '/orders/' + id + '/deliveries/' + action.delivery._id + '/cancellation' : null);
+  const choose = (value: ExceptionAction) => { setAction(value); setReason(''); setError(''); setSuccess(''); };
+  const submit = async (event: FormEvent) => {
+    event.preventDefault(); if (!action || !order || busy) return;
+    if (reason.trim().length < 3) { setError('Nhập lý do can thiệp từ 3 đến 300 ký tự.'); return; }
+    if (action.kind === 'cancel' && action.delivery && !preview.data) return;
+    setBusy(true); setError('');
     try {
-      setIsLoading(true);
-      setWarning(null);
-      const res = await api.get('/orders/all');
-      const data = Array.isArray(res.data?.result) ? res.data.result : [];
-      setOrders(data);
-    } catch (error: any) {
-      console.error('Lỗi tải danh sách đơn hàng:', error);
-      setWarning(error?.response?.data?.message || 'Không thể tải danh sách đơn hàng.');
-    } finally {
-      setIsLoading(false);
-    }
+      const path = '/orders/' + id + (action.delivery ? '/deliveries/' + action.delivery._id : '');
+      if (action.kind === 'status') {
+        await api.patch(path + '/status', { status: action.next, version: order.version, exceptionReason: reason.trim() });
+      } else {
+        const body = { reason: reason.trim(), exceptionReason: reason.trim(), version: action.delivery ? preview.data!.version : order.version };
+        if (action.delivery) await api.post(path + '/cancel', body);
+        else await api.patch(path + '/cancel', body);
+      }
+      setAction(null); setSuccess('Đã cập nhật đơn hàng. Khoản hoàn (nếu có) cần tiếp tục được xử lý, chưa đồng nghĩa đã hoàn tiền.');
+      resource.reload(); onChanged();
+    } catch (err) {
+      setError(apiError(err));
+      if ((err as { response?: { status?: number; }; }).response?.status === 409) {
+        setAction(null); resource.reload(); onChanged();
+        setError('Đơn đã thay đổi. Dữ liệu đang được tải lại; hãy kiểm tra trước khi chọn lại thao tác.');
+      }
+    } finally { setBusy(false); }
   };
+  const terminal = order && ['Completed', 'Cancelled', 'Rejected'].includes(order.status);
+  return <AdminModal title={order ? 'Chi tiết đơn ' + (order.orderCode || order._id) : 'Chi tiết đơn hàng'} busy={busy} onClose={onClose}>
 
-  useEffect(() => {
-    fetchOrders();
-  }, []);
+    {(resource.error || error) && <Notice error>
+      {error || resource.error}
+    </Notice>}
+    {success && <Notice>
+      {success}
+    </Notice>}
 
-  const filteredOrders = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return orders;
+    {resource.loading && <p role="status" className="text-sm text-gray-500">Đang tải đơn hàng...</p>}
 
-    return orders.filter((order) => {
-      const idMatch = order._id.toLowerCase().includes(query);
-      const userMatch = (order.userId || '').toLowerCase().includes(query);
-      const paymentMethodMatch = (order.payment?.method || '').toLowerCase().includes(query);
-      return idMatch || userMatch || paymentMethodMatch;
-    });
-  }, [orders, searchQuery]);
+    <button className={secondaryClass} disabled={busy || resource.loading} onClick={() => { setAction(null); resource.reload(); }}>Tải lại chi tiết</button>
 
-  const groupedOrders = useMemo(() => {
-    const map: Record<OrderStatus, AdminOrder[]> = {
-      Pending: [],
-      Confirmed: [],
-      Cooking: [],
-      Delivering: [],
-      Completed: [],
-      Cancelled: []
-    };
+    {order && <>
 
-    for (const order of filteredOrders) {
-      map[order.status].push(order);
-    }
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
 
-    for (const key of statusOrder) {
-      map[key].sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-    }
+        <p>Khách hàng: <strong>
+          {order.userId}
+        </strong></p>
+        <p>Trạng thái: <strong>
+          {statusLabels[order.status] || order.status}
+        </strong></p>
 
-    return map;
-  }, [filteredOrders]);
+        <p>Thanh toán: <strong>{order.payment.method} · {paymentLabels[order.payment.status] || order.payment.status}</strong></p>
+        <p>Ngày tạo: {dateTime(order.createdAt)}</p>
 
-  const handleMoveNext = async (order: AdminOrder) => {
-    const next = nextStatus(order.status);
-    if (!next) return;
+        <p>Tiền món: <strong>
+          {money(order.subtotal)}
+        </strong></p>
+        <p>Phí giao: <strong>
+          {money(order.shippingFee)}
+        </strong></p>
 
-    try {
-      setIsActingOrderId(order._id);
-      setWarning(null);
-      await api.patch(`/orders/${order._id}/status`, { status: next });
-      setOrders((prev) => prev.map((item) => (item._id === order._id ? { ...item, status: next } : item)));
-    } catch (error: any) {
-      setWarning(error?.response?.data?.message || 'Không thể cập nhật trạng thái đơn hàng.');
-    } finally {
-      setIsActingOrderId(null);
-    }
-  };
+        <p>Tổng giá trị ban đầu: <strong>
+          {money(order.grandTotal)}
+        </strong></p>
+        <p>Địa chỉ: {order.deliveryAddress}</p>
 
-  const handleCancel = async (order: AdminOrder) => {
-    if (order.status === 'Cancelled' || order.status === 'Completed') return;
+        {order.amounts && <>
+          <p>Giá trị sau điều chỉnh: <strong>
+            {money(order.amounts.payableTotal)}
+          </strong></p>
+          <p>Còn phải thu: <strong>
+            {money(order.amounts.amountDue)}
+          </strong></p>
+          <p>Đã thu / đã hoàn: {money(order.amounts.paidAmount)} / {money(order.amounts.refundedAmount)}</p>
+          <p>Đang chờ hoàn: {money(order.amounts.pendingRefundAmount)}</p>
+        </>}
+      </div>
 
-    try {
-      setIsActingOrderId(order._id);
-      setWarning(null);
-      await api.patch(`/orders/${order._id}/cancel`);
-      setOrders((prev) => prev.map((item) => (item._id === order._id ? { ...item, status: 'Cancelled' } : item)));
-    } catch (error: any) {
-      setWarning(error?.response?.data?.message || 'Không thể hủy đơn hàng này.');
-    } finally {
-      setIsActingOrderId(null);
-    }
-  };
+      {order.note && <p className="text-sm text-gray-500">Ghi chú: {order.note}</p>}
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen role-page-shell">
-        <Sidebar role="admin" />
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="animate-spin text-orange-500" size={40} />
+      <Notice>Admin giám sát đơn hàng. Các nút bên dưới chỉ dùng cho can thiệp ngoại lệ có lý do và được ghi lịch sử. Điều phối bếp, giao hàng và đối soát thuộc luồng vận hành.</Notice>
+
+      {order.deliveries.map(day => <section key={day._id} className="rounded-2xl border border-gray-100 p-4 space-y-3">
+
+        <div className="flex justify-between gap-3">
+          <h3 className="font-black">
+            {localDate(day.date)}
+          </h3>
+          <span className="text-sm font-bold text-gray-600">
+            {statusLabels[day.status] || day.status}
+          </span>
         </div>
-      </div>
-    );
-  }
 
-  return (
-    <div className="flex min-h-screen role-page-shell">
-      <Sidebar role="admin" />
-      <div className="flex-1 flex flex-col min-w-0">
-        <Header title="Quản lý đơn hàng" userRole="Quản trị viên" hideSearch={true} />
+        <p className="text-xs text-gray-500">Chốt bếp: {dateTime(day.cutoffAt)}</p>
 
-        <main className="p-8 space-y-6 overflow-y-auto min-w-0">
-          {warning ? (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-              {warning}
-            </div>
-          ) : null}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[460px] text-sm">
+            <thead className="text-left text-xs text-gray-400">
+              <tr>
+                <th className="py-2">Món ăn</th>
+                <th>Bữa</th>
+                <th>Số lượng</th>
+                <th>Đơn giá</th>
+              </tr>
+            </thead>
+            <tbody>
+              {day.items.map(item => <tr key={item._id} className="border-t border-gray-50">
+                <td className="py-2">
+                  {item.foodName}
+                </td>
+                <td>
+                  {({ Breakfast: 'Sáng', Lunch: 'Trưa', Dinner: 'Tối', Snack: 'Phụ' } as Record<string, string>)[item.mealSlot || ''] || item.mealSlot || '—'}
+                </td>
+                <td>
+                  {item.quantity}
+                </td>
+                <td>
+                  {money(item.price)}
+                </td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>
 
-          <div className="relative group w-full md:w-[28rem]">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-orange-600 transition-colors" size={18} />
-            <input
-              type="text"
-              placeholder="Tìm theo mã đơn, userId, phương thức thanh toán..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-12 pr-6 h-12 bg-white border border-gray-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-orange-600/10 transition-all"
-            />
-          </div>
+        <p className="text-xs text-gray-500">Tiền món: {money(day.subtotal)} · Phí giao: {money(day.shipping?.totalFee)} · Phí giao được miễn: {money(day.waivedShippingFee)}</p>
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            {statusOrder.map((status) => (
-              <section key={status} className="bg-white rounded-[24px] border border-gray-100 shadow-sm p-5 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-black text-gray-900 uppercase tracking-wider">{statusLabel[status]}</h2>
-                  <span className="px-2 py-1 rounded-lg bg-gray-100 text-[10px] font-black text-gray-600">
-                    {groupedOrders[status].length}
-                  </span>
-                </div>
+        <p className="text-xs text-gray-500 break-all">Bếp: {day.kitchenStaffIds?.join(', ') || 'Chưa gán'} · Giao hàng: {day.assignedShipperId || 'Chưa gán'}</p>
 
-                <div className="space-y-3">
-                  {groupedOrders[status].length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500 text-center">
-                      Chưa có đơn hàng.
-                    </div>
-                  ) : (
-                    groupedOrders[status].map((order) => {
-                      const next = nextStatus(order.status);
-                      const isActing = isActingOrderId === order._id;
+        {day.deliveryResult && <div className="rounded-xl bg-gray-50 p-3 text-sm space-y-1">
+          {day.deliveryResult.reason && <p>Lý do giao thất bại: {day.deliveryResult.reason}</p>}
+          {day.deliveryResult.codCollectedAmount !== undefined && <p>COD đã thu: {money(day.deliveryResult.codCollectedAmount)} · Cần thu: {money(day.deliveryResult.codExpectedAmount)} · Chênh lệch: {money(day.deliveryResult.codDifference)}</p>}
+          {day.deliveryResult.evidenceUrls?.map((url, index) => <img key={index} src={url} alt={'Minh chứng giao hàng ' + (index + 1)} className="w-24 h-24 rounded-xl object-cover" />)}
+        </div>}
 
-                      return (
-                        <article key={order._id} className="rounded-2xl border border-gray-100 p-4 space-y-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <p className="text-sm font-black text-gray-900">Order #{order._id.slice(-6).toUpperCase()}</p>
-                              <p className="text-[11px] text-gray-500">User: {order.userId || 'N/A'}</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-sm font-black text-gray-900">{Math.round(order.grandTotal || 0).toLocaleString('vi-VN')} đ</p>
-                              <p className="text-[10px] text-gray-500">{order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN') : 'N/A'}</p>
-                            </div>
-                          </div>
+        {day.cancellation && <p className="text-sm text-gray-500">Lý do hủy: {day.cancellation.reason} · Yêu cầu hoàn: {money(day.cancellation.refundAmount)}</p>}
 
-                          <div className="grid grid-cols-2 gap-2 text-[11px] text-gray-600">
-                            <p>Gói: <span className="font-bold text-gray-800">{order.packageType || 'ONE_DAY'}</span></p>
-                            <p>Thanh tóan: <span className="font-bold text-gray-800">{order.payment?.method || 'N/A'}</span></p>
-                            <p>Payment status: <span className="font-bold text-gray-800">{order.payment?.status || 'Pending'}</span></p>
-                            <p>Shipping: <span className="font-bold text-gray-800">{Math.round(order.shippingFee || 0).toLocaleString('vi-VN')} đ</span></p>
-                          </div>
+        {day.statusHistory?.length ? <details className="text-xs text-gray-500">
+          <summary className="cursor-pointer font-bold">Lịch sử ngày giao</summary>
+          <ul className="mt-2 space-y-1">
+            {day.statusHistory.map((item, index) => <li key={index}>{dateTime(item.changedAt)} · {statusLabels[item.status]}{item.reason ? ' · ' + item.reason : ''}</li>)}
+          </ul>
+        </details> : null}
 
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {next ? (
-                              <button
-                                type="button"
-                                disabled={isActing}
-                                onClick={() => handleMoveNext(order)}
-                                className="inline-flex items-center gap-2 px-3 h-9 rounded-xl bg-blue-600 text-white text-xs font-black disabled:opacity-50"
-                              >
-                                {next === 'Cooking' ? <ChefHat size={14} /> : next === 'Delivering' ? <Truck size={14} /> : <CheckCircle2 size={14} />}
-                                Chuyển sang {statusLabel[next]}
-                              </button>
-                            ) : null}
+        {!terminal && order.packageType === 'WEEKLY_7D' && <div className="flex flex-wrap gap-2">
 
-                            {(order.status !== 'Completed' && order.status !== 'Cancelled') ? (
-                              <button
-                                type="button"
-                                disabled={isActing}
-                                onClick={() => handleCancel(order)}
-                                className="inline-flex items-center gap-2 px-3 h-9 rounded-xl border border-red-200 text-red-600 text-xs font-black disabled:opacity-50"
-                              >
-                                <XCircle size={14} /> Hủy đơn hàng
-                              </button>
-                            ) : null}
-                          </div>
-                        </article>
-                      );
-                    })
-                  )}
-                </div>
-              </section>
-            ))}
-          </div>
-        </main>
-      </div>
+          {nextDeliveryStatus(day.status) && <button
+            className={secondaryClass}
+            disabled={busy}
+            onClick={() => choose({ kind: 'status', delivery: day, next: nextDeliveryStatus(day.status) })}>Ngoại lệ: chuyển sang {statusLabels[nextDeliveryStatus(day.status)!]}</button>}
+
+          {['Pending', 'Confirmed'].includes(order.status) && ['Pending', 'Confirmed'].includes(day.status) && day.cutoffAt && new Date(day.cutoffAt).getTime() > Date.now() && <button className={secondaryClass + ' text-red-600'} disabled={busy} onClick={() => choose({ kind: 'cancel', delivery: day })}>Ngoại lệ: hủy ngày giao</button>}
+        </div>}
+      </section>)}
+
+      {!terminal && order.packageType === 'ONE_DAY' && <div className="flex flex-wrap gap-2">
+
+        {nextDeliveryStatus(order.status) && <button
+          className={secondaryClass}
+          disabled={busy}
+          onClick={() => choose({ kind: 'status', next: nextDeliveryStatus(order.status) })}>Ngoại lệ: chuyển sang {statusLabels[nextDeliveryStatus(order.status)!]}</button>}
+
+        {['Pending', 'Failed'].includes(order.payment.status) && !(order.payment.paidAmount! > 0) && <button className={secondaryClass + ' text-red-600'} disabled={busy} onClick={() => choose({ kind: 'cancel' })}>Ngoại lệ: hủy đơn chưa thu tiền</button>}
+      </div>}
+
+      {action && <form onSubmit={submit} className="rounded-2xl border border-orange-200 bg-orange-50/50 p-5 space-y-4">
+
+        <h3 className="font-black">
+          {action.kind === 'cancel' ? 'Xác nhận hủy ' + (action.delivery ? 'ngày ' + localDate(action.delivery.date) : 'đơn hàng') : 'Chuyển sang ' + statusLabels[action.next!] + (action.delivery ? ' · ' + localDate(action.delivery.date) : '')}
+        </h3>
+
+        {action.kind === 'cancel' && action.delivery && <>
+          {preview.loading && <p role="status">Đang kiểm tra điều kiện và số tiền hủy...</p>}
+          {preview.error && <Notice error>
+            {preview.error}
+          </Notice>}
+          {preview.data && <div className="text-sm space-y-1">
+            <p>Giảm tiền món: {money(preview.data.foodCredit)} · Phí giao: {money(preview.data.shippingCredit)}</p>
+            <p>Yêu cầu hoàn: <strong>
+              {money(preview.data.refundAmount)}
+            </strong> · Giá trị còn lại: {money(preview.data.remainingPayable)}</p>
+            <p>Khoản hoàn được ghi nhận chờ xử lý, không tự hoàn tiền ngay.</p>
+          </div>}
+        </>}
+
+        <label className="block text-sm font-bold">Lý do can thiệp ngoại lệ<textarea
+          required
+          minLength={3}
+          maxLength={300}
+          rows={3}
+          className={fieldClass}
+          value={reason}
+          onChange={event => setReason(event.target.value)} /></label>
+
+        <div className="flex gap-3">
+          <button
+            className={actionClass}
+            disabled={busy || (action.kind === 'cancel' && !!action.delivery && (!preview.data || preview.loading))}>
+            {busy ? 'Đang xử lý...' : 'Xác nhận can thiệp'}
+          </button>
+          <button type="button" className={secondaryClass} disabled={busy} onClick={() => setAction(null)}>Bỏ qua</button>
+        </div>
+      </form>}
+    </>}
+  </AdminModal>;
+}
+export default function AdminOrders() {
+  const resource = useAdminResource<AdminOrder[]>('/orders/all');
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('');
+  const [selectedId, setSelectedId] = useState('');
+  const rows = (resource.data || []).filter(order => [order.orderCode, order._id, order.userId, order.payment?.method].some(value => value?.toLowerCase().includes(search.trim().toLowerCase())));
+  return <AdminPage title="Giám sát đơn hàng" {...resource} onReload={resource.reload}>
+
+    <div className="flex flex-wrap gap-3">
+      <input
+        aria-label="Tìm đơn hàng"
+        placeholder="Mã đơn, mã khách hàng, phương thức thanh toán..."
+        className={fieldClass + ' md:!w-[28rem]'}
+        value={search}
+        onChange={event => setSearch(event.target.value)} />
+      <select
+        aria-label="Trạng thái đơn"
+        value={status}
+        onChange={event => setStatus(event.target.value)}
+        className={fieldClass + ' md:!w-56'}>
+        <option value="">Tất cả trạng thái</option>
+        {orderStatuses.map(value => <option key={value} value={value}>
+          {statusLabels[value]}
+        </option>)}
+      </select>
     </div>
-  );
+
+    {!resource.loading && !resource.error && <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      {orderStatuses.filter(value => !status || value === status).map(value => {
+        const group = rows.filter(order => order.status === value);
+        return <section key={value} className={panelClass + ' space-y-4'}>
+          <div className="flex justify-between items-center">
+            <h2 className="text-sm font-black uppercase tracking-wider">
+              {statusLabels[value]}
+            </h2>
+            <span className="rounded-lg bg-gray-100 px-3 py-1 text-xs font-bold">
+              {group.length}
+            </span>
+          </div>
+          {group.length === 0 ? <p className="rounded-xl bg-gray-50 border border-dashed border-gray-200 p-4 text-sm text-gray-500 text-center">Chưa có đơn hàng.</p> : group.map(order => <article key={order._id} className="rounded-2xl border border-gray-100 p-4 space-y-3">
+            <div className="flex justify-between gap-3">
+              <div>
+                <p className="font-black text-gray-900">
+                  {order.orderCode || order._id}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {dateTime(order.createdAt)}
+                </p>
+              </div>
+              <strong className="text-sm">
+                {money(order.grandTotal)}
+              </strong>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs text-gray-500">
+              <p>{order.packageType === 'WEEKLY_7D' ? 'Gói 7 ngày' : 'Đơn ngày'} · {order.deliveries?.length || 0} ngày giao</p>
+              <p>{order.payment?.method} · {paymentLabels[order.payment?.status] || order.payment?.status}</p>
+              <p className="col-span-2 break-all">Khách hàng: {order.userId}</p>
+            </div>
+            <button className={secondaryClass} onClick={() => setSelectedId(order._id)}>Xem chi tiết</button>
+          </article>)}
+        </section>;
+      })}
+    </div>}
+
+    {selectedId && <OrderDetail id={selectedId} onClose={() => setSelectedId('')} onChanged={resource.reload} />}
+  </AdminPage>;
 }

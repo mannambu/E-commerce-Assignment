@@ -20,7 +20,7 @@ export default function Navbar() {
 
   const dashboardPath =
     user?.role === 'Admin'
-      ? '/dashboard/admin'
+      ? '/dashboard/admin/users'
       : '/dashboard/user';
 
   const handleLogout = () => {
