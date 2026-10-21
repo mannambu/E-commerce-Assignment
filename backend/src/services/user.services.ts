@@ -614,7 +614,7 @@ class UsersService {
       role: UserRole.ADMIN,
       account_status: AccountStatus.ACTIVE
     })
-    if (!actor || !INTERNAL_ROLES.includes(payload.role)) {
+    if (!actor || !(INTERNAL_ROLES as UserRole[]).includes(payload.role)) {
       throw new ErrorWithStatus({ status: 403, message: USERS_MESSAGES.NOT_AUTHORIZED })
     }
     const user = new User({
