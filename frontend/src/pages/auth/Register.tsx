@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { Eye, EyeOff, Mail, User, Lock, Phone, CheckCircle2, AlertCircle, Loader2, ArrowLeft, Sparkles, ShieldCheck, Heart } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
@@ -21,7 +21,6 @@ const registerSchema = z.object({
     .regex(/[0-9]/, 'Phải có ít nhất 1 con số'),
   confirmPassword: z.string(),
   phone: z.string().regex(/^[0-9]{10}$/, 'Số điện thoại phải đúng 10 chữ số'),
-  role: z.enum(['Customer', 'PT']),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Mật khẩu xác nhận không khớp",
   path: ["confirmPassword"],
@@ -30,7 +29,6 @@ const registerSchema = z.object({
 type RegisterForm = z.infer<typeof registerSchema>;
 
 export default function Register() {
-  const [role, setRole] = useState<'Customer' | 'PT'>('Customer');
   const [showPassword, setShowPassword] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState(0);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -43,14 +41,10 @@ export default function Register() {
     handleSubmit,
     watch,
     formState: { errors, isSubmitting },
-    setValue,
     setError,
     clearErrors
   } = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
-    defaultValues: {
-      role: 'Customer',
-    }
   });
 
   const password = watch('password');
@@ -76,7 +70,6 @@ export default function Register() {
       if (username && username.length >= 3) {
         setUsernameStatus('checking');
         try {
-          // Gọi API check-username
           const res = await api.get(`/users/check-username?username=${username}`);
           if (res.data.exists) {
             setUsernameStatus('taken');
@@ -93,45 +86,40 @@ export default function Register() {
       }
     };
 
-const timer = setTimeout(checkUsername, 500);
+    const timer = setTimeout(checkUsername, 500);
     return () => clearTimeout(timer);
   }, [username, setError, clearErrors]);
 
   const onSubmit = async (data: RegisterForm) => {
     try {
-      // API Spec yêu cầu payload đăng ký
       const payload = {
         email: data.email,
         username: data.username,
         password: data.password,
         confirm_password: data.confirmPassword,
         phone: data.phone,
-        role: data.role
+        role: 'Customer' // Mặc định role Khách hàng
       };
 
       const response = await api.post('/users/register', payload);
 
-      if (data.role === 'Customer') {
-        const { access_token, refresh_token } = response.data.result || {};
-        if (access_token && refresh_token) {
-          await login(access_token, refresh_token);
-          localStorage.setItem('userRole', 'Customer');
-        }
+      const { access_token, refresh_token } = response.data.result || {};
+      if (access_token && refresh_token) {
+        await login(access_token, refresh_token);
+        localStorage.setItem('userRole', 'Customer');
       }
 
       setIsSuccess(true);
 
       setTimeout(() => {
-        navigate(data.role === 'Customer' ? '/dashboard/user' : '/login');
+        navigate('/dashboard/user');
       }, 1500);
 
     } catch (err: any) {
-      // Ưu tiên hiển thị lỗi validation 422 từ backend nếu có
       let errorMsg = err.response?.data?.message || 'Đăng ký thất bại';
       if (err.response?.status === 422 && err.response?.data?.errors) {
-         // Lấy lỗi đầu tiên từ object errors
-         const firstErrorKey = Object.keys(err.response.data.errors)[0];
-         errorMsg = err.response.data.errors[firstErrorKey].msg;
+        const firstErrorKey = Object.keys(err.response.data.errors)[0];
+        errorMsg = err.response.data.errors[firstErrorKey].msg;
       }
       setError('root', { message: errorMsg });
     }
@@ -149,20 +137,14 @@ const timer = setTimeout(checkUsername, 500);
             <CheckCircle2 size={48} />
           </div>
           <div className="space-y-3">
-            <h2 className="text-3xl font-black text-gray-900">
-              {role === 'Customer' ? 'Tuyệt vời!' : 'Hồ sơ đã gửi!'}
-            </h2>
+            <h2 className="text-3xl font-black text-gray-900">Tuyệt vời!</h2>
             <p className="text-gray-500 font-medium">
-              {role === 'Customer' 
-                ? 'Chào mừng bạn đến với cộng đồng sức khỏe của chúng tôi. Đang chuyển hướng...' 
-                : 'Chúng tôi sẽ xem xét hồ sơ của bạn và phản hồi sớm nhất có thể.'}
+              Chào mừng bạn đến với cộng đồng sức khỏe của chúng tôi. Đang chuyển hướng...
             </p>
           </div>
-          {role === 'Customer' && (
-            <Button className="w-full py-6 rounded-2xl text-lg font-black" onClick={() => navigate('/login')}>
-              Đăng nhập ngay
-            </Button>
-          )}
+          <Button className="w-full py-6 rounded-2xl text-lg font-black" onClick={() => navigate('/login')}>
+            Đăng nhập ngay
+          </Button>
         </motion.div>
       </div>
     );
@@ -170,7 +152,7 @@ const timer = setTimeout(checkUsername, 500);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#fafafa] p-4 py-12 relative overflow-hidden">
-      {/* Decorative Background Elements */}
+      {/* Background decoration */}
       <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] bg-orange-100 rounded-full blur-[150px] opacity-60" />
       <div className="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-100 rounded-full blur-[150px] opacity-60" />
 
@@ -185,7 +167,7 @@ const timer = setTimeout(checkUsername, 500);
       </Link>
 
       <div className="max-w-5xl w-full bg-white/80 backdrop-blur-xl rounded-[48px] shadow-2xl shadow-orange-500/5 overflow-hidden flex flex-col lg:flex-row border border-white relative z-10">
-        {/* Left Side - Brand & Features */}
+        {/* Left Side */}
         <div className="lg:w-[40%] bg-gradient-to-br from-orange-500 to-orange-600 p-12 text-white flex flex-col justify-between relative overflow-hidden">
           <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-32 -mt-32 blur-3xl" />
           <div className="absolute bottom-0 left-0 w-64 h-64 bg-black/10 rounded-full -ml-32 -mb-32 blur-3xl" />
@@ -214,7 +196,7 @@ const timer = setTimeout(checkUsername, 500);
               </div>
               <div>
                 <h3 className="font-bold text-lg">Đội ngũ chuyên gia</h3>
-                <p className="text-sm text-orange-100">Kết nối với những PT hàng đầu để đạt mục tiêu nhanh nhất.</p>
+                <p className="text-sm text-orange-100">Kết nối với những dịch vụ hàng đầu để đạt mục tiêu nhanh nhất.</p>
               </div>
             </div>
           </div>
@@ -229,30 +211,6 @@ const timer = setTimeout(checkUsername, 500);
           <div className="mb-10">
             <h2 className="text-3xl font-black text-gray-900">Tạo tài khoản</h2>
             <p className="text-gray-500 font-medium mt-2">Chỉ mất 1 phút để bắt đầu thay đổi bản thân.</p>
-          </div>
-
-          {/* Role Tabs */}
-          <div className="flex p-1.5 bg-gray-100/50 rounded-2xl mb-10">
-            <button
-              type="button"
-              onClick={() => { setRole('Customer'); setValue('role', 'Customer'); }}
-              className={cn(
-                "flex-1 py-3 text-sm font-black rounded-xl transition-all",
-                role === 'Customer' ? "bg-white text-orange-500 shadow-lg shadow-orange-500/5" : "text-gray-400 hover:text-gray-600"
-              )}
-            >
-              Khách hàng
-            </button>
-            <button
-              type="button"
-              onClick={() => { setRole('PT'); setValue('role', 'PT'); }}
-              className={cn(
-                "flex-1 py-3 text-sm font-black rounded-xl transition-all",
-                role === 'PT' ? "bg-white text-orange-500 shadow-lg shadow-orange-500/5" : "text-gray-400 hover:text-gray-600"
-              )}
-            >
-              Huấn luyện viên
-            </button>
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 md:grid-cols-2 gap-6">

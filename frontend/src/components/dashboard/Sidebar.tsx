@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Utensils, Users, ClipboardList, 
-  LogOut, ShoppingBag, BarChart3
+  LogOut, ShoppingBag, BarChart3, Sprout 
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -60,7 +60,7 @@ export default function Sidebar({ role }: SidebarProps) {
         </Link>
       </div>
 
-      <nav className="flex-1 px-4 space-y-1">
+      <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
         {activeLinks.map((link) => (
           <Link
             key={link.path}
@@ -76,6 +76,25 @@ export default function Sidebar({ role }: SidebarProps) {
             {link.label}
           </Link>
         ))}
+
+        {/* KHỐI CARD "KHỎE HƠN MỖI NGÀY" (Chỉ hiển thị đối với Khách hàng) */}
+        {normalizedRole !== 'Admin' && normalizedRole !== 'PT' && (
+          <div className="mt-8 p-4 bg-[#eff5eb] border border-[#e2ebd9] rounded-[24px] space-y-2">
+            <div className="w-8 h-8 rounded-xl bg-[#e0edd7] flex items-center justify-center text-emerald-800">
+              <Sprout size={18} />
+            </div>
+            <h4 className="font-bold text-sm text-gray-900">Khỏe hơn mỗi ngày</h4>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Bắt đầu từ hồ sơ sức khỏe của bạn.
+            </p>
+            <Link 
+              to="/dashboard/health-survey" 
+              className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 hover:underline pt-1"
+            >
+              Thiết lập hồ sơ →
+            </Link>
+          </div>
+        )}
       </nav>
 
       <div className="p-4 border-t border-gray-50">

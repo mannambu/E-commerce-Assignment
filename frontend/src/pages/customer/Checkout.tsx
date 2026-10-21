@@ -1,65 +1,59 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   MapPin, 
-  CreditCard, 
   Truck, 
-  ChevronRight, 
   ArrowLeft,
   CheckCircle2,
   ShieldCheck,
-  Wallet,
-  X
+  Banknote,
+  Clock
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import Navbar from '@/components/layout/Navbar';
-import { cn } from '@/lib/utils';
 import { useCart } from '@/context/CartContext';
+import { useAuth } from '@/context/AuthContext';
 import api from '@/services/api';
 
 export default function Checkout() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { subtotal, fetchCart } = useCart();
-  const [paymentMethod, setPaymentMethod] = useState('vnpay');
+  
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shippingFee, setShippingFee] = useState<number | null>(null);
-  const [cartVersion, setCartVersion] = useState<number | null>(null);
-  const [quotedSubtotal, setQuotedSubtotal] = useState<number | null>(null);
-  const [quotedTotal, setQuotedTotal] = useState<number | null>(null);
-  const [quoteRevision, setQuoteRevision] = useState(0);
-  const checkoutAttempt = useRef<{ signature: string; key: string } | null>(null);
   const [shippingStatus, setShippingStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  
   const [fieldErrors, setFieldErrors] = useState<{
     fullName?: string;
     phone?: string;
     address?: string;
     deliveryDate?: string;
   }>({});
-  const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
+
+  // Tự động điền thông tin người dùng từ Auth Context
+  const [fullName, setFullName] = useState(user?.username || user?.name || '');
+  const [phone, setPhone] = useState(user?.phone || '');
   const [address, setAddress] = useState('');
   const [deliveryDate, setDeliveryDate] = useState(() => {
     const date = new Date();
     date.setDate(date.getDate() + 1);
     return date.toISOString().slice(0, 10);
   });
+  
+  // MỤC GIỜ GIAO HÀNG ĐƯỢC THÊM MỚI
+  const [deliveryTime, setDeliveryTime] = useState('11:00 - 13:00'); 
   const [note, setNote] = useState('');
 
   const minDeliveryDate = new Date().toISOString().slice(0, 10);
-  const paymentMap: Record<string, 'COD' | 'VNPay' | 'MoMo'> = {
-    cod: 'COD',
-    vnpay: 'VNPay',
-    momo: 'MoMo'
-  };
+  const discountAmount = 15000;
 
+  // Lắng nghe thay đổi địa chỉ & ngày giao để tính phí ship
   useEffect(() => {
-    setCartVersion(null);
-    setQuotedSubtotal(null);
-    setQuotedTotal(null);
     const trimmedAddress = address.trim();
     if (!trimmedAddress || !deliveryDate || deliveryDate < minDeliveryDate) {
       setShippingFee(null);
@@ -68,29 +62,22 @@ export default function Checkout() {
     }
 
     let isActive = true;
-    setShippingStatus('loading');
     const timer = setTimeout(async () => {
       setShippingStatus('loading');
       try {
         const response = await api.post('/orders/quote', {
           deliveryAddress: trimmedAddress,
-          deliveryDate,
-          deliveryTime: '12:00',
+          deliveryDate: `${deliveryDate}T12:00:00.000Z`,
           packageType: 'ONE_DAY',
           cartType: 'FOOD',
-          paymentMethod: paymentMap[paymentMethod] || 'COD'
+          paymentMethod: 'COD'
         });
 
         const fee = response?.data?.result?.pricing?.shippingFee;
-        const version = response?.data?.result?.cart?.version;
-        const pricing = response?.data?.result?.pricing;
         if (!isActive) return;
 
-        if (typeof fee === 'number' && Number.isFinite(fee) && Number.isSafeInteger(version)) {
+        if (typeof fee === 'number' && Number.isFinite(fee)) {
           setShippingFee(fee);
-          setCartVersion(version);
-          setQuotedSubtotal(pricing.subtotal);
-          setQuotedTotal(pricing.grandTotal);
           setShippingStatus('ready');
         } else {
           setShippingFee(null);
@@ -107,18 +94,15 @@ export default function Checkout() {
       isActive = false;
       clearTimeout(timer);
     };
-  }, [address, deliveryDate, minDeliveryDate, paymentMethod, quoteRevision]);
+  }, [address, deliveryDate, minDeliveryDate]);
 
+  // Xử lý tạo đơn hàng COD
   const handleCheckout = async () => {
-    if (isProcessing || showSuccess) return;
-    if (paymentMethod !== 'cod') {
-      setErrorMessage('Chức năng thanh toán VNPay/MoMo hiện đang trong quá trình phát triển, vui lòng chọn thanh toán bằng COD.');
-      return;
-    }
     const trimmedName = fullName.trim();
     const trimmedPhone = phone.trim();
     const trimmedAddress = address.trim();
     const normalizedPhone = trimmedPhone.replace(/\s+/g, '');
+    
     const nextErrors: {
       fullName?: string;
       phone?: string;
@@ -152,34 +136,27 @@ export default function Checkout() {
       setErrorMessage('Vui lòng kiểm tra lại thông tin giao hàng.');
       return;
     }
-    if (cartVersion === null || shippingStatus !== 'ready') {
-      setErrorMessage('Vui lòng chờ báo giá hợp lệ trước khi đặt hàng.');
-      return;
-    }
 
     try {
       setErrorMessage(null);
       setIsProcessing(true);
 
-      const payload = {
+      // Ghép thông tin giờ giao dự kiến vào ghi chú đơn hàng gửi lên Backend
+      const formattedNote = [
+        `Khách hàng: ${fullName.trim()}`,
+        `SĐT: ${phone.trim()}`,
+        `Giờ giao dự kiến: ${deliveryTime}`,
+        note.trim()
+      ].filter(Boolean).join(' | ');
+
+      await api.post('/orders', {
         deliveryAddress: address.trim(),
-        deliveryDate,
-        deliveryTime: '12:00',
+        deliveryDate: `${deliveryDate}T12:00:00.000Z`,
         packageType: 'ONE_DAY',
         cartType: 'FOOD',
-        paymentMethod: paymentMap[paymentMethod] || 'COD',
-        note: [fullName.trim(), phone.trim(), note.trim()].filter(Boolean).join(' | '),
-        cartVersion
-      };
-      const signature = JSON.stringify(payload);
-      // Mất mạng rồi bấm lại: giữ cùng key để backend trả đơn đã tạo, không đặt thêm đơn.
-      if (checkoutAttempt.current?.signature !== signature) {
-        checkoutAttempt.current = { signature, key: crypto.randomUUID() };
-      }
-      const response = await api.post('/orders', { ...payload, idempotencyKey: checkoutAttempt.current.key });
-      setQuotedSubtotal(response.data.result.subtotal);
-      setQuotedTotal(response.data.result.grandTotal);
-      setShippingFee(response.data.result.shippingFee);
+        paymentMethod: 'COD',
+        note: formattedNote
+      });
 
       await fetchCart();
       setIsProcessing(false);
@@ -187,7 +164,6 @@ export default function Checkout() {
     } catch (error: any) {
       setIsProcessing(false);
       setErrorMessage(error?.response?.data?.message || 'Không thể tạo đơn hàng. Vui lòng thử lại.');
-      if ([400, 409, 422].includes(error?.response?.status)) setQuoteRevision((value) => value + 1);
     }
   };
 
@@ -199,28 +175,31 @@ export default function Checkout() {
         : shippingFee !== null
           ? `${shippingFee.toLocaleString('vi-VN')}đ`
           : 'Chưa tính';
-  const totalAmount = quotedTotal;
+  
+  const totalAmount = shippingFee !== null ? Math.max(0, subtotal + shippingFee - discountAmount) : null;
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
       
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Link to="/cart" className="inline-flex items-center text-gray-500 hover:text-orange-500 mb-8 transition-colors">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24">
+        <Link to="/cart" className="inline-flex items-center text-gray-500 hover:text-orange-500 mb-8 transition-colors font-bold text-sm">
           <ArrowLeft size={20} className="mr-2" /> Quay lại giỏ hàng
         </Link>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left: Forms */}
+          
+          {/* Bên trái: Thông tin giao hàng & Thanh toán COD */}
           <div className="lg:col-span-2 space-y-8">
-            {/* Shipping Info */}
+            
+            {/* Thông tin giao hàng */}
             <section className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 space-y-6">
               <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
                 <MapPin size={24} className="text-orange-500" /> Thông tin giao hàng
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input
-                  label="Họ và tên"
+                  label="Họ và tên người nhận"
                   placeholder="Nguyễn Văn A"
                   value={fullName}
                   error={fieldErrors.fullName}
@@ -243,6 +222,8 @@ export default function Checkout() {
                     }
                   }}
                 />
+                
+                {/* Chọn ngày giao hàng */}
                 <div>
                   <Input
                     label="Ngày giao hàng"
@@ -258,6 +239,23 @@ export default function Checkout() {
                     }}
                   />
                 </div>
+
+                {/* BỔ SUNG: MỤC GIỜ GIAO HÀNG DỰ KIẾN */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1 flex items-center gap-1.5">
+                    <Clock size={14} className="text-orange-500" /> Giờ giao hàng (ước chừng)
+                  </label>
+                  <select
+                    value={deliveryTime}
+                    onChange={(e) => setDeliveryTime(e.target.value)}
+                    className="w-full h-11 px-4 bg-white border border-gray-200 rounded-2xl text-sm font-bold text-gray-800 focus:outline-none focus:border-orange-500 transition-all cursor-pointer"
+                  >
+                    <option value="07:00 - 09:00">🌅 07:00 - 09:00 (Buổi Sáng)</option>
+                    <option value="11:00 - 13:00">☀️ 11:00 - 13:00 (Buổi Trưa)</option>
+                    <option value="17:00 - 19:00">🌙 17:00 - 19:00 (Buổi Tối)</option>
+                  </select>
+                </div>
+
                 <div className="md:col-span-2">
                   <Input
                     label="Địa chỉ nhận hàng"
@@ -272,10 +270,11 @@ export default function Checkout() {
                     }}
                   />
                 </div>
+                
                 <div className="md:col-span-2">
                   <Input
                     label="Ghi chú đơn hàng"
-                    placeholder="Ví dụ: Giao giờ hành chính, không cay..."
+                    placeholder="Ví dụ: Giao giờ hành chính, gọi trước khi giao..."
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                   />
@@ -283,48 +282,31 @@ export default function Checkout() {
               </div>
             </section>
 
-            {/* Payment Methods */}
+            {/* Phương thức thanh toán (COD) */}
             <section className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 space-y-6">
               <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
-                <CreditCard size={24} className="text-orange-500" /> Phương thức thanh toán
+                <Banknote size={24} className="text-orange-500" /> Phương thức thanh toán
               </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {[
-                  { id: 'vnpay', name: 'VNPay - ( Đang cập nhật )', icon: <Wallet className="text-blue-500" /> },
-                  { id: 'momo', name: 'MoMo - ( Đang cập nhật )', icon: <Wallet className="text-pink-500" /> },
-                  { id: 'cod', name: 'Tiền mặt', icon: <Truck className="text-gray-500" /> },
-                ].map((method) => (
-                  <button
-                    key={method.id}
-                    onClick={() => {
-                      setPaymentMethod(method.id);
-                      if (method.id === 'vnpay' || method.id === 'momo') {
-                        setErrorMessage('Chức năng thanh toán VNPay/MoMo hiện đang trong quá trình phát triển, vui lòng chọn thanh toán bằng COD.');
-                      } else {
-                        setErrorMessage(null);
-                      }
-                    }}
-                    className={cn(
-                      "p-6 rounded-2xl border-2 transition-all flex flex-col items-center gap-3",
-                      paymentMethod === method.id 
-                        ? "border-orange-500 bg-orange-50" 
-                        : "border-gray-100 hover:border-orange-200"
-                    )}
-                  >
-                    <div className="w-12 h-12 rounded-xl bg-white shadow-sm flex items-center justify-center">
-                      {method.icon}
-                    </div>
-                    <span className="font-bold text-sm">{method.name}</span>
-                    {paymentMethod === method.id && (
-                      <CheckCircle2 size={16} className="text-orange-500" />
-                    )}
-                  </button>
-                ))}
+              
+              <div className="p-6 rounded-2xl border-2 border-orange-500 bg-orange-50/50 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-orange-500 text-white flex items-center justify-center shadow-md shadow-orange-500/20">
+                    <Truck size={24} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-base">Thanh toán khi nhận hàng (COD)</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">Thanh toán bằng tiền mặt trực tiếp cho nhân viên giao hàng</p>
+                  </div>
+                </div>
+                <span className="px-3 py-1 bg-orange-100 text-orange-600 font-bold text-xs rounded-full">
+                  Mặc định
+                </span>
               </div>
             </section>
+
           </div>
 
-          {/* Right: Order Summary */}
+          {/* Bên phải: Tóm tắt đơn hàng */}
           <div className="space-y-6">
             <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 space-y-6 sticky top-24">
               <h3 className="text-xl font-bold text-gray-900">Tóm tắt đơn hàng</h3>
@@ -332,11 +314,15 @@ export default function Checkout() {
               <div className="space-y-4">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Tạm tính</span>
-                  <span className="font-bold text-gray-900">{(quotedSubtotal ?? subtotal).toLocaleString('vi-VN')}đ</span>
+                  <span className="font-bold text-gray-900">{subtotal.toLocaleString('vi-VN')}đ</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Phí giao hàng</span>
                   <span className="font-bold text-gray-900">{shippingFeeDisplay}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Giảm giá</span>
+                  <span className="font-bold text-green-500">-{discountAmount.toLocaleString('vi-VN')}đ</span>
                 </div>
                 <div className="flex justify-between text-2xl pt-4 border-t border-gray-100">
                   <span className="font-bold text-gray-900">Tổng cộng</span>
@@ -348,15 +334,15 @@ export default function Checkout() {
 
               <div className="p-4 bg-green-50 rounded-2xl border border-green-100 flex items-start gap-3">
                 <ShieldCheck size={20} className="text-green-600 shrink-0 mt-0.5" />
-                <p className="text-xs text-green-700 leading-relaxed">
+                <p className="text-xs text-green-700 leading-relaxed font-medium">
                   Đơn hàng của bạn được bảo vệ bởi chính sách hoàn tiền 100% nếu có sai sót về dinh dưỡng.
                 </p>
               </div>
 
               <Button 
-                className="w-full h-14 text-lg rounded-2xl shadow-lg shadow-orange-200"
+                className="w-full h-14 text-lg font-black rounded-2xl shadow-lg shadow-orange-200 bg-orange-500 hover:bg-orange-600 text-white"
                 onClick={handleCheckout}
-                disabled={isProcessing || showSuccess || shippingStatus !== 'ready' || cartVersion === null}
+                disabled={isProcessing}
               >
                 {isProcessing ? 'Đang xử lý...' : 'Xác nhận đặt hàng'}
               </Button>
@@ -370,10 +356,11 @@ export default function Checkout() {
               </p>
             </div>
           </div>
+
         </div>
       </main>
 
-      {/* Success Modal */}
+      {/* Popup Đặt hàng thành công */}
       <AnimatePresence>
         {showSuccess && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -398,10 +385,10 @@ export default function Checkout() {
                 <p className="text-gray-500">Cảm ơn bạn đã tin tưởng FitBite. Đơn hàng của bạn đang được chuẩn bị và sẽ sớm được giao đến.</p>
               </div>
               <Button 
-                className="w-full h-14 rounded-2xl text-lg"
+                className="w-full h-14 rounded-2xl text-lg font-bold bg-orange-500 hover:bg-orange-600 text-white"
                 onClick={() => navigate('/dashboard/user')}
               >
-                Về Dashboard
+                Về trang cá nhân
               </Button>
             </motion.div>
           </div>

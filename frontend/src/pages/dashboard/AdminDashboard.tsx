@@ -17,15 +17,15 @@ import Header from '@/components/dashboard/Header';
 import api from '@/services/api';
 
 type DashboardStats = {
-  users: { customers: number; pts: number };
-  products: { foods: number; ptServices: number };
-  revenue: {
-    overall: { totalAmount: number; completedOrders: number };
-    thisMonth: { totalAmount: number; completedOrders: number };
-    breakdown: {
-      FOOD_ONE_DAY: { revenue: number; orders: number };
-      COMBO_WEEKLY: { revenue: number; orders: number };
-      OTHER: { revenue: number; orders: number };
+  users?: { customers?: number; pts?: number };
+  products?: { foods?: number; ptServices?: number };
+  revenue?: {
+    overall?: { totalAmount?: number; completedOrders?: number };
+    thisMonth?: { totalAmount?: number; completedOrders?: number };
+    breakdown?: {
+      FOOD_ONE_DAY?: { revenue?: number; orders?: number };
+      COMBO_WEEKLY?: { revenue?: number; orders?: number };
+      OTHER?: { revenue?: number; orders?: number };
     };
   };
 };
@@ -91,28 +91,29 @@ export default function AdminDashboard() {
 
   const money = (value: number) => `${Math.round(value || 0).toLocaleString('vi-VN')} đ`;
 
+  // Thêm Optional Chaining (?.) để tránh crash khi dữ liệu null/undefined
   const kpiData = useMemo(
     () => ({
-      foodRevenue: Number(stats.revenue.breakdown.FOOD_ONE_DAY.revenue || 0),
-      ptCommission: Number(stats.revenue.breakdown.COMBO_WEEKLY.revenue || 0),
-      marketingCost: Number(stats.revenue.breakdown.OTHER.revenue || 0)
+      foodRevenue: Number(stats?.revenue?.breakdown?.FOOD_ONE_DAY?.revenue || 0),
+      ptCommission: Number(stats?.revenue?.breakdown?.COMBO_WEEKLY?.revenue || 0),
+      marketingCost: Number(stats?.revenue?.breakdown?.OTHER?.revenue || 0)
     }),
     [stats]
   );
 
   const profitData = useMemo(
     () => [
-      { month: 'Tháng này', profit: Number(stats.revenue.thisMonth.totalAmount || 0) },
-      { month: 'Tổng lũy kế', profit: Number(stats.revenue.overall.totalAmount || 0) }
+      { month: 'Tháng này', profit: Number(stats?.revenue?.thisMonth?.totalAmount || 0) },
+      { month: 'Tổng lũy kế', profit: Number(stats?.revenue?.overall?.totalAmount || 0) }
     ],
     [stats]
   );
 
   const breakdownData = useMemo(
     () => [
-      { name: 'Thực đơn lẻ', revenue: Number(stats.revenue.breakdown.FOOD_ONE_DAY.revenue || 0) },
-      { name: 'Combo tuần', revenue: Number(stats.revenue.breakdown.COMBO_WEEKLY.revenue || 0) },
-      { name: 'Khác', revenue: Number(stats.revenue.breakdown.OTHER.revenue || 0) }
+      { name: 'Thực đơn lẻ', revenue: Number(stats?.revenue?.breakdown?.FOOD_ONE_DAY?.revenue || 0) },
+      { name: 'Combo tuần', revenue: Number(stats?.revenue?.breakdown?.COMBO_WEEKLY?.revenue || 0) },
+      { name: 'Khác', revenue: Number(stats?.revenue?.breakdown?.OTHER?.revenue || 0) }
     ],
     [stats]
   );
@@ -189,50 +190,48 @@ export default function AdminDashboard() {
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-gray-100 xl:col-span-2">
-            <div className="flex items-center justify-between mb-8">
-              <div>
-                <h2 className="text-xl font-black text-gray-900">Biểu đồ lợi nhuận</h2>
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h2 className="text-xl font-black text-gray-900">Biểu đồ lợi nhuận</h2>
                   <p className="text-sm text-gray-400 font-medium">So sánh doanh thu tháng hiện tại và lũy kế</p>
+                </div>
               </div>
-            </div>
 
               <div className="h-[320px] w-full min-w-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={profitData}>
-                  <defs>
-                    <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#f97316" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                  <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#9ca3af', fontSize: 12, fontWeight: 600}} dy={10} />
-                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#9ca3af', fontSize: 12, fontWeight: 600}} />
-                  <Tooltip 
-                    contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}}
-                  />
-                  <ReferenceLine y={0} stroke="#e5e7eb" />
-                  <Area type="monotone" dataKey="profit" stroke="#f97316" strokeWidth={4} fillOpacity={1} fill="url(#colorProfit)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={profitData}>
+                    <defs>
+                      <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f97316" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                    <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#9ca3af', fontSize: 12, fontWeight: 600}} dy={10} />
+                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#9ca3af', fontSize: 12, fontWeight: 600}} />
+                    <Tooltip contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
+                    <ReferenceLine y={0} stroke="#e5e7eb" />
+                    <Area type="monotone" dataKey="profit" stroke="#f97316" strokeWidth={4} fillOpacity={1} fill="url(#colorProfit)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
                 <div className="rounded-2xl bg-gray-50 p-4">
                   <p className="text-[10px] font-bold text-gray-400 uppercase">Khách hàng</p>
-                  <p className="text-xl font-black text-gray-900 mt-1">{stats.users.customers}</p>
+                  <p className="text-xl font-black text-gray-900 mt-1">{stats?.users?.customers || 0}</p>
                 </div>
                 <div className="rounded-2xl bg-gray-50 p-4">
                   <p className="text-[10px] font-bold text-gray-400 uppercase">PT</p>
-                  <p className="text-xl font-black text-gray-900 mt-1">{stats.users.pts}</p>
+                  <p className="text-xl font-black text-gray-900 mt-1">{stats?.users?.pts || 0}</p>
                 </div>
                 <div className="rounded-2xl bg-gray-50 p-4">
                   <p className="text-[10px] font-bold text-gray-400 uppercase">Món ăn hoạt động</p>
-                  <p className="text-xl font-black text-gray-900 mt-1">{stats.products.foods}</p>
+                  <p className="text-xl font-black text-gray-900 mt-1">{stats?.products?.foods || 0}</p>
                 </div>
                 <div className="rounded-2xl bg-gray-50 p-4">
                   <p className="text-[10px] font-bold text-gray-400 uppercase">Gói PT hoạt động</p>
-                  <p className="text-xl font-black text-gray-900 mt-1">{stats.products.ptServices}</p>
+                  <p className="text-xl font-black text-gray-900 mt-1">{stats?.products?.ptServices || 0}</p>
                 </div>
               </div>
             </div>
@@ -271,25 +270,25 @@ export default function AdminDashboard() {
               ) : (
                 recentTransactions.map((tnx) => (
                   <div key={tnx._id} className="bg-white p-4 rounded-3xl shadow-sm border border-gray-50 flex items-center justify-between hover:shadow-md transition-all">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center font-black text-xs">
-                      {(tnx.userId || 'U').slice(-2).toUpperCase()}
-                    </div>
-                    <div>
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center font-black text-xs">
+                        {(tnx.userId || 'U').slice(-2).toUpperCase()}
+                      </div>
+                      <div>
                         <p className="text-sm font-bold text-gray-900">Đơn hàng {tnx._id.slice(-6).toUpperCase()}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
+                        <div className="flex items-center gap-2 mt-0.5">
                           <span className="px-2 py-0.5 bg-gray-100 rounded-md text-[9px] font-black text-gray-500 uppercase">{tnx.payment?.method || 'N/A'}</span>
                           <span className="text-[10px] text-gray-400 font-medium">User: {tnx.userId || 'N/A'}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="text-right pr-4">
+                    <div className="text-right pr-4">
                       <p className="text-sm font-black text-gray-900">{money(Number(tnx.grandTotal || 0))}</p>
                       <p className="text-[10px] text-gray-400 font-medium mt-0.5">
                         {tnx.createdAt ? new Date(tnx.createdAt).toLocaleString('vi-VN') : 'N/A'}
                       </p>
+                    </div>
                   </div>
-                </div>
                 ))
               )}
             </div>

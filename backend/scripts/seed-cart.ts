@@ -57,38 +57,41 @@ async function seedCart() {
     const db = client.db(dbname)
 
     const food = await ensureFood(db)
-    const customerId = await ensureCustomer(db)
-
+    const customersToSeed = ['customer@fitbite.test', CUSTOMER_EMAIL]
     const carts = db.collection<Cart>(cartsCollectionNameSafe)
-    const cart = new Cart({
-      userId: customerId,
-      cartType: 'FOOD',
-      items: [
+
+    for (const email of customersToSeed) {
+      const user = await db.collection(usersCollectionNameSafe).findOne({ email })
+      if (!user) continue
+
+      const cart = new Cart({
+        userId: user._id as ObjectId,
+        cartType: 'FOOD',
+        items: [
+          {
+            itemId: food._id as ObjectId,
+            quantity: 2
+          }
+        ]
+      })
+
+      await carts.updateOne(
+        { userId: user._id as ObjectId },
         {
-          itemId: food._id,
-          quantity: 2
-        }
-      ]
-    })
+          $setOnInsert: { ...cart, createdAt: new Date(), updatedAt: new Date() }
+        },
+        { upsert: true }
+      )
+      console.log(`Cart items seeded for: ${email}`)
+    }
 
-    await carts.updateOne(
-      { userId: customerId },
-      {
-        $setOnInsert: { ...cart, createdAt: new Date(), updatedAt: new Date() }
-      },
-      { upsert: true }
-    )
-
-    console.log('✅ Seed cart completed successfully')
-    console.log(`👤 Customer email: ${CUSTOMER_EMAIL}`)
-    console.log(`🍽️ Food item seeded from: ${food.name}`)
-    console.log('🛒 Cart items: Food x2')
+    console.log('Seed cart completed successfully')
   } catch (error) {
-    console.error('❌ Error seeding cart:', error)
+    console.error('Error seeding cart:', error)
     process.exitCode = 1
   } finally {
     await client.close()
-    console.log('🔌 Database connection closed')
+    console.log('Database connection closed')
   }
 }
 
