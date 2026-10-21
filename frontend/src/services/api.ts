@@ -55,6 +55,11 @@ api.interceptors.request.use(
 // Single-flight refresh token state
 let refreshPromise: Promise<string | null> | null = null;
 
+// Let logout handlers wait for token rotation before revoking the session.
+export const waitForSessionRefresh = async (): Promise<void> => {
+  if (refreshPromise) await refreshPromise;
+};
+
 const clearAuthAndRedirect = () => {
   localStorage.removeItem('access_token');
   localStorage.removeItem('refresh_token');

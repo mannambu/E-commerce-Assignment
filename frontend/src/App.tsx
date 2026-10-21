@@ -51,7 +51,7 @@ const DashboardRedirect = () => {
   if (!user) return <Navigate to="/login" replace />;
   switch (user.role) {
     case 'Admin':
-      return <Navigate to="/dashboard/admin" replace />;
+      return <Navigate to="/dashboard/admin/users" replace />;
     case 'Manager':
       return <Navigate to="/workspace/manager" replace />;
     case 'Kitchen Staff':

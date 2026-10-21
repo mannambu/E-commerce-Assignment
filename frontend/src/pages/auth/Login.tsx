@@ -76,10 +76,14 @@ export default function Login() {
         throw new Error('Dữ liệu xác thực không hợp lệ từ server.');
       }
 
-      await login(access_token, refresh_token, { role: role as UserRole });
+      const profile = await login(access_token, refresh_token, { role: role as UserRole });
+      if (!profile) {
+        setError('root', { message: 'Không thể tải hồ sơ sau đăng nhập. Vui lòng thử lại.' });
+        return;
+      }
 
       // Điều hướng chuẩn xác theo 5 vai trò (FR-AUTH-007)
-      switch (role) {
+      switch (profile.role) {
         case 'Admin':
           navigate('/dashboard/admin/users', { replace: true });
           break;
