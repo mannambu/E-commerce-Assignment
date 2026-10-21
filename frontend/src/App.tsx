@@ -220,7 +220,7 @@ function AppRoutes() {
           <Route
             path="/workspace/kitchen"
             element={
-              <ProtectedRoute allowedRoles={['Kitchen Staff', 'Admin']}>
+              <ProtectedRoute allowedRoles={['Kitchen Staff']}>
                 <KitchenWorkspace />
               </ProtectedRoute>
             }
@@ -228,7 +228,7 @@ function AppRoutes() {
           <Route
             path="/workspace/delivery"
             element={
-              <ProtectedRoute allowedRoles={['Delivery Staff', 'Admin']}>
+              <ProtectedRoute allowedRoles={['Delivery Staff']}>
                 <DeliveryWorkspace />
               </ProtectedRoute>
             }
