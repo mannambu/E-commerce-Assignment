@@ -69,6 +69,7 @@ Dự án **FitBite (Healthy Meal Platform)** đã được rà soát, tái cấu
 - **`frontend/src/App.tsx`:** Định tuyến bảo vệ theo vai trò (`ProtectedRoute`), phân luồng Dashboard tự động theo quyền hạn, lazy loading trang mượt mà.
 
 ### 3.2. Luồng Xác Thực (Authentication)
+- **Chuẩn hóa Placeholder UI (Zero Hardcoded Personal Info):** Toàn bộ thông tin cá nhân của người dùng test (`Phuc.nguyen...`, `Huy Phúc`) đã được gỡ bỏ hoàn toàn khỏi các `placeholder`, `defaultValue` trên toàn bộ giao diện (`Login.tsx`, `Register.tsx`, `ForgotPassword.tsx`, `Profile.tsx`), chuyển thành các câu hướng dẫn sản phẩm chuẩn mực.
 - **Đăng ký (`Register.tsx` - `WF-01`):** Hỗ trợ nhập tên tiếng Việt có dấu, kiểm tra độ mạnh mật khẩu (>=8 ký tự, chữ hoa, số, ký tự đặc biệt), checkbox bắt buộc đồng ý Điều khoản Dịch vụ, hiển thị lỗi 422 chi tiết từ server.
 - **Đăng nhập (`Login.tsx` - `WF-03`):** Nhận diện `identifier` (Email hoặc Tên đăng nhập tiếng Việt), nút bật/tắt ẩn hiện mật khẩu, ghi nhớ đăng nhập `remember_me`. Xử lý lỗi 401 thông báo chung, lỗi 400/423 khóa tạm thời 5 phút với đồng hồ đếm ngược, lỗi 403 khóa vĩnh viễn kèm lý do của Admin.
 - **Quên mật khẩu (`ForgotPassword.tsx` - `WF-04`):** Quy trình 2 bước trực quan: Bước 1 gửi mã OTP về email có đồng hồ đếm ngược 60 giây gửi lại; Bước 2 nhập mã OTP 6 chữ số và mật khẩu mới kèm xác nhận.
@@ -90,8 +91,11 @@ Dự án **FitBite (Healthy Meal Platform)** đã được rà soát, tái cấu
    - Popover hoán đổi món (Swap) gọi `POST /users/recommendations/meals/swap`.
    - Nút thêm toàn bộ vào giỏ hàng (`FOOD` cho đơn ngày, `COMBO` cho gói tuần).
 3. **Danh mục món ăn (`FoodCatalog.tsx` - `WF-10`):**
+   - Khắc phục triệt để lỗi HTTP 422: Sử dụng `sortBy=createdAt` (chuẩn camelCase theo backend spec thay cho `created_at`).
+   - Phân định rõ ràng các tham số lọc: `goalTags` (`LoseFat`, `GainMuscle`, `MaintainWeight`) và `tags` (`Vegan`, `LowCarb`), loại bỏ hoàn toàn tham số rỗng.
+   - Xử lý tách biệt rõ ràng giữa **Trạng thái Lỗi (Error State)** có Icon cảnh báo + thông báo lỗi + nút "Thử lại", và **Trạng thái Trống (Empty State)** khi kết quả tìm kiếm thực sự rỗng (`NFR-USA-003`).
    - Tìm kiếm món ăn thông minh chuẩn hóa tiếng Việt bỏ dấu / có dấu.
-   - Bộ lọc mục tiêu (Giảm mỡ, Tăng cơ, Duy trì), khoảng calo, khoảng giá, sắp xếp theo giá và calo.
+   - Bộ lọc mục tiêu (Giảm cân, Tăng cơ, Duy trì), khoảng calo, khoảng giá, sắp xếp theo giá và calo.
    - Toggle tự động loại trừ món có chất dị ứng trùng với người dùng (`excludeMyAllergens`).
    - Huy hiệu cảnh báo dị ứng màu đỏ kèm Icon + Chữ trên từng thẻ món ăn.
 4. **Chi tiết món ăn (`FoodDetails.tsx` - `WF-11`):**

@@ -377,7 +377,7 @@ export default function Profile() {
                       label="Tên người dùng (Họ và tên)"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      placeholder="Ví dụ: Huy Phúc"
+                      placeholder="Nhập họ và tên hoặc tên người dùng"
                       icon={<UserIcon size={18} />}
                       required
                     />
@@ -622,7 +622,7 @@ export default function Profile() {
                 label="Tên người nhận"
                 value={addrName}
                 onChange={(e) => setAddrName(e.target.value)}
-                placeholder="Ví dụ: Huy Phúc"
+                placeholder="Nhập tên người nhận"
                 required
               />
               <Input

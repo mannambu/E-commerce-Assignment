@@ -198,7 +198,7 @@ export default function Register() {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <Input
             label="Tên người dùng (Họ và tên)"
-            placeholder="Ví dụ: Huy Phúc hoặc nguyenvanan"
+            placeholder="Nhập họ và tên hoặc tên đăng nhập"
             icon={<User size={18} />}
             error={errors.username?.message}
             disabled={isSubmitting}

@@ -236,7 +236,7 @@ export default function ForgotPassword() {
                 <Input
                   label="Email tài khoản"
                   type="email"
-                  placeholder="Ví dụ: phuc.nguyen@... hoặc your-email@gmail.com"
+                  placeholder="Nhập địa chỉ email của bạn"
                   icon={<Mail size={18} />}
                   error={errorsForgot.email?.message}
                   disabled={isSubmittingForgot}

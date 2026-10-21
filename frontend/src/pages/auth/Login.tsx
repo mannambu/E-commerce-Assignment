@@ -193,7 +193,7 @@ export default function Login() {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
           <Input
             label="Email hoặc Tên đăng nhập"
-            placeholder="Ví dụ: phuc.nguyen@... hoặc Huy Phúc"
+            placeholder="Nhập email hoặc tên đăng nhập"
             icon={<User size={18} />}
             error={errors.identifier?.message}
             disabled={isFormLocked || isSubmitting}

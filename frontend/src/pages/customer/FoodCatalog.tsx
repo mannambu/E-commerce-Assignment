@@ -9,35 +9,26 @@ import {
   AlertTriangle,
   ShieldCheck,
   Star,
-  CheckCircle2,
   RefreshCw,
   XCircle,
+  RotateCcw
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Checkbox } from '@/components/ui/Checkbox';
 import { cn } from '@/lib/utils';
 import Navbar from '@/components/layout/Navbar';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import api from '@/services/api';
 
-const categories = ['Tất cả', 'Giảm cân', 'Tăng cơ', 'Ăn chay', 'Ít tinh bột'];
-
-const categoryToTagsMap: Record<string, string[]> = {
-  'Giảm cân': ['LowCalorie', 'LowFat'],
-  'Tăng cơ': ['HighProtein'],
-  'Ăn chay': ['Vegan'],
-  'Ít tinh bột': ['GlutenFree'],
-};
+const categories = ['Tất cả', 'Giảm cân', 'Tăng cơ', 'Duy trì', 'Ăn chay', 'Ít tinh bột'] as const;
 
 export default function FoodCatalog() {
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const { addItem } = useCart();
 
-  const [activeCategory, setActiveCategory] = useState('Tất cả');
+  const [activeCategory, setActiveCategory] = useState<(typeof categories)[number]>('Tất cả');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
@@ -49,12 +40,13 @@ export default function FoodCatalog() {
   const [maxCalories, setMaxCalories] = useState<string>('');
   const [minPrice, setMinPrice] = useState<string>('');
   const [maxPrice, setMaxPrice] = useState<string>('');
-  const [sortBy, setSortBy] = useState<'price_asc' | 'price_desc' | 'calories_asc' | 'calories_desc' | 'name' | 'newest'>('newest');
+  const [sortBy, setSortBy] = useState<'createdAt_desc' | 'price_asc' | 'price_desc' | 'calories_asc' | 'calories_desc' | 'name_asc'>('createdAt_desc');
   const [showFiltersModal, setShowFiltersModal] = useState(false);
 
-  // State dữ liệu & phân trang
+  // State dữ liệu, lỗi & phân trang
   const [foodItems, setFoodItems] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
@@ -75,32 +67,45 @@ export default function FoodCatalog() {
   const fetchFoods = async () => {
     try {
       setIsLoading(true);
+      setFetchError(null);
 
       const params = new URLSearchParams();
       params.append('page', page.toString());
       params.append('limit', '12');
 
-      if (debouncedSearch.trim()) {
-        params.append('search', debouncedSearch.trim());
+      const trimmedSearch = debouncedSearch.trim();
+      if (trimmedSearch) {
+        params.append('search', trimmedSearch);
       }
 
-      if (activeCategory !== 'Tất cả') {
-        const tags = categoryToTagsMap[activeCategory];
-        if (tags && tags.length > 0) {
-          params.append('tags', tags.join(','));
-        }
+      // Thanh Tab lọc nhanh: goalTags (LoseFat | GainMuscle | MaintainWeight), tags (Vegan | LowCarb)
+      if (activeCategory === 'Giảm cân') {
+        params.append('goalTags', 'LoseFat');
+      } else if (activeCategory === 'Tăng cơ') {
+        params.append('goalTags', 'GainMuscle');
+      } else if (activeCategory === 'Duy trì') {
+        params.append('goalTags', 'MaintainWeight');
+      } else if (activeCategory === 'Ăn chay') {
+        params.append('tags', 'Vegan');
+      } else if (activeCategory === 'Ít tinh bột') {
+        params.append('tags', 'LowCarb');
       }
 
       if (isAuthenticated) {
         params.append('excludeMyAllergens', excludeMyAllergens ? 'true' : 'false');
       }
 
-      if (minCalories) params.append('minCalories', minCalories);
-      if (maxCalories) params.append('maxCalories', maxCalories);
-      if (minPrice) params.append('minPrice', minPrice);
-      if (maxPrice) params.append('maxPrice', maxPrice);
+      const trimmedMinCal = minCalories.trim();
+      const trimmedMaxCal = maxCalories.trim();
+      const trimmedMinPrice = minPrice.trim();
+      const trimmedMaxPrice = maxPrice.trim();
 
-      // Sắp xếp
+      if (trimmedMinCal) params.append('minCalories', trimmedMinCal);
+      if (trimmedMaxCal) params.append('maxCalories', trimmedMaxCal);
+      if (trimmedMinPrice) params.append('minPrice', trimmedMinPrice);
+      if (trimmedMaxPrice) params.append('maxPrice', trimmedMaxPrice);
+
+      // Sắp xếp: chỉ truyền camelCase an toàn: createdAt | price | calories | name
       switch (sortBy) {
         case 'price_asc':
           params.append('sortBy', 'price');
@@ -118,13 +123,13 @@ export default function FoodCatalog() {
           params.append('sortBy', 'calories');
           params.append('order', 'desc');
           break;
-        case 'name':
+        case 'name_asc':
           params.append('sortBy', 'name');
           params.append('order', 'asc');
           break;
-        case 'newest':
+        case 'createdAt_desc':
         default:
-          params.append('sortBy', 'created_at');
+          params.append('sortBy', 'createdAt');
           params.append('order', 'desc');
           break;
       }
@@ -136,8 +141,9 @@ export default function FoodCatalog() {
       setTotalPages(result.pagination?.total_pages || 1);
       setTotalItems(result.pagination?.total_items || result.foods?.length || 0);
       setPersonalFilterApplied(Boolean(result.filters?.personalAllergyFilterApplied));
-    } catch (error) {
+    } catch (error: any) {
       console.error('Lỗi khi tải thực đơn:', error);
+      setFetchError(error?.response?.data?.message || 'Không thể tải danh sách món ăn. Vui lòng thử lại.');
     } finally {
       setIsLoading(false);
     }
@@ -169,7 +175,7 @@ export default function FoodCatalog() {
                 placeholder="Tìm món ăn (tiếng Việt có dấu/không dấu)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 shadow-sm"
+                className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm focus:outline-hidden focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 shadow-xs"
               />
             </div>
 
@@ -185,14 +191,15 @@ export default function FoodCatalog() {
         </div>
 
         {/* Categories Bar & Toggle Loại trừ Dị ứng (FR-CAT-003) */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-white p-3 rounded-2xl border border-slate-200 shadow-xs">
           <div className="flex overflow-x-auto gap-1.5 scrollbar-none pb-1 sm:pb-0">
             {categories.map((category) => (
               <button
                 key={category}
+                type="button"
                 onClick={() => setActiveCategory(category)}
                 className={cn(
-                  'px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all min-h-[38px]',
+                  'px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all min-h-[40px]',
                   activeCategory === category
                     ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -211,7 +218,7 @@ export default function FoodCatalog() {
                   type="checkbox"
                   checked={excludeMyAllergens}
                   onChange={(e) => setExcludeMyAllergens(e.target.checked)}
-                  className="rounded text-orange-500 focus:ring-orange-500"
+                  className="rounded-sm text-orange-500 focus:ring-orange-500"
                 />
                 <ShieldCheck size={16} className="text-orange-600" />
                 <span>Loại trừ dị ứng của tôi</span>
@@ -230,7 +237,11 @@ export default function FoodCatalog() {
           <div className="p-6 bg-white rounded-3xl border border-slate-200 shadow-md space-y-4">
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
               <h3 className="font-bold text-slate-900 text-sm">Bộ lọc nâng cao</h3>
-              <button onClick={() => setShowFiltersModal(false)} className="text-xs text-slate-400 hover:text-slate-600">
+              <button
+                type="button"
+                onClick={() => setShowFiltersModal(false)}
+                className="text-xs text-slate-400 hover:text-slate-600"
+              >
                 Đóng
               </button>
             </div>
@@ -283,29 +294,46 @@ export default function FoodCatalog() {
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
-                  className="w-full px-3 py-2 text-xs border rounded-xl bg-white"
+                  className="w-full px-3 py-2 text-xs border rounded-xl bg-white focus:outline-hidden focus:ring-2 focus:ring-orange-500/20"
                 >
-                  <option value="newest">Mới nhất</option>
+                  <option value="createdAt_desc">Mới nhất (Mặc định)</option>
                   <option value="price_asc">Giá: Thấp đến Cao</option>
                   <option value="price_desc">Giá: Cao đến Thấp</option>
                   <option value="calories_asc">Calo: Ít đến Nhiều</option>
                   <option value="calories_desc">Calo: Nhiều đến Ít</option>
-                  <option value="name">Tên A-Z</option>
+                  <option value="name_asc">Tên A-Z</option>
                 </select>
               </div>
             </div>
           </div>
         )}
 
-        {/* 4 Trạng thái NFR-USA-003: Loading, Empty, Data, Error */}
+        {/* 4 Trạng thái NFR-USA-003: Loading, Error, Empty, Data */}
         {isLoading ? (
           <div className="text-center py-24 space-y-3">
             <RefreshCw className="animate-spin text-orange-500 mx-auto" size={36} />
             <p className="text-slate-500 text-sm font-medium">Đang tải danh sách món ăn dinh dưỡng...</p>
           </div>
+        ) : fetchError ? (
+          /* Trạng thái Lỗi (Error State) kèm nút Thử lại */
+          <div className="py-16 px-4 text-center bg-white rounded-3xl border border-red-200 shadow-xs space-y-4 max-w-lg mx-auto">
+            <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
+              <AlertTriangle size={36} />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-lg font-bold text-slate-900">Không thể tải thực đơn</h3>
+              <p className="text-xs text-red-600 leading-relaxed">{fetchError}</p>
+            </div>
+            <Button
+              onClick={fetchFoods}
+              className="rounded-2xl px-6 min-h-[44px] bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold shadow-md shadow-orange-500/20 inline-flex items-center gap-2"
+            >
+              <RotateCcw size={16} /> Thử lại
+            </Button>
+          </div>
         ) : foodItems.length === 0 ? (
-          /* Trạng thái rỗng (Empty State) */
-          <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 shadow-sm space-y-4">
+          /* Trạng thái Rỗng (Empty State) chỉ khi 200 OK nhưng không có món */
+          <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 shadow-xs space-y-4">
             <XCircle className="mx-auto text-slate-300" size={48} />
             <h3 className="text-xl font-bold text-slate-800">Không tìm thấy món ăn phù hợp</h3>
             <p className="text-slate-400 text-xs max-w-sm mx-auto">
@@ -321,14 +349,15 @@ export default function FoodCatalog() {
                 setMaxCalories('');
                 setMinPrice('');
                 setMaxPrice('');
+                setSortBy('createdAt_desc');
               }}
-              className="min-h-[40px]"
+              className="min-h-[44px] rounded-xl px-5 text-xs font-bold"
             >
               Đặt lại tất cả bộ lọc
             </Button>
           </div>
         ) : (
-          /* Lưới món ăn */
+          /* Lưới món ăn (Data State) */
           <div className="space-y-8">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {foodItems.map((food, index) => {
@@ -343,7 +372,7 @@ export default function FoodCatalog() {
                       initial={{ opacity: 0, y: 15 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: index * 0.03 }}
-                      className="bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 group border border-slate-200/80 flex flex-col h-full relative"
+                      className="bg-white rounded-3xl overflow-hidden shadow-xs hover:shadow-xl transition-all duration-300 group border border-slate-200/80 flex flex-col h-full relative"
                     >
                       {/* Image Thumbnail */}
                       <div className="aspect-[4/3] relative overflow-hidden bg-slate-100">
@@ -358,14 +387,14 @@ export default function FoodCatalog() {
                         />
 
                         {/* Badge Calo */}
-                        <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-sm text-xs font-bold text-slate-800">
+                        <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-xs px-2.5 py-1 rounded-xl flex items-center gap-1 shadow-xs text-xs font-bold text-slate-800">
                           <Flame size={14} className="text-orange-500" />
                           <span>{food.calories || 0} kcal</span>
                         </div>
 
                         {/* Hết hàng badge */}
                         {!inStock && (
-                          <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center">
+                          <div className="absolute inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center">
                             <span className="px-3 py-1 bg-red-600 text-white rounded-full font-bold text-xs uppercase tracking-wider">
                               Hết hàng
                             </span>
@@ -378,7 +407,7 @@ export default function FoodCatalog() {
                         {/* Cảnh báo dị ứng có Icon + Chữ (FR-CAT-004, NFR-LEG-002) */}
                         {hasAllergyWarning && (
                           <div className="p-2 bg-red-50 border border-red-200 rounded-xl flex items-center gap-1.5 text-red-700 text-[11px] font-bold">
-                            <AlertTriangle size={14} className="text-red-600 flex-shrink-0" />
+                            <AlertTriangle size={14} className="text-red-600 shrink-0" />
                             <span className="line-clamp-1">Trùng dị ứng: {matchedAllergens.join(', ')}</span>
                           </div>
                         )}
@@ -416,7 +445,7 @@ export default function FoodCatalog() {
                           <Button
                             size="sm"
                             disabled={!inStock}
-                            className="rounded-xl w-10 h-10 p-0 min-h-[40px] z-10"
+                            className="rounded-xl w-10 h-10 p-0 min-h-[44px] min-w-[44px] z-10"
                             onClick={(e) => {
                               e.preventDefault();
                               addItem(
@@ -447,7 +476,7 @@ export default function FoodCatalog() {
               <div className="flex items-center justify-center gap-4 py-8">
                 <Button
                   variant="outline"
-                  className="rounded-full w-10 h-10 p-0 disabled:opacity-40 min-h-[40px]"
+                  className="rounded-full w-10 h-10 p-0 disabled:opacity-40 min-h-[44px] min-w-[44px]"
                   disabled={page <= 1}
                   onClick={() => setPage((p) => p - 1)}
                   aria-label="Trang trước"
@@ -461,7 +490,7 @@ export default function FoodCatalog() {
 
                 <Button
                   variant="outline"
-                  className="rounded-full w-10 h-10 p-0 disabled:opacity-40 min-h-[40px]"
+                  className="rounded-full w-10 h-10 p-0 disabled:opacity-40 min-h-[44px] min-w-[44px]"
                   disabled={page >= totalPages}
                   onClick={() => setPage((p) => p + 1)}
                   aria-label="Trang sau"
