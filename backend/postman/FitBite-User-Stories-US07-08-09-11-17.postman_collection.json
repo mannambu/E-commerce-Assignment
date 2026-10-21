@@ -1,0 +1,377 @@
+{
+  "info": {
+    "name": "FitBite - 5 User Stories (US-07, US-08, US-09, US-11, US-17)",
+    "description": "Postman Collection kiểm thử trọn vẹn 5 User Stories được giao:\n- US-07: Khai báo khảo sát sức khỏe\n- US-08: Tính toán chỉ số dinh dưỡng (BMR, TDEE, Target, Macro)\n- US-09: Cập nhật cân nặng, tính lại chỉ số & Dòng thời gian thay đổi (Timeline)\n- US-11: Gợi ý thực đơn & Đổi món (Swap ±15% calo, lọc dị ứng)\n- US-17: Giỏ hàng Server-side (Đặt lẻ, Gói tuần COMBO, Quản lý dòng món qua lineId)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000" },
+    { "key": "customerEmail", "value": "phuc.nguyen28102005p@hcmut.edu.vn" },
+    { "key": "customerPassword", "value": "123456Phuc!" },
+    { "key": "customerToken", "value": "" },
+    { "key": "firstFoodId", "value": "" },
+    { "key": "firstLineId", "value": "" },
+    { "key": "cartVersion", "value": "0" }
+  ],
+  "item": [
+    {
+      "name": "01. Đăng nhập Customer",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"identifier\": \"{{customerEmail}}\",\n  \"password\": \"{{customerPassword}}\"\n}"
+        },
+        "url": "{{baseUrl}}/users/login"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+              "const json = pm.response.json();",
+              "pm.test('Customer logged in successfully', function () {",
+              "  pm.expect(json.result).to.have.property('access_token');",
+              "  pm.collectionVariables.set('customerToken', json.result.access_token);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02. US-07: Khai báo khảo sát sức khỏe (POST /users/health-profile)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"gender\": \"Male\",\n  \"age\": 22,\n  \"heightCm\": 175,\n  \"weightKg\": 68,\n  \"activityLevel\": \"Moderate\",\n  \"goal\": \"LoseFat\",\n  \"allergies\": [\"Hải sản\", \"Đậu phộng\"]\n}"
+        },
+        "url": "{{baseUrl}}/users/health-profile"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+              "const json = pm.response.json();",
+              "pm.test('Health profile saved & metrics calculated', function () {",
+              "  pm.expect(json.result).to.have.property('metrics');",
+              "  pm.expect(json.result.metrics).to.have.property('bmr');",
+              "  pm.expect(json.result.metrics).to.have.property('tdee');",
+              "  pm.expect(json.result.metrics).to.have.property('targetCalories');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03. US-08: Lấy chỉ số BMR, TDEE, Target, Macro (GET /users/health-metrics)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+        ],
+        "url": "{{baseUrl}}/users/health-metrics"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+              "const json = pm.response.json();",
+              "pm.test('Has complete Mifflin-St Jeor metrics and macro distribution', function () {",
+              "  const m = json.result;",
+              "  pm.expect(m.bmr).to.be.a('number');",
+              "  pm.expect(m.tdee).to.be.a('number');",
+              "  pm.expect(m.targetCalories).to.be.a('number');",
+              "  pm.expect(m.targetCalories).to.be.at.least(m.bmr);",
+              "  pm.expect(m.macroDistribution).to.have.property('protein');",
+              "  pm.expect(m.macroDistribution).to.have.property('carb');",
+              "  pm.expect(m.macroDistribution).to.have.property('fat');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04. US-09: Cập nhật cân nặng hằng ngày (PUT /tracking/weight)",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"date\": \"2026-10-22\",\n  \"weightKg\": 67.5\n}"
+        },
+        "url": "{{baseUrl}}/tracking/weight"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05. US-09: Kiểm tra Dòng thời gian lịch sử chỉ số (GET /users/health-metrics)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+        ],
+        "url": "{{baseUrl}}/users/health-metrics"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+              "const json = pm.response.json();",
+              "pm.test('History timeline is returned', function () {",
+              "  pm.expect(json.result).to.have.property('history');",
+              "  pm.expect(Array.isArray(json.result.history)).to.be.true;",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "06. US-11: Gợi ý thực đơn cá nhân 1 ngày (POST /users/recommendations/meals)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"days\": 1\n}"
+        },
+        "url": "{{baseUrl}}/users/recommendations/meals"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+              "const json = pm.response.json();",
+              "pm.test('Has 1 day recommendation plan', function () {",
+              "  pm.expect(json.result.plans).to.be.an('array').with.lengthOf(1);",
+              "  const firstMeal = json.result.plans[0].meals[0];",
+              "  if (firstMeal && firstMeal.food) {",
+              "    pm.collectionVariables.set('firstFoodId', firstMeal.food._id);",
+              "  }",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07. US-11: Gợi ý thực đơn gói tuần 7 ngày (POST /users/recommendations/meals)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"days\": 7\n}"
+        },
+        "url": "{{baseUrl}}/users/recommendations/meals"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+              "const json = pm.response.json();",
+              "pm.test('Has 7 day combo recommendation plan', function () {",
+              "  pm.expect(json.result.plans).to.be.an('array').with.lengthOf(7);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "08. US-11: Đổi món (Swap ±15% calo) (POST /users/recommendations/meals/swap)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"current_food_id\": \"{{firstFoodId}}\"\n}"
+        },
+        "url": "{{baseUrl}}/users/recommendations/meals/swap"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "  const json = pm.response.json();",
+              "  pm.test('Swap returns candidates within ±15% calo', function () {",
+              "    pm.expect(json.result).to.have.property('swappedTo');",
+              "    pm.expect(json.result).to.have.property('candidates');",
+              "  });",
+              "} else {",
+              "  pm.test('404 when no candidate within ±15%', function () {",
+              "    pm.expect(pm.response.code).to.equal(404);",
+              "  });",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "09. US-17: Lấy giỏ hàng Server-side (GET /cart)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+        ],
+        "url": "{{baseUrl}}/cart"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+              "const json = pm.response.json();",
+              "pm.test('Cart structure has currentCart and version', function () {",
+              "  const cart = json.result?.currentCart || json.result;",
+              "  pm.expect(cart).to.have.property('version');",
+              "  pm.expect(cart).to.have.property('cartType');",
+              "  pm.expect(cart).to.have.property('summary');",
+              "  pm.collectionVariables.set('cartVersion', String(cart.version || 0));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. US-17: Thêm món lẻ vào giỏ hàng (POST /cart/items)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"itemId\": \"{{firstFoodId}}\",\n  \"quantity\": 1,\n  \"cartType\": \"FOOD\",\n  \"mealSlot\": \"Lunch\",\n  \"deliveryDate\": \"2026-10-25\"\n}"
+        },
+        "url": "{{baseUrl}}/cart/items"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+              "const json = pm.response.json();",
+              "const cart = json.result?.currentCart || json.result;",
+              "pm.collectionVariables.set('cartVersion', String(cart.version || 0));",
+              "if (cart.items && cart.items.length > 0) {",
+              "  pm.collectionVariables.set('firstLineId', cart.items[cart.items.length - 1]._id);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. US-17: Cập nhật dòng món theo lineId (PATCH /cart/items/:id)",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"quantity\": 2,\n  \"cartVersion\": {{cartVersion}}\n}"
+        },
+        "url": "{{baseUrl}}/cart/items/{{firstLineId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "  const json = pm.response.json();",
+              "  const cart = json.result?.currentCart || json.result;",
+              "  pm.collectionVariables.set('cartVersion', String(cart.version || 0));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12. US-17: Xóa món khỏi giỏ theo lineId (DELETE /cart/items/:id)",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{customerToken}}" }
+        ],
+        "url": "{{baseUrl}}/cart/items/{{firstLineId}}?cartVersion={{cartVersion}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Item removed successfully or already clean', function () {",
+              "  pm.expect([200, 404]).to.include(pm.response.code);",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

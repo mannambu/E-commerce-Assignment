@@ -121,9 +121,12 @@ export default function UserMenu() {
       const status = err.response?.status;
       const msg = err.response?.data?.message || '';
 
-      if (status === 400 && msg.includes('hồ sơ sức khỏe')) {
-        // FR-HLT-004: Chưa có hồ sơ sức khỏe -> chuyển hướng về /health-survey
-        navigate('/health-survey', { replace: true });
+      if (status === 400 && (msg.includes('hồ sơ sức khỏe') || msg.includes('HEALTH_PROFILE'))) {
+        // FR-HLT-004: Chưa có hồ sơ sức khỏe -> chuyển hướng về /health-survey kèm banner thông báo
+        navigate('/health-survey', {
+          replace: true,
+          state: { notice: 'Vui lòng hoàn thành khảo sát sức khỏe trước khi xem thực đơn gợi ý.' }
+        });
         return;
       } else if (status === 404 || msg.includes('Không tìm thấy món ăn')) {
         // FR-MNU-006: Quá ít món hợp
@@ -139,8 +142,15 @@ export default function UserMenu() {
   };
 
   useEffect(() => {
+    if (user && !user.healthProfile) {
+      navigate('/health-survey', {
+        replace: true,
+        state: { notice: 'Vui lòng hoàn thành khảo sát sức khỏe trước khi xem thực đơn gợi ý.' }
+      });
+      return;
+    }
     fetchRecommendations(activeTab === 'today' ? 1 : 7);
-  }, [activeTab]);
+  }, [activeTab, user]);
 
   const currentPlan: DayPlan | undefined =
     activeTab === 'today'

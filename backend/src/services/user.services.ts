@@ -117,9 +117,14 @@ class UsersService {
         (a, b) => Math.abs(a.calories - slotTargetCalories) - Math.abs(b.calories - slotTargetCalories)
       )
 
-      // Chọn ngẫu nhiên trong nhóm ứng viên phù hợp nhất (top 3) để đa dạng hóa khi làm mới
-      const topPoolSize = Math.min(3, sorted.length)
-      const topPool = sorted.slice(0, topPoolSize)
+      // Lọc các món gần mục tiêu calo nhất (trong khoảng ±20% hoặc top 4-5 món gần nhất) để tăng tối đa tính đa dạng khi làm mới
+      const closeCandidates = sorted.filter(
+        (f) => Math.abs(f.calories - slotTargetCalories) <= slotTargetCalories * 0.2
+      )
+      const topPool =
+        closeCandidates.length >= 2
+          ? closeCandidates.slice(0, 5)
+          : sorted.slice(0, Math.min(4, sorted.length))
       const selected = topPool[Math.floor(Math.random() * topPool.length)] || sorted[0]
 
       if (selected?._id) {
@@ -905,7 +910,21 @@ class UsersService {
       })
     }
 
-    return user.healthProfile
+    const logs = await databaseService.dailyHealthLogs
+      .find(
+        { userId: new ObjectId(user_id), 'profileChanges.0': { $exists: true } },
+        { projection: { profileChanges: 1 } }
+      )
+      .toArray()
+
+    const history = logs
+      .flatMap((log) => log.profileChanges || [])
+      .sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime())
+
+    return {
+      ...user.healthProfile,
+      history
+    }
   }
 
   async recommendMeals(user_id: string, days: 1 | 7 = 1) {
@@ -1032,7 +1051,13 @@ class UsersService {
       .toArray()
 
     const allowedCandidates = candidates.filter((food) => this.isFoodAllowed(food, restrictions))
-    const sortedCandidates = [...allowedCandidates].sort(
+    // Lọc theo ngưỡng calo ±15% so với calo món ban đầu/mong đợi (AC 1 & AC 3 US-11)
+    const calorieBound = expectedCalories * 0.15
+    const withinCalorieBounds = allowedCandidates.filter(
+      (food) => Math.abs(food.calories - expectedCalories) <= calorieBound
+    )
+
+    const sortedCandidates = [...withinCalorieBounds].sort(
       (a, b) => Math.abs(a.calories - expectedCalories) - Math.abs(b.calories - expectedCalories)
     )
     const nextFood = sortedCandidates[0]
@@ -1058,7 +1083,7 @@ class UsersService {
         nutrition: nextFood.nutrition,
         images: nextFood.images
       },
-      candidates: sortedCandidates.slice(0, 10).map((f) => ({
+      candidates: sortedCandidates.slice(0, 5).map((f) => ({
         _id: f._id,
         name: f.name,
         calories: f.calories,

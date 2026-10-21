@@ -22,6 +22,12 @@ export interface UserAddress {
   isDefault: boolean;
 }
 
+export interface HealthProfileHistoryItem {
+  changedAt: string | Date;
+  reason: 'InitialSurvey' | 'ProfileUpdate' | 'WeightUpdate' | string;
+  profileSnapshot: Partial<UserHealthProfile>;
+}
+
 export interface UserHealthProfile {
   gender: 'Male' | 'Female';
   age: number;
@@ -43,6 +49,7 @@ export interface UserHealthProfile {
   };
   version?: number;
   calculatedAt?: string | Date;
+  history?: HealthProfileHistoryItem[];
 }
 
 export interface User {

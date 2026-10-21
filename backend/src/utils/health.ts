@@ -22,10 +22,32 @@ export function calculateHealthMetrics(profile: {
   activityLevel: ActivityLevel
   goal: HealthGoal
 }) {
+  if (
+    !profile ||
+    (profile.gender !== 'Male' && profile.gender !== 'Female') ||
+    profile.age === undefined ||
+    profile.age === null ||
+    !Number.isFinite(Number(profile.age)) ||
+    profile.heightCm === undefined ||
+    profile.heightCm === null ||
+    !Number.isFinite(Number(profile.heightCm)) ||
+    profile.weightKg === undefined ||
+    profile.weightKg === null ||
+    !Number.isFinite(Number(profile.weightKg)) ||
+    !profile.activityLevel ||
+    !profile.goal
+  ) {
+    throw new Error('Chưa đủ dữ liệu để tính chỉ số')
+  }
+
+  const age = Number(profile.age)
+  const heightCm = Number(profile.heightCm)
+  const weightKg = Number(profile.weightKg)
+
   const bmrRaw =
     profile.gender === 'Male'
-      ? 10 * profile.weightKg + 6.25 * profile.heightCm - 5 * profile.age + 5
-      : 10 * profile.weightKg + 6.25 * profile.heightCm - 5 * profile.age - 161
+      ? 10 * weightKg + 6.25 * heightCm - 5 * age + 5
+      : 10 * weightKg + 6.25 * heightCm - 5 * age - 161
 
   const activityMultiplier = ACTIVITY_MULTIPLIERS[profile.activityLevel] ?? 1.2
   const tdeeRaw = bmrRaw * activityMultiplier

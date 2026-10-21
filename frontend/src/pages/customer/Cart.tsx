@@ -20,6 +20,13 @@ import { useCart } from '@/context/CartContext';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 
+const MEAL_SLOT_LABELS: Record<string, string> = {
+  Breakfast: 'Bữa sáng',
+  Lunch: 'Bữa trưa',
+  Dinner: 'Bữa tối',
+  Snack: 'Bữa phụ'
+};
+
 export default function Cart() {
   const {
     items,
@@ -156,6 +163,17 @@ export default function Cart() {
                 const quantity = item.quantity ?? (item as any).qty ?? 1;
                 const lineTotal = item.lineTotal ?? unitPrice * quantity;
                 const hasAllergyMatch = item.allergyWarning?.hasMatch;
+                const mealSlotLabel = item.mealSlot ? MEAL_SLOT_LABELS[item.mealSlot] || item.mealSlot : null;
+                const isInactive = item.availability?.isActive === false;
+                const isOutOfStock =
+                  item.availability?.inStock === false ||
+                  (item.availability && item.availability.availableQuantity <= 0);
+                const isLowStock =
+                  item.availability &&
+                  item.availability.inStock &&
+                  item.availability.availableQuantity > 0 &&
+                  item.availability.availableQuantity < 5;
+                const lineIssue = issues.find((i) => i.lineId === lineId);
 
                 return (
                   <motion.div
@@ -176,6 +194,26 @@ export default function Cart() {
                     <div className="flex-1 min-w-0 space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-bold text-gray-900 text-base">{itemName}</h3>
+                        {mealSlotLabel && (
+                          <span className="px-2 py-0.5 bg-orange-100 text-orange-800 text-[11px] font-bold rounded-md">
+                            {mealSlotLabel}
+                          </span>
+                        )}
+                        {isInactive && (
+                          <span className="px-2 py-0.5 bg-rose-100 text-rose-700 text-[11px] font-bold rounded-md flex items-center gap-1 border border-rose-200">
+                            <AlertTriangle size={12} /> Ngừng bán
+                          </span>
+                        )}
+                        {!isInactive && isOutOfStock && (
+                          <span className="px-2 py-0.5 bg-red-100 text-red-700 text-[11px] font-bold rounded-md flex items-center gap-1 border border-red-200">
+                            <AlertTriangle size={12} /> Hết hàng
+                          </span>
+                        )}
+                        {!isInactive && !isOutOfStock && isLowStock && (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[11px] font-bold rounded-md border border-amber-200">
+                            Chỉ còn {item.availability!.availableQuantity} phần
+                          </span>
+                        )}
                         {hasAllergyMatch && (
                           <span className="px-2 py-0.5 bg-red-100 text-red-700 text-[11px] font-bold rounded-md flex items-center gap-1 border border-red-200">
                             <AlertTriangle size={12} /> Trùng dị ứng
@@ -205,6 +243,12 @@ export default function Cart() {
                       <p className="text-xs font-black text-gray-800 pt-0.5">
                         Thành tiền: {lineTotal.toLocaleString('vi-VN')}đ
                       </p>
+
+                      {lineIssue && (
+                        <p className="text-xs text-rose-600 font-semibold flex items-center gap-1 pt-0.5">
+                          <AlertTriangle size={12} /> {lineIssue.message}
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between w-full sm:w-auto gap-4 pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100">
@@ -284,6 +328,18 @@ export default function Cart() {
                   </span>
                 </div>
               </div>
+
+              {/* Combo Shipping Policy Note (US-17) */}
+              {cartType === 'COMBO' && (
+                <div className="p-3.5 rounded-2xl bg-blue-50 border border-blue-200 text-xs text-blue-800 space-y-1">
+                  <p className="font-bold flex items-center gap-1.5 text-blue-900">
+                    <Sparkles size={14} className="text-blue-600" /> Chính sách phí ship Gói tuần (COMBO):
+                  </p>
+                  <p className="leading-relaxed text-blue-700">
+                    Chỉ tính phí vận chuyển cho ngày giao đầu tiên. Miễn phí vận chuyển cho 6 ngày còn lại của gói tuần!
+                  </p>
+                </div>
+              )}
 
               {/* Delivery & Payment Badges */}
               <div className="space-y-2.5 pt-2">

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import {
   ChevronRight,
   ChevronLeft,
@@ -17,6 +17,7 @@ import {
   Calendar,
   Utensils,
   ArrowLeft,
+  History,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -67,6 +68,8 @@ const COMMON_ALLERGENS = [
 export default function HealthSurvey() {
   const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const noticeBanner = (location.state as any)?.notice;
 
   // Mode: 'survey' (WF-06) hoặc 'metrics' (WF-07 Thẻ chỉ số)
   const [viewMode, setViewMode] = useState<'survey' | 'metrics'>('survey');
@@ -246,6 +249,13 @@ export default function HealthSurvey() {
       <Navbar />
 
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+        {noticeBanner && (
+          <div className="mb-6 p-4 bg-orange-50 border-2 border-orange-200 rounded-2xl flex items-center gap-3 text-orange-900 text-sm font-semibold shadow-xs">
+            <Info className="w-5 h-5 text-orange-600 shrink-0" />
+            <span>{noticeBanner}</span>
+          </div>
+        )}
+
         {viewMode === 'metrics' && metrics ? (
           /* ==================== MÀN HÌNH WF-07: THẺ CHỈ SỐ SỨC KHỎE ==================== */
           <motion.div
@@ -375,6 +385,94 @@ export default function HealthSurvey() {
                 <span>
                   <strong>Đã lọc các thành phần dị ứng:</strong> {metrics.allergies.join(', ')}
                 </span>
+              </div>
+            )}
+
+            {/* Dòng thời gian lịch sử thay đổi chỉ số (US-09) */}
+            {metrics.history && metrics.history.length > 0 && (
+              <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-4">
+                <h3 className="font-black text-slate-900 text-lg flex items-center gap-2">
+                  <History className="text-orange-500" size={20} />
+                  <span>Dòng thời gian lịch sử thay đổi chỉ số (WF-07)</span>
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Ghi nhận các lần cập nhật mục tiêu sức khỏe hoặc số đo cân nặng từ nhật ký cá nhân
+                </p>
+
+                <div className="divide-y divide-slate-100 overflow-hidden">
+                  {metrics.history.map((item, idx) => {
+                    const snap = item.profileSnapshot || {};
+                    const dateFormatted = item.changedAt
+                      ? new Date(item.changedAt).toLocaleString('vi-VN', {
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : 'Không xác định';
+
+                    const reasonLabel =
+                      item.reason === 'InitialSurvey'
+                        ? 'Khảo sát ban đầu'
+                        : item.reason === 'WeightUpdate'
+                        ? 'Cập nhật cân nặng'
+                        : 'Cập nhật mục tiêu / hồ sơ';
+
+                    const goalLabel =
+                      snap.goal === 'LoseFat'
+                        ? 'Giảm cân'
+                        : snap.goal === 'GainMuscle'
+                        ? 'Tăng cơ'
+                        : snap.goal === 'MaintainWeight'
+                        ? 'Duy trì'
+                        : snap.goal || '-';
+
+                    return (
+                      <div key={idx} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                        <div className="flex items-start sm:items-center gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0 font-bold">
+                            #{metrics.history!.length - idx}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-slate-900 text-sm">{reasonLabel}</span>
+                              <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold text-[11px]">
+                                {dateFormatted}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 text-slate-500 mt-1 flex-wrap">
+                              {snap.weightKg && <span>Cân nặng: <strong className="text-slate-700">{snap.weightKg} kg</strong></span>}
+                              {snap.goal && <span>Mục tiêu: <strong className="text-slate-700">{goalLabel}</strong></span>}
+                              {snap.activityLevel && <span>Vận động: <strong className="text-slate-700">{snap.activityLevel}</strong></span>}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 sm:text-right shrink-0 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                          {snap.bmr && (
+                            <div>
+                              <span className="text-[10px] uppercase font-bold text-slate-400 block">BMR</span>
+                              <span className="font-bold text-slate-700">{snap.bmr} kcal</span>
+                            </div>
+                          )}
+                          {snap.tdee && (
+                            <div>
+                              <span className="text-[10px] uppercase font-bold text-slate-400 block">TDEE</span>
+                              <span className="font-bold text-slate-700">{snap.tdee} kcal</span>
+                            </div>
+                          )}
+                          {snap.targetCalories && (
+                            <div>
+                              <span className="text-[10px] uppercase font-bold text-orange-500 block">Target</span>
+                              <span className="font-black text-orange-600">{snap.targetCalories} kcal</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 

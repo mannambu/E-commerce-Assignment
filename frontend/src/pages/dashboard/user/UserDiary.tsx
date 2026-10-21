@@ -201,8 +201,8 @@ export default function UserDiary() {
       const daysDiff =
         Math.abs(new Date(weightDate).getTime() - new Date(latestWeight.date).getTime()) / (1000 * 3600 * 24);
 
-      // Fluctuation threshold: > 5% within 7 days or > 3kg within 7 days
-      if (daysDiff <= 7 && (percentDiff > 5 || diffKg > 3)) {
+      // Fluctuation threshold: > 5% within 7 days, > 3kg within 7 days, hoặc biến động đột ngột >= 10kg (US-09)
+      if ((daysDiff <= 7 && (percentDiff > 5 || diffKg > 3)) || diffKg >= 10) {
         setFluctuationAlert({
           diffKg: Number(diffKg.toFixed(1)),
           percentDiff: Number(percentDiff.toFixed(1)),
