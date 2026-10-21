@@ -97,8 +97,10 @@ export default function Login() {
           navigate('/workspace/delivery', { replace: true });
           break;
         case 'Customer':
+          navigate('/dashboard/user', { replace: true });
+          break;
         default:
-          navigate('/', { replace: true });
+          setError('root', { message: 'Vai trò tài khoản không được hỗ trợ.' });
           break;
       }
     } catch (err: any) {
