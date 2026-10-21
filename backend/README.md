@@ -22,6 +22,7 @@ Tạo file `.env` trong thư mục `backend`.
 
 ```env
 PORT=4000
+CORS_ORIGINS=http://localhost:3000
 
 DB_URI="mongodb+srv://<USER>:<PASSWORD>@<HOST_CLUSTER>/?retryWrites=true&w=majority"
 DB_NAME=fitbite_v2_dev
@@ -131,8 +132,10 @@ backend/
 
 ## CORS
 
-Backend đang cho phép các origin:
+Backend đọc danh sách origin từ `CORS_ORIGINS`, phân tách bằng dấu phẩy. Nếu không khai báo thì chỉ cho phép `http://localhost:3000`.
 
-- `http://localhost:3000`
-- `https://e-commerce-mauve-xi.vercel.app`
-- `https://e-commerce-git-haobranch-phongwd2311s-projects.vercel.app`
+Khi deploy, đặt `CORS_ORIGINS=https://<frontend-moi>.vercel.app`. Thêm từng domain preview nếu cần; không dùng wildcard.
+
+Đường dẫn `GET /health` trả về `{ "status": "ok" }` sau khi server khởi động thành công. Đây là kiểm tra tiến trình HTTP, không phải kiểm tra kết nối DB liên tục.
+
+Xem [hướng dẫn deploy mới lên Render và Vercel](../docs/deployment.md).

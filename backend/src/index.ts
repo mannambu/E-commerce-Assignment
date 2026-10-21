@@ -19,11 +19,10 @@ import { startNotificationEmailJob } from './jobs/notification-email.jobs'
 config()
 // Index được chuẩn bị riêng bằng npm run schema:indexes; startup không sửa DB cũ.
 const app = express()
-const allowedOrigins = [
-  'http://localhost:3000',
-  'https://e-commerce-mauve-xi.vercel.app',
-  'https://e-commerce-git-haobranch-phongwd2311s-projects.vercel.app'
-]
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000')
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/+$/, ''))
+  .filter(Boolean)
 
 app.use(
   cors({
@@ -43,6 +42,9 @@ const port = process.env.PORT || 4000
 
 // Tạo folder upload
 app.use(express.json())
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' })
+})
 app.use('/users', usersRouter)
 app.use('/cart', cartRouter)
 app.use('/orders', ordersRouter)
