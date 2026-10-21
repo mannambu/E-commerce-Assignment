@@ -2,9 +2,9 @@ import { useState, type FormEvent } from 'react';
 import AdminPage, { AdminModal, Notice, actionClass, fieldClass, panelClass, secondaryClass, useAdminResource } from '@/components/dashboard/AdminPage';
 import { type AdminOrder, type Delivery, type OrderStatus, orderStatuses, statusLabels, paymentLabels, nextDeliveryStatus, dateTime, localDate, money, apiError } from '@/lib/admin';
 import api from '@/services/api';
+import { cancellationPreviewError, weeklyStatusBlockReason, type CancellationPreview } from '@/lib/admin-orders';
 
 type ExceptionAction = { kind: 'status' | 'cancel'; delivery?: Delivery; next?: OrderStatus; };
-type CancellationPreview = { version: number; foodCredit: number; shippingCredit: number; creditedAmount: number; refundAmount: number; remainingPayable: number; cutoffAt: string; };
 
 function OrderDetail({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void; }) {
   const resource = useAdminResource<AdminOrder>('/orders/' + id);
@@ -15,11 +15,18 @@ function OrderDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
   const [success, setSuccess] = useState('');
   const [busy, setBusy] = useState(false);
   const preview = useAdminResource<CancellationPreview>(action?.kind === 'cancel' && action.delivery ? '/orders/' + id + '/deliveries/' + action.delivery._id + '/cancellation' : null);
+  const previewIssue = action?.kind === 'cancel' && action.delivery && order && preview.data
+    ? cancellationPreviewError(order, action.delivery, preview.data) : null;
   const choose = (value: ExceptionAction) => { setAction(value); setReason(''); setError(''); setSuccess(''); };
   const submit = async (event: FormEvent) => {
     event.preventDefault(); if (!action || !order || busy) return;
-    if (reason.trim().length < 3) { setError('Nhập lý do can thiệp từ 3 đến 300 ký tự.'); return; }
-    if (action.kind === 'cancel' && action.delivery && !preview.data) return;
+    if (reason.trim().length < 3 || reason.trim().length > 300) { setError('Nhập lý do can thiệp từ 3 đến 300 ký tự.'); return; }
+    if (action.delivery) {
+      const issue = action.kind === 'cancel'
+        ? cancellationPreviewError(order, action.delivery, preview.data)
+        : weeklyStatusBlockReason(order, action.delivery);
+      if (issue) { setError(issue); return; }
+    }
     setBusy(true); setError('');
     try {
       const path = '/orders/' + id + (action.delivery ? '/deliveries/' + action.delivery._id : '');
@@ -36,7 +43,7 @@ function OrderDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
       setError(apiError(err));
       if ((err as { response?: { status?: number; }; }).response?.status === 409) {
         setAction(null); resource.reload(); onChanged();
-        setError('Đơn đã thay đổi. Dữ liệu đang được tải lại; hãy kiểm tra trước khi chọn lại thao tác.');
+        setError(apiError(err) + ' Dữ liệu đang được tải lại; hãy kiểm tra trước khi chọn lại thao tác.');
       }
     } finally { setBusy(false); }
   };
@@ -161,8 +168,11 @@ function OrderDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
 
           {nextDeliveryStatus(day.status) && <button
             className={secondaryClass}
-            disabled={busy}
+            disabled={busy || !!weeklyStatusBlockReason(order, day)}
+            title={weeklyStatusBlockReason(order, day) || undefined}
             onClick={() => choose({ kind: 'status', delivery: day, next: nextDeliveryStatus(day.status) })}>Ngoại lệ: chuyển sang {statusLabels[nextDeliveryStatus(day.status)!]}</button>}
+
+          {nextDeliveryStatus(day.status) && weeklyStatusBlockReason(order, day) && <p className="w-full text-xs text-gray-500">{weeklyStatusBlockReason(order, day)}</p>}
 
           {['Pending', 'Confirmed'].includes(order.status) && ['Pending', 'Confirmed'].includes(day.status) && day.cutoffAt && new Date(day.cutoffAt).getTime() > Date.now() && <button className={secondaryClass + ' text-red-600'} disabled={busy} onClick={() => choose({ kind: 'cancel', delivery: day })}>Ngoại lệ: hủy ngày giao</button>}
         </div>}
@@ -189,6 +199,8 @@ function OrderDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
           {preview.error && <Notice error>
             {preview.error}
           </Notice>}
+          {previewIssue && <Notice error>{previewIssue}</Notice>}
+          <button type="button" className={secondaryClass} disabled={busy || preview.loading} onClick={preview.reload}>Tải lại bản xem trước</button>
           {preview.data && <div className="text-sm space-y-1">
             <p>Giảm tiền món: {money(preview.data.foodCredit)} · Phí giao: {money(preview.data.shippingCredit)}</p>
             <p>Yêu cầu hoàn: <strong>
@@ -210,7 +222,7 @@ function OrderDetail({ id, onClose, onChanged }: { id: string; onClose: () => vo
         <div className="flex gap-3">
           <button
             className={actionClass}
-            disabled={busy || (action.kind === 'cancel' && !!action.delivery && (!preview.data || preview.loading))}>
+            disabled={busy || (action.kind === 'cancel' && !!action.delivery && (!preview.data || preview.loading || !!previewIssue))}>
             {busy ? 'Đang xử lý...' : 'Xác nhận can thiệp'}
           </button>
           <button type="button" className={secondaryClass} disabled={busy} onClick={() => setAction(null)}>Bỏ qua</button>

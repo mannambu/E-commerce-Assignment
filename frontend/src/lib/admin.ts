@@ -49,5 +49,6 @@ export type AdminOrder = {
   packageType: 'ONE_DAY' | 'WEEKLY_7D'; createdAt: string; deliveryAddress: string; note?: string;
   subtotal: number; shippingFee: number; grandTotal: number; deliveries: Delivery[];
   payment: { method: string; status: string; paidAmount?: number; refundedAmount?: number; };
+  inventoryHold?: { status: 'NotReserved' | 'Held' | 'Committed' | 'Released'; };
   amounts?: { payableTotal: number; paidAmount: number; refundedAmount: number; pendingRefundAmount: number; amountDue: number; };
 };

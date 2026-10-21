@@ -28,7 +28,7 @@ export default function AdminMenu() {
     event.preventDefault(); if (busy || uploading) return;
     setBusy(true); setFormError('');
     try {
-      const payload = foodPayload(form);
+      const payload = foodPayload(form, editing?.reservedStock ?? 0);
       if (editing) await api.patch('/foods/' + editing._id, payload);
       else await api.post('/foods', { ...payload, isActive: true });
       setEditing(undefined); setSuccess('Đã lưu món ăn.'); resource.reload();
@@ -188,7 +188,7 @@ export default function AdminMenu() {
             <input
               required
               type="number"
-              min={key === 'price' ? '0.01' : '0'}
+              min={key === 'price' ? '0.01' : key === 'stock' ? editing?.reservedStock ?? 0 : 0}
               step={key === 'stock' ? '1' : 'any'}
               className={fieldClass}
               value={form[key]}

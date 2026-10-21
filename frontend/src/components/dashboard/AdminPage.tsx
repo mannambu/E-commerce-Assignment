@@ -11,25 +11,27 @@ export const actionClass = 'inline-flex items-center justify-center gap-2 rounde
 export const secondaryClass = 'inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed';
 
 export function useAdminResource<T>(url: string | null) {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
+  const [result, setResult] = useState<{
+    url: string | null; revision: number; data: T | null; loading: boolean; error: string;
+  } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    setData(null); setError('');
-    if (!url) { setLoading(false); return; }
-    setLoading(true);
+    setResult({ url, revision, data: null, loading: !!url, error: '' });
+    if (!url) return;
     api.get(url, { signal: controller.signal }).then(res => {
-      if (!controller.signal.aborted) setData(res.data.result);
+      if (!controller.signal.aborted) setResult({ url, revision, data: res.data.result, loading: false, error: '' });
     }).catch(err => {
-      if (!controller.signal.aborted) setError(apiError(err));
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false);
+      if (!controller.signal.aborted) setResult({ url, revision, data: null, loading: false, error: apiError(err) });
     });
     return () => controller.abort();
   }, [url, revision]);
-  return { data, loading, error, reload: () => setRevision(value => value + 1) };
+  // Never expose a previous request's data while a new URL/reload is rendering.
+  const current = result?.url === url && result.revision === revision ? result : null;
+  return {
+    data: current?.data ?? null, loading: current?.loading ?? !!url,
+    error: current?.error ?? '', reload: () => setRevision(value => value + 1)
+  };
 }
 
 export default function AdminPage({ title, children, loading = false, error, onReload }: {

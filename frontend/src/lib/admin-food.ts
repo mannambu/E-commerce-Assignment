@@ -21,12 +21,13 @@ export function foodToForm(food?: FoodItem): FoodForm {
     ingredients: food?.ingredients.map(item => ({ name: item.name, allergyTags: item.allergyTags.join(', ') })) || [{ name: '', allergyTags: '' }]
   };
 }
-export function foodPayload(form: FoodForm) {
+export function foodPayload(form: FoodForm, reservedStock = 0) {
   if (!form.name.trim() || !form.description.trim()) throw new Error('Tên món và mô tả không được để trống.');
   const numeric = ['price', 'calories', 'stock', 'protein', 'carb', 'fat'] as const;
   if (numeric.some(key => !form[key].trim() || !Number.isFinite(Number(form[key])) || Number(form[key]) < 0)) throw new Error('Giá, calo, tồn kho và dinh dưỡng phải là số không âm.');
   if (Number(form.price) <= 0) throw new Error('Giá phải lớn hơn 0.');
   if (!Number.isSafeInteger(Number(form.stock))) throw new Error('Tồn kho phải là số nguyên không âm.');
+  if (Number(form.stock) < reservedStock) throw new Error(`Tồn kho tổng không được thấp hơn ${reservedStock} phần đang giữ cho đơn chờ.`);
   const images = form.images.split('\n').map(value => value.trim()).filter(Boolean);
   if (!images.length) throw new Error('Cần ít nhất một ảnh món ăn.');
   if (!form.ingredients.length || form.ingredients.some(item => !item.name.trim())) throw new Error('Cần nhập tên cho từng nguyên liệu.');
