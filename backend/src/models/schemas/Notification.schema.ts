@@ -14,5 +14,14 @@ export default interface Notification {
   entityId?: ObjectId
   eventKey?: string // Stable event key prevents duplicate notifications on webhook/job retries.
   readAt?: Date
+  email?: {
+    status: 'Pending' | 'Sending' | 'Sent' | 'Failed'
+    attempts: number
+    nextAttemptAt: Date
+    leaseUntil?: Date
+    lockToken?: ObjectId
+    sentAt?: Date // SMTP accepted the message; not proof of inbox delivery.
+    lastErrorCode?: 'SMTP_ERROR' | 'RECIPIENT_UNAVAILABLE' | 'DELIVERY_UNKNOWN'
+  }
   createdAt?: Date
 }

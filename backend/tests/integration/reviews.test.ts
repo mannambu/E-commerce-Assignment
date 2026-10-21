@@ -247,6 +247,7 @@ test('reviews by Completed delivery and food', { timeout: 180000 }, async (t) =>
       assert.equal(notices.length, 1)
       assert.equal(String(notices[0].userId), uid())
       assert.equal(notices[0].message, 'Violation')
+      assert.equal(notices[0].email!.status, 'Pending')
       await assertRating(f.foods[0]._id!, 0, 0)
       assert.deepEqual((await api(`/Food/${f.foods[0]._id}`)).body.result, [])
       assert.equal((await api('', 'POST', f.payload())).status, 409)

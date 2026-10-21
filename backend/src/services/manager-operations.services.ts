@@ -7,6 +7,7 @@ import { AccountStatus, UserRole } from '~/models/schemas/User.schema'
 import { aggregateOrderStatus } from '~/utils/order-status'
 import database from './database.services'
 import { codDayLedger, readCODLedger, refreshCODSummary } from './cod-ledger.services'
+import { pendingNotificationEmail } from '~/utils/notification-email'
 
 export const FAILED_TIMEOUT_MS = 24 * 60 * 60 * 1000
 
@@ -448,8 +449,9 @@ class ManagerOperationsService {
         entityType: 'Order',
         entityId: order._id,
         eventKey: `manager-operation:${order._id}:${order.version}`,
+        email: pendingNotificationEmail(now),
         title: action === 'CODReconciled' ? 'Đã ghi nhận đối soát COD' : 'Đã xử lý giao thất bại',
-        message: `Đơn ${order.orderCode}, ngày ${day.date}, trạng thái ${day.status}: ${reason}`,
+        message: `Đơn ${order.orderCode}, ngày ${day.date}, trạng thái ${day.status}: ${reason}${action === 'DeliveryFailureResolved' && day.status === 'Cancelled' ? '. Nếu có khoản đã thu cần hoàn, khoản đó được xử lý riêng; email này không xác nhận tiền đã hoàn.' : ''}`,
         createdAt: now
       },
       { session }

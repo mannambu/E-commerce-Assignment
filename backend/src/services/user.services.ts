@@ -33,6 +33,7 @@ import User, {
 import databaseService from '~/services/database.services'
 import { hashPassword, hashToken, isLegacyPassword, verifyPassword } from '~/utils/crypto'
 import emailService from './email.services'
+import { pendingNotificationEmail } from '~/utils/notification-email'
 import { signToken, verifyToken } from '~/utils/jwt'
 import trackingService from './tracking.services'
 import { calculateHealthMetrics } from '~/utils/health'
@@ -719,6 +720,22 @@ class UsersService {
           after: { account_status: status, locked_until: null },
           reason: reason.trim(),
           createdAt: new Date()
+        },
+        { session }
+      )
+      const notifiedAt = new Date()
+      await databaseService.notifications.insertOne(
+        {
+          userId,
+          type: 'Account',
+          priority: 'Urgent',
+          entityType: 'User',
+          entityId: userId,
+          eventKey: `account-status:${userId}:${(user.tokenVersion || 0) + 1}`,
+          title: status === AccountStatus.LOCKED ? 'Tài khoản đã bị khóa' : 'Tài khoản đã được mở khóa',
+          message: `Tài khoản của bạn đã được Admin ${status === AccountStatus.LOCKED ? 'khóa' : 'mở khóa'}. Lý do: ${reason.trim()}`,
+          email: pendingNotificationEmail(notifiedAt),
+          createdAt: notifiedAt
         },
         { session }
       )

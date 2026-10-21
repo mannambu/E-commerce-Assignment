@@ -72,6 +72,6 @@ Hủy và bếp bắt đầu nấu, hoặc Approve và Reject chạy đồng th�
 7. Sau khi đã trả tiền thực tế qua đối soát, `refundedAmount` mới tăng; gửi lặp không ghi thêm.
 8. Hủy toàn gói có một ngày không hợp lệ: không ngày nào bị hủy dở dang.
 
-Thông báo hiện lưu DB trong transaction; WebSocket chưa triển khai. Online và cổng thanh toán chưa đồng bộ trong bước này. Đã thêm index `pending_cancellation_requests` vào kế hoạch `schema:indexes`, chưa chạy trên DB dự án.
+Thông báo lưu DB trong transaction; kết quả tự hủy/duyệt/từ chối hủy được gửi [email](email-notifications.md) sau commit. Yêu cầu hủy mới chờ duyệt không gửi email; không dùng WebSocket theo quyết định 21/10/2026. Online và cổng thanh toán chưa đồng bộ trong bước này. Đã thêm index `pending_cancellation_requests` vào kế hoạch `schema:indexes`, chưa chạy trên DB dự án.
 
 Kiểm thử: `npm run test:cancellations:integration`, `npm run test:checkout:integration`, `npm test`, `npm run build`. Integration dùng MongoDB tạm, không dùng DB dự án.

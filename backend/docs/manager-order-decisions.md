@@ -48,7 +48,7 @@ Từ chối:
 | Online quá 15 phút chưa có IPN thành công | Job chuyển Cancelled, lý do “Quá hạn thanh toán”, nhả kho đúng một lần. |
 | Paid còn Pending hoặc COD chờ Manager | Không bị job quá hạn online hủy. |
 
-Tất cả thay đổi đơn, kho, yêu cầu hoàn, audit và bản ghi thông báo nằm trong cùng MongoDB transaction. Một bước lỗi thì hoàn tác toàn bộ. Lịch sử lưu Manager thực hiện, thời điểm và lý do. Thông báo hiện được lưu trong collection `notifications`; chưa bổ sung kênh đẩy real-time trong bước này.
+Tất cả thay đổi đơn, kho, yêu cầu hoàn, audit và bản ghi thông báo nằm trong cùng MongoDB transaction. Một bước ghi lỗi thì hoàn tác toàn bộ. Lịch sử lưu Manager thực hiện, thời điểm và lý do. Với COD, worker gửi [email](email-notifications.md) sau commit; lỗi SMTP không đảo ngược quyết định. Theo xác nhận 21/10/2026 không dùng WebSocket.
 
 `managerDecision.refundTransactionId` dẫn đến yêu cầu hoàn. `Refund Pending` **không có nghĩa tiền đã về**; thao tác từ chối không đổi Paid thành Refunded và không tăng `payment.refundedAmount`. Hoàn thật và kết quả từ cổng thanh toán thuộc bước tích hợp tiếp theo.
 

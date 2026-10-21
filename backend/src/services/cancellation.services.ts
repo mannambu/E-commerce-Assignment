@@ -9,6 +9,7 @@ import inventory from './inventory.services'
 import { codDayLedger, readCODLedger, refreshCODSummary } from './cod-ledger.services'
 import settings from './settings.services'
 import { getKitchenCutoff } from '~/utils/delivery'
+import { pendingNotificationEmail } from '~/utils/notification-email'
 
 function fail(status: number, message: string): never {
   throw new ErrorWithStatus({ status, message })
@@ -367,8 +368,9 @@ class CancellationService {
         entityType: 'Order',
         entityId: order._id,
         eventKey: `cancellation:${order._id}:${order.version}`,
+        ...(action !== 'CancellationRequested' ? { email: pendingNotificationEmail(now) } : {}),
         title: 'Cập nhật yêu cầu hủy',
-        message: `Đơn ${order.orderCode}: ${request.status}. ${reason}`,
+        message: `Đơn ${order.orderCode}: ${request.status === 'Approved' ? 'Đã chấp nhận hủy' : request.status === 'Rejected' ? 'Yêu cầu hủy bị từ chối' : 'Đang chờ duyệt hủy'}. ${reason}${request.status === 'Approved' ? ' Nếu có khoản đã thu cần hoàn, khoản đó được xử lý riêng; email này không xác nhận tiền đã hoàn.' : ''}`,
         createdAt: now
       },
       { session }

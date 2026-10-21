@@ -106,7 +106,7 @@ Các phản hồi mutation gồm `orderId`, `deliveryId`, `status`, `orderStatus
 
 Thêm index `failed_delivery_timeout` vào kế hoạch `schema:indexes`; không tự chạy migration trên DB dự án. Sổ COD cũ có tiền nhưng thiếu `deliveryId`, sai phương thức hoặc không khớp tổng tiền trả 409 để đối chiếu dữ liệu, không tự phân bổ tiền sang ngày khác.
 
-Thông báo được lưu cùng MongoDB transaction; WebSocket realtime chưa triển khai. Hủy COD thông thường đã có [luồng khách/Manager riêng](cod-cancellation-workflow.md), dùng chung sổ đối soát này để ghi khoản thực trả sau duyệt. Giao diện và cổng thanh toán ngoài phạm vi. API chỉ ghi nhận việc Manager xác nhận đã chuyển tiền mặt; không tự thực hiện chuyển tiền.
+Thông báo được lưu cùng MongoDB transaction; kết quả xử lý Failed và đối soát COD được gửi [email](email-notifications.md) sau commit. Không dùng WebSocket theo quyết định 21/10/2026. Hủy COD thông thường đã có [luồng khách/Manager riêng](cod-cancellation-workflow.md), dùng chung sổ đối soát này để ghi khoản thực trả sau duyệt. Giao diện và cổng thanh toán ngoài phạm vi. API chỉ ghi nhận việc Manager xác nhận đã chuyển tiền mặt; không tự thực hiện chuyển tiền.
 
 ```powershell
 npm run test:manager-operations:integration

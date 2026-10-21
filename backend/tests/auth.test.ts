@@ -10,6 +10,7 @@ import bcrypt from 'bcryptjs'
 import User, { AccountStatus, UserRole } from '../src/models/schemas/User.schema'
 import Session from '../src/models/schemas/Session.schema'
 import AuditLog from '../src/models/schemas/AuditLog.schema'
+import Notification from '../src/models/schemas/Notification.schema'
 import { TokenPayload } from '../src/models/requests/User.request'
 import database from '../src/services/database.services'
 import users from '../src/services/user.services'
@@ -148,9 +149,11 @@ function setup(t: TestContext, role = UserRole.CUSTOMER) {
   const accounts: Doc[] = [account]
   const sessions: Doc[] = []
   const audits: Doc[] = []
+  const notifications: Doc[] = []
   t.mock.getter(database, 'users', () => collection(accounts) as unknown as Collection<User>)
   t.mock.getter(database, 'sessions', () => collection(sessions) as unknown as Collection<Session>)
   t.mock.getter(database, 'auditLogs', () => collection(audits) as unknown as Collection<AuditLog>)
+  t.mock.getter(database, 'notifications', () => collection(notifications) as unknown as Collection<Notification>)
   t.mock.method(database, 'withTransaction', async (fn: (session: ClientSession) => Promise<unknown>) =>
     fn({} as ClientSession)
   )

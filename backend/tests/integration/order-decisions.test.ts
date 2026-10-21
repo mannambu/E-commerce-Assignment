@@ -183,6 +183,7 @@ test('Manager decisions, refunds and payment expiry on a real replica set', { ti
       assert.equal((await request(f.id, body)).body.result.replayed, true)
       assert.equal(await db.auditLogs.countDocuments({ entityId: f.order._id }), 1)
       assert.equal(await db.notifications.countDocuments({ entityId: f.order._id }), 1)
+      assert.equal(await db.notifications.countDocuments({ entityId: f.order._id, 'email.status': 'Pending' }), 1)
       assert.equal((await request(f.id, { status: 'Rejected', version: 0, reason: 'Changed mind' })).status, 409)
       await assert.rejects(orders.updateOrderStatus(managerId, f.id, { status: 'Cooking' }), { status: 403 })
     }

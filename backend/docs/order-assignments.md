@@ -50,7 +50,7 @@ Response thao tác: `{ result: { orderId, deliveryId, status, version, changed }
 6. Gán tài khoản Locked, sai role hoặc không tồn tại trả 409. Thiếu ID/version/lý do hoặc trùng ID trả 422. Vai trò khác Manager không được phân công, kể cả Admin qua API vận hành này.
 7. Hai thao tác dùng cùng version chỉ một thao tác thay đổi thành công; thao tác còn lại phải tải lại. Lỗi lưu audit/thông báo làm rollback cả phân công/trạng thái.
 
-Chuyển trạng thái ghi actor và thời điểm; phân công ghi audit trước/sau, lý do và thời điểm. Thông báo được lưu DB cùng transaction: bếp nhận thông báo phân công, shipper và khách nhận thông báo gán/đổi shipper, khách nhận thông báo Cooking/Ready. **Chưa có đẩy WebSocket realtime** trong bước này.
+Chuyển trạng thái ghi actor và thời điểm; phân công ghi audit trước/sau, lý do và thời điểm. Thông báo được lưu DB cùng transaction. Với COD, [email](email-notifications.md) phân công gửi cho bếp; email gán/đổi shipper gửi cho shipper và khách. Cooking/Ready chỉ lưu lịch sử, không gửi mail. Theo quyết định 21/10/2026 không dùng WebSocket.
 
 Gói tuần chỉ đổi ngày được chọn; trạng thái tổng vẫn theo công đoạn sớm nhất của các ngày chưa hủy. Ready không ghi calo hoặc hoàn tất đơn. API ngoại lệ Admin hiện có cũng đi qua Ready, vẫn cần `exceptionReason`.
 

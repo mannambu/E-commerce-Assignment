@@ -532,7 +532,7 @@ Các điều kiện phải đồng thời đúng; chưa thanh toán không tạo
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-18, US-28; Xác minh: kiểm thử.
 
-**FR-ORD-018** — Với đơn/ngày giao đã trả tiền, còn Pending hoặc Confirmed, chưa Cooking và trước cutoff, Hệ thống phải cho gửi yêu cầu hủy chờ Manager duyệt. Duyệt hợp lệ thì hủy phần tương ứng, hoàn 100% khoản được hoàn theo chính sách áp dụng và trả kho chưa chế biến; từ chối thì đơn tiếp tục xử lý, thông báo lý do real-time.
+**FR-ORD-018** — Với đơn/ngày giao đã trả tiền, còn Pending hoặc Confirmed, chưa Cooking và trước cutoff, Hệ thống phải cho gửi yêu cầu hủy chờ Manager duyệt. Duyệt hợp lệ thì hủy phần tương ứng, hoàn 100% khoản được hoàn theo chính sách áp dụng và trả kho chưa chế biến; từ chối thì đơn tiếp tục xử lý, thông báo lý do qua email theo FR-NTF.
 
 Lưu yêu cầu/kết quả riêng, không thêm trạng thái đơn. Điều kiện chưa nấu và trước cutoff phải còn đúng khi duyệt. Gói tuần áp dụng tiền món/ship theo FR-ORD-012/015. Không nhận hủy thông thường từ Cooking trở đi; Failed và khiếu nại là ngoại lệ riêng.
 
@@ -738,41 +738,41 @@ Thanh calo WF-19 tự đặt lại vào nửa đêm và giữ lịch sử các n
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-23; Xác minh: kiểm thử.
 
-### **3.2.9 Thông báo real-time (US-25)**
+### **3.2.9 Thông báo qua email (US-25)**
 
-**Câu chuyện báo cáo — thông báo real-time chạy qua chuông WF-21 thế nào.**
+**Quyết định ngày 21/10/2026: chỉ thông báo qua email.** Quyết định này thay thế kênh WebSocket và danh sách/chuông thông báo trong ứng dụng của mục US-25. Dùng SMTP hiện có; không bắt buộc nhà cung cấp SendGrid.
 
-_WF-21 gồm chuông/badge và tab Tất cả, Khẩn, Thường, Tin. FR bắt buộc thông báo trong ứng dụng qua WebSocket, lưu DB, đồng bộ bù; sự kiện theo FR-NTF và FR vận hành liên quan. Email khẩn SendGrid được phản hồi dẫn từ EIR-SW-002/TBD-11, không tự suy thành yêu cầu bổ sung của FR-NTF; xem tham chiếu cuối tài liệu._
+_Backend lưu sự kiện cần gửi email cùng transaction nghiệp vụ; tác vụ nền chỉ gửi sau khi transaction hoàn tất. Email gửi tới địa chỉ của tài khoản liên quan, không nhận địa chỉ tùy ý từ request nghiệp vụ. Người dùng không cần đăng nhập hoặc duy trì kết nối để nhận email. Trạng thái đơn trong hệ thống vẫn là nguồn tra cứu hiện tại._
 
-_Server lưu thông báo rồi đẩy WebSocket; UI dùng icon/chữ và badge. Offline được bù lúc đăng nhập; mất kết nối nối lại và đồng bộ phần lỡ. Chỉ được tắt tin, không tắt khẩn/thường. Kênh email khẩn cần đối chiếu yêu cầu giao diện ngoài và xác nhận phạm vi, không gán là bắt buộc theo FR-NTF._
+_Phạm vi backend đợt này: COD được Manager xác nhận/từ chối; kết quả tự hủy hoặc Manager duyệt/từ chối hủy; giao COD thất bại và kết quả xử lý giao thất bại; phân công bếp/shipper và ghi nhận đối soát COD; Admin khóa/mở tài khoản; Admin ẩn đánh giá kèm lý do. Không gửi email cho từng bước chế biến/xuất phát hoặc chỉ mới gửi yêu cầu hủy. IPN/thanh toán online tiếp tục ở bước riêng. Email hủy không đồng nghĩa đã hoàn tiền._
 
-**FR-NTF-001** — Hệ thống phải đẩy thông báo qua WebSocket cho các sự kiện: xác nhận đơn, IPN thành công, hủy đơn, khóa/mở tài khoản; và hiển thị huy hiệu chưa đọc.
+**FR-NTF-001** — Hệ thống phải gửi email cho các sự kiện nghiệp vụ được bật, sau khi nghiệp vụ lưu thành công; lỗi SMTP không được làm thất bại hoặc đảo ngược thao tác đã hoàn tất.
 
-Đẩy thông báo real-time qua WebSocket cho các sự kiện xác nhận đơn, IPN thành công/thất bại, hủy đơn, khóa/mở tài khoản và hiển thị huy hiệu chưa đọc trên chuông WF-21, để Khách và Manager không bỏ lỡ sự kiện quan trọng.
+Email có tiêu đề, nội dung, mã đơn/ngày giao khi liên quan và lý do khi nghiệp vụ yêu cầu. Đợt này áp dụng danh sách sự kiện nêu trên; không triển khai WebSocket, badge chưa đọc hoặc API danh sách thông báo trong ứng dụng.
 
 - Ưu tiên: Should (nên có); Nguồn: US-25; Xác minh: kiểm thử.
 
-**FR-NTF-002** — Thông báo phải có 3 mức ưu tiên (khẩn/thường/tin), phân biệt bằng icon và chữ, không chỉ bằng màu.
+**FR-NTF-002** — Email phải diễn đạt rõ sự kiện và kết quả bằng chữ; người nhận hiểu được nội dung mà không cần màu sắc hay biểu tượng.
 
-Mỗi thông báo trên WF-21 mang một trong 3 mức khẩn/thường/tin và phân biệt bằng biểu tượng kèm chữ chứ không chỉ bằng màu, nhằm bảo đảm trợ năng và nhận diện mức độ khẩn cấp.
+Mức ưu tiên có thể được giữ trong dữ liệu nội bộ. Yêu cầu icon/tab/chuông WF-21 trước đây không còn áp dụng với lựa chọn chỉ email.
 
 - Ưu tiên: Should (nên có); Nguồn: US-25; Xác minh: kiểm tra, rà soát.
 
-**FR-NTF-003** — Hệ thống phải lưu thông báo trong DB và bù thông báo cho người dùng offline ở lần đăng nhập kế tiếp.
+**FR-NTF-003** — Hệ thống phải lưu nội dung và trạng thái gửi email trong DB, để việc gửi không phụ thuộc người dùng online hay offline.
 
-Mọi thông báo đều được lưu bền vững trong DB và bù đầy đủ cho người dùng offline ở lần đăng nhập kế tiếp trên WF-21, để không mất sự kiện khi vắng mặt.
+Theo dõi chờ gửi, đang gửi, SMTP đã chấp nhận hoặc thất bại; lưu số lần thử và thời điểm liên quan. Không coi SMTP chấp nhận là bảo đảm đã vào hộp thư hoặc đã đọc. Không tự gửi lại toàn bộ thông báo lịch sử khi chuyển kênh.
 
 - Ưu tiên: Should (nên có); Nguồn: US-25; Xác minh: kiểm thử.
 
-**FR-NTF-004** — Khi mất kết nối, Hệ thống phải tự nối lại và đồng bộ bù thông báo bị lỡ.
+**FR-NTF-004** — Khi gửi email lỗi tạm thời, backend phải lưu để thử lại có giới hạn; nhiều worker không được đồng thời xử lý cùng một bản ghi đang được giữ hợp lệ.
 
-Khi mất kết nối giữa chừng, client WF-21 tự nối lại WebSocket và đồng bộ bù phần thông báo bị lỡ, nhằm giữ dòng sự kiện liên tục không đứt quãng.
+Lựa chọn triển khai hiện tại: tối đa 5 lần thử; chờ 1, 5, 15, 60 phút giữa các lần lỗi. Khôi phục lượt gửi bị bỏ dở khi hết thời gian giữ. SMTP không bảo đảm gửi đúng một lần nếu tiến trình chết sau lúc SMTP nhận thư nhưng trước lúc DB ghi nhận; dùng Message-ID ổn định để hạn chế trùng, không tuyên bố loại bỏ hoàn toàn.
 
 - Ưu tiên: Should (nên có); Nguồn: US-25; Xác minh: kiểm thử.
 
 **FR-NTF-005** — Hệ thống phải cho phép người dùng tắt mức "tin" và không cho phép tắt mức "khẩn" và "thường".
 
-Người dùng được tắt "tin" nhưng không tắt "khẩn"/"thường". Điều khoản này không tự bổ sung email; EIR-SW-002/TBD-11 được ghi riêng cuối tài liệu.
+Quy tắc tắt "tin" được giữ nếu triển khai email Tin sau này. Đợt backend hiện tại chỉ gửi email nghiệp vụ, chưa có Tin/quảng bá và chưa triển khai API tùy chọn Tin. Không triển khai tùy chọn tắt email nghiệp vụ Khẩn/Thường. Quyết định chỉ email ngày 21/10/2026 thay thế diễn giải kênh cũ; các tham chiếu EIR-SW-002/TBD-11 không bắt buộc đổi nhà cung cấp SMTP.
 
 - Ưu tiên: Should (nên có); Nguồn: US-25; Xác minh: kiểm thử.
 
@@ -868,7 +868,7 @@ Quyền xem không cấp Admin quyền vận hành thường ngày.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-28; Xác minh: kiểm thử.
 
-**FR-ADM-008** — Hệ thống phải phân quyền chuyển trạng thái theo công đoạn: Manager xác nhận/từ chối Pending; Kitchen Staff chuyển Confirmed → Cooking → Ready; Delivery Staff được gán chuyển Ready → Delivering và ghi kết quả. Thay đổi phải đồng bộ real-time cho khách.
+**FR-ADM-008** — Hệ thống phải phân quyền chuyển trạng thái theo công đoạn: Manager xác nhận/từ chối Pending; Kitchen Staff chuyển Confirmed → Cooking → Ready; Delivery Staff được gán chuyển Ready → Delivering và ghi kết quả. Trạng thái hiện tại được tra cứu khi tải đơn; các sự kiện được chọn gửi email theo FR-NTF, không đồng bộ WebSocket.
 
 Hủy/giao lại theo FR-ORD-017/018/023. Admin chỉ can thiệp ngoại lệ có lý do/audit theo FR-AUTH-022.
 
@@ -904,9 +904,9 @@ Delivery Staff trên WF-24C chỉ thấy đơn Manager gán cho mình và chỉ 
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-28; Xác minh: kiểm thử.
 
-**FR-ADM-014** — Hệ thống phải đối soát ngoại lệ cho Manager: mọi lần duyệt hủy, gán đổi shipper, xử lý Failed và chỉnh tiền hàng đều ghi audit log (người làm, thời điểm, lý do) và đẩy thông báo real-time cho Khách hàng.
+**FR-ADM-014** — Hệ thống phải đối soát ngoại lệ cho Manager: mọi lần duyệt hủy, gán đổi shipper, xử lý Failed và chỉnh tiền hàng đều ghi audit log (người làm, thời điểm, lý do) và gửi thông báo qua email cho Khách hàng.
 
-Mọi lần Manager duyệt hủy, gán đổi shipper, xử lý Failed và chỉnh tiền hàng đều ghi audit log gồm người làm, thời điểm và lý do, đồng thời đẩy thông báo real-time cho Khách hàng để đối soát ngoại lệ minh bạch.
+Mọi lần Manager duyệt hủy, gán đổi shipper, xử lý Failed và chỉnh tiền hàng đều ghi audit log gồm người làm, thời điểm và lý do, đồng thời gửi email cho Khách hàng để đối soát ngoại lệ minh bạch. Ghi nhận tiền COD tuân thủ quy tắc chỉ ghi tiền thực thu bù/trả lại; thay kênh thông báo không mở thêm quyền sửa giá hoặc xóa nợ.
 
 - Ưu tiên: Must (bắt buộc); Nguồn: US-28; Xác minh: kiểm thử.
 

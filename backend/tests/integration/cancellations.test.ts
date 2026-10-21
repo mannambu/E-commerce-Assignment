@@ -195,6 +195,7 @@ test('COD customer cancellation and Manager approval', { timeout: 180000 }, asyn
     assert.equal(order.deliveries[0].cancellation!.creditedAmount, 70000)
     assert.equal(order.inventoryHold.status, 'Released')
     assert.equal(order.cancellationRequests![0].automatic, true)
+    assert.equal(await db.notifications.countDocuments({ entityId: order._id, 'email.status': 'Pending' }), 1)
     assert.equal((await db.foods.findOne({ _id: f.food._id }))!.stock, 100)
     assert.equal(await db.transactions.countDocuments({ orderId: f.order._id }), 0)
     assert.equal(await db.auditLogs.countDocuments({ entityId: f.order._id }), 1)
@@ -268,6 +269,7 @@ test('COD customer cancellation and Manager approval', { timeout: 180000 }, asyn
     const submitted = await api(f.path, 'POST', body)
     const requestId = submitted.body.result.request._id
     assert.equal(submitted.body.result.request.status, 'Pending')
+    assert.equal(await db.notifications.countDocuments({ entityId: f.order._id, 'email.status': 'Pending' }), 0)
     assert.equal((await stored(f.order))!.status, 'Confirmed')
     assert.equal((await db.foods.findOne({ _id: f.food._id }))!.stock, 99)
     assert.equal((await api(f.path, 'POST', { ...body, version: 1 })).status, 409)
@@ -285,6 +287,7 @@ test('COD customer cancellation and Manager approval', { timeout: 180000 }, asyn
     let order = (await stored(f.order))!
     assert.equal(order.payment.refundedAmount, 0)
     assert.equal(order.deliveries[0].codSettlement!.pendingRefundAmount, 70000)
+    assert.equal(await db.notifications.countDocuments({ entityId: f.order._id, 'email.status': 'Pending' }), 1)
     assert.equal(await db.transactions.countDocuments({ orderId: f.order._id, kind: 'Refund' }), 1)
     await reconciliation.reconcileCOD(uid(UserRole.MANAGER), f.id, f.dayId, {
       version: 2,

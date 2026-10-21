@@ -22,7 +22,7 @@ Service tracking, giỏ hàng, đơn, đánh giá, dashboard nhật ký và seed
 | `orders` | Một/bảy kỳ giao, món trong từng kỳ, snapshot giá/dinh dưỡng, thanh toán, giữ kho | Là bản chốt việc mua hàng. Không đọc lại giá Food để tính tiền đơn cũ. |
 | `daily_health_logs` | Một người/ngày: cân nặng, món đã ăn, target ngày, mọi lần đổi hồ sơ | Thay HealthProfileHistory, WeightLog và CalorieLog bằng một nhật ký dễ truy vấn theo ngày. |
 | `reviews` | reviewerId, foodId, orderId, deliveryId, sao, nhận xét, ảnh, thông tin ẩn | Một review/đơn/ngày giao/món theo FR-REV-001–005, kể cả review ẩn. Chỉ ngày Completed đủ điều kiện. |
-| `notifications` | Người nhận, khẩn/thường/tin tức, nội dung, readAt, eventKey | Thông báo tăng theo thời gian, cần phân trang và đồng bộ riêng. |
+| `notifications` | Người nhận, mức ưu tiên, nội dung, eventKey, email.status/attempts/nextAttemptAt/leaseUntil/lockToken/sentAt | Hàng chờ và lịch sử email theo quyết định 21/10/2026. readAt chỉ còn là field cũ; không có inbox/WebSocket. Bản ghi cũ thiếu email không tự gửi lại. |
 | `transactions` | Các khoản Payment/Refund/Expense, số tiền, mã cổng, đối soát | Nguồn cho báo cáo tài chính. Một đơn có thể có nhiều lần thu/hoàn. |
 | `audit_logs` | Ai làm gì, đối tượng nào, lúc nào, lý do và dữ liệu thay đổi | Kiểm tra thao tác quản trị. Không chứa mật khẩu, token hoặc bí mật cổng thanh toán. |
 | `settings` | Một document `_id = commerce`: giờ chốt bếp, chính sách hủy/hoàn, người sửa | Admin thay đổi cấu hình từ giao diện. Quy tắc cố định để trong code. |
@@ -154,5 +154,5 @@ Nếu cần giữ dữ liệu cũ, phải chuyển trên bản sao trước: h�
 - Checkout đã có transaction ACID, idempotency, giữ kho online 10 phút, COD Confirmed/trừ kho, job nhả hold và kết nối đổi/hủy ngày. Xem [checkout-inventory.md](../backend/docs/checkout-inventory.md). IPN, thu COD/hoàn tiền và job tự hủy đơn 15 phút thuộc phần thanh toán tiếp theo.
 - Công thức tính target hiện được đưa vào utils/health.ts để dùng chung; quy tắc điều chỉnh theo phần trăm và sàn BMR của US-08 chưa được thay trong đợt schema.
 - MealPlan đã có cấu trúc lưu; API recommendation hiện chưa lưu thực đơn/swap vào collection.
-- Manager đã có quyền đọc đơn; AuditLog đã ghi việc tạo và khóa/mở user. Review đã có ẩn kèm lý do, audit và thông báo DB. Báo cáo Manager, sổ Transaction, audit nghiệp vụ khác, API Settings, WebSocket và Excel cần rà soát riêng theo luồng hiện tại. Dashboard tài chính Admin cũ chưa tách khỏi vận hành và chưa đọc sổ Transaction.
+- Manager đã có quyền đọc đơn; AuditLog đã ghi việc tạo và khóa/mở user. Review đã có ẩn kèm lý do, audit và email. Theo quyết định 21/10/2026 chỉ dùng email, xem [hướng dẫn bật worker](../backend/docs/email-notifications.md). Báo cáo Manager, sổ Transaction, audit nghiệp vụ khác, API Settings và Excel cần rà soát riêng theo luồng hiện tại. Dashboard tài chính Admin cũ chưa tách khỏi vận hành và chưa đọc sổ Transaction.
 - Ngoài test mock, `npm run test:checkout:integration` kiểm tra transaction và unique index trên MongoDB replica set tạm, không dùng DB dự án.

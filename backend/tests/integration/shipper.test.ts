@@ -330,6 +330,7 @@ test('Shipper HTTP, transactions and completed-day side effects', { timeout: 180
       assert.equal(order.status, 'Ready')
       assert.equal(order.hasFailedDeliveries, true)
       assert.equal(order.deliveries[0].status, 'Failed')
+      assert.equal(await db.notifications.countDocuments({ entityId: order._id, 'email.status': 'Pending' }), 1)
       assert.ok(order.deliveries[0].failedAt instanceof Date)
       assert.deepEqual(order.deliveries[0].deliveryResult!.evidenceUrls, failed.evidenceUrls)
       assert.deepEqual(order.inventoryHold, f.order.inventoryHold)

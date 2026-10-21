@@ -8,6 +8,7 @@ import { deliveryCodExpected, validEvidenceUrls } from '~/utils/delivery'
 import database from './database.services'
 import tracking from './tracking.services'
 import { readCODLedger, refreshCODSummary } from './cod-ledger.services'
+import { pendingNotificationEmail } from '~/utils/notification-email'
 
 function fail(status: number, message: string): never {
   throw new ErrorWithStatus({ status, message })
@@ -262,7 +263,10 @@ class ShipperService {
           entityType: 'Order',
           entityId: order._id,
           eventKey: `shipper:${order._id}:${payload.version + 1}`,
-          title: 'Cập nhật giao hàng',
+          ...(day.status === 'Failed' && order.payment.method === 'COD'
+            ? { email: pendingNotificationEmail(now) }
+            : {}),
+          title: day.status === 'Failed' ? 'Giao hàng không thành công' : 'Cập nhật giao hàng',
           message: `Đơn ${order.orderCode}, ngày ${day.date}: ${reason}`,
           createdAt: now
         },

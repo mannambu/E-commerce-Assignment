@@ -86,6 +86,8 @@ export function getSchemaIndexPlan(env: NodeJS.ProcessEnv = process.env): Schema
       indexes: [
         { key: { userId: 1, createdAt: -1 }, name: 'user_notifications' },
         { key: { userId: 1, readAt: 1 }, name: 'unread_notifications' },
+        { key: { 'email.status': 1, 'email.nextAttemptAt': 1 }, name: 'notification_email_pending' },
+        { key: { 'email.status': 1, 'email.leaseUntil': 1 }, name: 'notification_email_leases' },
         {
           key: { userId: 1, eventKey: 1 },
           name: 'notification_once',

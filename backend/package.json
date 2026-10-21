@@ -13,6 +13,7 @@
     "test:manager-operations:integration": "tsx --test tests/integration/manager-operations.test.ts",
     "test:cancellations:integration": "tsx --test tests/integration/cancellations.test.ts",
     "test:reviews:integration": "tsx --test tests/integration/reviews.test.ts",
+    "test:notifications:integration": "tsx --test tests/integration/notification-email.test.ts",
     "reviews:migrate": "tsx scripts/migrate-review-deliveries.ts",
     "test:schema": "tsx --test tests/schema.test.ts",
     "schema:indexes": "tsx scripts/schema-indexes.ts",

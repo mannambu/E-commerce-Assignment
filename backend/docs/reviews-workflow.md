@@ -65,7 +65,7 @@ Các query tùy chọn: `rating` 1–5; `hasImages` đúng chuỗi `true`/`false
 
 Lý do sau trim dài 1–500 ký tự. Thành công trả `{ message, changed: true }`. Gọi lại trả `changed: false`, giữ lý do ban đầu, không tạo thêm audit/thông báo. `DELETE /reviews/:review_id` được giữ làm alias với **cùng body lý do và cùng hành vi ẩn**, không xóa bản ghi. Owner không có quyền DELETE.
 
-Ẩn, tính điểm, audit và thông báo được commit cùng nhau; lỗi bất kỳ bước nào đều rollback. Thông báo hiện được lưu DB, chưa có WebSocket.
+Ẩn, tính điểm, audit và bản ghi chờ email được commit cùng nhau; lỗi ghi bất kỳ bước nào đều rollback. Worker gửi email lý do cho tác giả sau commit; lỗi SMTP không hoàn tác việc ẩn. Theo quyết định 21/10/2026 chỉ dùng [email](email-notifications.md), không làm WebSocket.
 
 ## Chuyển dữ liệu/index cũ
 

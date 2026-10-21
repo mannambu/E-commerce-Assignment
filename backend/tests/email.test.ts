@@ -55,6 +55,58 @@ test('SMTP supports STARTTLS and ignores the obsolete reset URL', (t) => {
   assert.equal('resetUrl' in config, false)
 })
 
+test('notification mail uses one recipient, plain text and a stable message ID', async (t) => {
+  configureSmtp(t)
+  const messages: nodemailer.SendMailOptions[] = []
+  let closed = 0
+  t.mock.method(nodemailer, 'createTransport', ((options: Record<string, unknown>) => {
+    assert.equal(options.connectionTimeout, 10000)
+    assert.equal(options.greetingTimeout, 10000)
+    assert.equal(options.socketTimeout, 10000)
+    return {
+      close: () => {
+        closed++
+      },
+      sendMail: async (message: nodemailer.SendMailOptions) => {
+        messages.push(message)
+        return { accepted: ['customer@example.com'], rejected: [] }
+      }
+    }
+  }) as unknown as typeof nodemailer.createTransport)
+  const notification = {
+    id: '0123456789abcdef01234567',
+    title: 'Hidden\r\nBcc: attacker',
+    message: '<script>literal text</script>'
+  }
+  await email.sendNotification('customer@example.com', notification)
+  await email.sendNotification('customer@example.com', notification)
+  assert.deepEqual(messages[0].to, { address: 'customer@example.com', name: '' })
+  assert.equal(messages[0].html, undefined)
+  assert.doesNotMatch(String(messages[0].subject), /[\r\n]/)
+  assert.match(String(messages[0].text), /<script>literal text<\/script>/)
+  assert.equal(messages[0].messageId, messages[1].messageId)
+  assert.equal(closed, 2)
+  for (const recipient of ['a@example.com,b@example.com', 'a@example.com\r\nBcc:b@example.com', '', 'invalid'])
+    await assert.rejects(email.sendNotification(recipient, notification), /Invalid/)
+  assert.equal(messages.length, 2)
+})
+
+test('notification mail does not claim success when SMTP rejects the recipient', async (t) => {
+  configureSmtp(t)
+  t.mock.method(nodemailer, 'createTransport', (() => ({
+    close: () => {},
+    sendMail: async () => ({ accepted: [], rejected: ['customer@example.com'] })
+  })) as unknown as typeof nodemailer.createTransport)
+  await assert.rejects(
+    email.sendNotification('customer@example.com', {
+      id: '0123456789abcdef01234567',
+      title: 'Order',
+      message: 'Confirmed'
+    }),
+    /did not accept/
+  )
+})
+
 test('incomplete or malformed SMTP configuration returns a service error', async (t) => {
   for (const overrides of [
     { SMTP_HOST: '' },

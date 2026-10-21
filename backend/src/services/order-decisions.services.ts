@@ -5,6 +5,7 @@ import { AccountStatus, UserRole } from '~/models/schemas/User.schema'
 import database from './database.services'
 import inventory from './inventory.services'
 import weeklyOrders from './weekly-orders.services'
+import { pendingNotificationEmail } from '~/utils/notification-email'
 
 class OrderDecisionsService {
   // One decision for the whole Pending order. Per-day rejection needs its own shipping policy.
@@ -188,6 +189,7 @@ class OrderDecisionsService {
           entityType: 'Order',
           entityId: order._id,
           eventKey: `manager-decision:${order._id}`,
+          ...(order.payment.method === 'COD' ? { email: pendingNotificationEmail(now) } : {}),
           title: payload.status === 'Confirmed' ? 'Đơn đã được xác nhận' : 'Đơn bị từ chối',
           message:
             payload.status === 'Confirmed'

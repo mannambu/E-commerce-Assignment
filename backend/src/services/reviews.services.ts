@@ -4,6 +4,7 @@ import Review from '~/models/schemas/Review.schema'
 import { AccountStatus, UserRole } from '~/models/schemas/User.schema'
 import database from './database.services'
 import { validEvidenceUrls } from '~/utils/delivery'
+import { pendingNotificationEmail } from '~/utils/notification-email'
 
 export type CreateReviewPayload = {
   foodId: string
@@ -244,6 +245,7 @@ class ReviewService {
           entityType: 'Review',
           entityId: reviewObjectId,
           eventKey: `review-hidden:${reviewObjectId}`,
+          email: pendingNotificationEmail(now),
           title: 'Đánh giá đã được ẩn',
           message: reason.trim(),
           createdAt: now

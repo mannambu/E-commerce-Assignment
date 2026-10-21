@@ -14,6 +14,7 @@ import mediasRouter from './routes/medias.routes'
 import adminRouter from './routes/admin.routes'
 import { startInventoryJob } from './jobs/inventory.jobs'
 import { startFailedDeliveriesJob } from './jobs/failed-deliveries.jobs'
+import { startNotificationEmailJob } from './jobs/notification-email.jobs'
 
 config()
 // Index được chuẩn bị riêng bằng npm run schema:indexes; startup không sửa DB cũ.
@@ -64,6 +65,7 @@ databaseService
   .then(() => {
     startInventoryJob()
     startFailedDeliveriesJob()
+    startNotificationEmailJob()
     app.listen(port, () => console.log(`Server listening on http://localhost:${port}`))
   })
   .catch(() => {

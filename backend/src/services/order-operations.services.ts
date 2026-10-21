@@ -9,6 +9,7 @@ import { AccountStatus, UserRole } from '~/models/schemas/User.schema'
 import { toLocalDate } from '~/models/schemas/common'
 import { aggregateOrderStatus } from '~/utils/order-status'
 import database from './database.services'
+import { pendingNotificationEmail } from '~/utils/notification-email'
 
 type Operation =
   | { kind: 'kitchen'; payload: KitchenAssignmentReqBody }
@@ -219,6 +220,7 @@ class OrderOperationsService {
             entityType: 'Order',
             entityId: order._id,
             eventKey: `operation:${order._id}:${order.version}`,
+            ...(kind !== 'status' && order.payment.method === 'COD' ? { email: pendingNotificationEmail(now) } : {}),
             title: kind === 'status' ? 'Cập nhật chế biến' : 'Cập nhật phân công',
             message: `Đơn ${order.orderCode}, ngày ${day.date}: ${reason}`,
             createdAt: now
