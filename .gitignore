@@ -1,0 +1,13 @@
+# Ignored root docs files
+docs/module-matrix-SRS-v2.4.xlsx
+docs/Proposal draft-v2.docx
+docs/SRS_HealthyMeal_PT_Platform_v2.4 (ISO-IEC-IEEE 29148).docx
+docs/user-stories-MVP-SRS-v2.4.xlsx
+docs/Co_So_Khoa_Hoc_Tinh_Calo_HealthyMeal.docx
+
+# Common ignores
+node_modules/
+*.log
+.env
+.env.*
+!.env.example

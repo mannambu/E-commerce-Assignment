@@ -12,6 +12,7 @@ const ForgotPassword = lazy(() => import('./pages/auth/ForgotPassword'));
 const Home = lazy(() => import('./pages/customer/Home'));
 const HealthSurvey = lazy(() => import('./pages/customer/HealthSurvey'));
 const Dashboard = lazy(() => import('./pages/customer/Dashboard'));
+const Profile = lazy(() => import('./pages/customer/Profile'));
 
 const UserDashboard = lazy(() => import('./pages/dashboard/UserDashboard'));
 const UserMenu = lazy(() => import('./pages/dashboard/user/UserMenu'));
@@ -25,6 +26,10 @@ const AdminOrders = lazy(() => import('./pages/dashboard/admin/AdminOrders'));
 const AdminFinanceRevenue = lazy(() => import('./pages/dashboard/admin/finance/Revenue'));
 const AdminFinanceExpenses = lazy(() => import('./pages/dashboard/admin/finance/Expenses'));
 const AdminFinanceTransactions = lazy(() => import('./pages/dashboard/admin/finance/Transactions'));
+
+const ManagerWorkspace = lazy(() => import('./pages/workspace/ManagerWorkspace'));
+const KitchenWorkspace = lazy(() => import('./pages/workspace/KitchenWorkspace'));
+const DeliveryWorkspace = lazy(() => import('./pages/workspace/DeliveryWorkspace'));
 
 const FoodCatalog = lazy(() => import('./pages/customer/FoodCatalog'));
 const FoodDetails = lazy(() => import('./pages/customer/FoodDetails'));
@@ -42,8 +47,19 @@ const DashboardRedirect = () => {
   const { user } = useAuth();
 
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role === 'Admin') return <Navigate to="/dashboard/admin" replace />;
-  return <Navigate to="/dashboard/user" replace />;
+  switch (user.role) {
+    case 'Admin':
+      return <Navigate to="/dashboard/admin" replace />;
+    case 'Manager':
+      return <Navigate to="/workspace/manager" replace />;
+    case 'Kitchen Staff':
+      return <Navigate to="/workspace/kitchen" replace />;
+    case 'Delivery Staff':
+      return <Navigate to="/workspace/delivery" replace />;
+    case 'Customer':
+    default:
+      return <Navigate to="/dashboard/user" replace />;
+  }
 };
 
 // ==================== Protected Route ====================
@@ -79,7 +95,7 @@ const RouteThemeClassSync = () => {
     const pathname = location.pathname;
     let nextThemeClass = '';
 
-    if (pathname.startsWith('/dashboard/admin')) {
+    if (pathname.startsWith('/dashboard/admin') || pathname.startsWith('/workspace')) {
       nextThemeClass = 'role-theme-admin';
     } else if (
       pathname.startsWith('/dashboard') ||
@@ -114,6 +130,7 @@ function AppRoutes() {
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<Home />} />
+          <Route path="/menu" element={<Navigate to="/food-catalog" replace />} />
           <Route path="/health-survey" element={<HealthSurvey />} />
           <Route path="/food-catalog" element={<FoodCatalog />} />
           <Route path="/food/:id" element={<FoodDetails />} />
@@ -157,6 +174,22 @@ function AppRoutes() {
             }
           />
           <Route
+            path="/dashboard/profile"
+            element={
+              <ProtectedRoute allowedRoles={['Customer']}>
+                <Profile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute allowedRoles={['Customer']}>
+                <Profile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/cart"
             element={
               <ProtectedRoute allowedRoles={['Customer']}>
@@ -169,6 +202,40 @@ function AppRoutes() {
             element={
               <ProtectedRoute allowedRoles={['Customer']}>
                 <Checkout />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Operational Workspace Routes (5 roles) */}
+          <Route
+            path="/workspace/manager"
+            element={
+              <ProtectedRoute allowedRoles={['Manager', 'Admin']}>
+                <ManagerWorkspace />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/workspace/kitchen"
+            element={
+              <ProtectedRoute allowedRoles={['Kitchen Staff', 'Admin']}>
+                <KitchenWorkspace />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/workspace/delivery"
+            element={
+              <ProtectedRoute allowedRoles={['Delivery Staff', 'Admin']}>
+                <DeliveryWorkspace />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/workspace"
+            element={
+              <ProtectedRoute>
+                <DashboardRedirect />
               </ProtectedRoute>
             }
           />

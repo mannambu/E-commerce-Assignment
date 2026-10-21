@@ -438,6 +438,22 @@ export const healthProfileIntakeValidator = validate(
         isIn: {
           options: [['LoseFat', 'GainMuscle', 'MaintainWeight']],
           errorMessage: USERS_MESSAGES.HEALTH_GOAL_IS_INVALID
+        },
+        custom: {
+          options: (value, { req }) => {
+            const age = Number(req.body.age)
+            if (age >= 10 && age <= 15) {
+              if (value !== 'MaintainWeight') {
+                throw new Error('Độ tuổi 10–15 chỉ được chọn mục tiêu Duy trì cân nặng')
+              }
+              if (req.body.parentalConsent !== true && req.body.parental_consent !== true) {
+                throw new Error('Cần có sự xác nhận của phụ huynh/người giám hộ cho độ tuổi 10–15')
+              }
+            } else if (age < 16 && value === 'LoseFat') {
+              throw new Error('Mục tiêu Giảm cân chỉ cho phép từ 16 tuổi trở lên')
+            }
+            return true
+          }
         }
       },
       allergies: {
@@ -501,6 +517,35 @@ export const updateMeValidator = validate(
             const normalized = value.trim()
             if (!/^https?:\/\//i.test(normalized)) {
               throw new Error(USERS_MESSAGES.VALIDATION_ERROR)
+            }
+            return true
+          }
+        }
+      },
+      addresses: {
+        optional: true,
+        isArray: {
+          errorMessage: 'Danh sách địa chỉ phải là mảng'
+        }
+      },
+      old_password: {
+        optional: true,
+        isString: true
+      },
+      password: {
+        optional: true,
+        isString: true,
+        isLength: {
+          options: { min: 8, max: 50 },
+          errorMessage: USERS_MESSAGES.PASSWORD_LENGTH_MUST_BE_FROM_8_TO_50
+        }
+      },
+      confirm_password: {
+        optional: true,
+        custom: {
+          options: (value, { req }) => {
+            if (req.body.password && value !== req.body.password) {
+              throw new Error(USERS_MESSAGES.CONFIRM_PASSWORD_MUST_BE_THE_SAME_AS_PASSWORD)
             }
             return true
           }

@@ -39,9 +39,18 @@ export interface HealthProfile {
   bmr?: number
   tdee?: number
   targetCalories?: number
+  targetAdjustedToBmr?: boolean
   macroDistribution?: MacroDistribution
   version?: number
   calculatedAt?: Date
+}
+
+export interface UserAddress {
+  _id?: string
+  name: string
+  phone: string
+  address: string
+  isDefault: boolean
 }
 
 export interface UserType {
@@ -69,6 +78,7 @@ export interface UserType {
   tokenVersion?: number // Increment to revoke every session after reset/lock/role changes.
   notificationPreferences?: { newsEnabled: boolean }
   healthProfile?: HealthProfile
+  addresses?: UserAddress[]
 }
 
 export default class User implements UserType {
@@ -96,6 +106,7 @@ export default class User implements UserType {
   tokenVersion: number
   notificationPreferences: { newsEnabled: boolean }
   healthProfile?: HealthProfile
+  addresses?: UserAddress[]
 
   constructor(user: UserType) {
     this._id = user._id
@@ -120,6 +131,7 @@ export default class User implements UserType {
     this.tokenVersion = user.tokenVersion ?? 0
     this.notificationPreferences = user.notificationPreferences ?? { newsEnabled: true }
     this.healthProfile = user.healthProfile
+    this.addresses = user.addresses ?? []
     const now = new Date()
     this.created_at = user.created_at || now
     this.updated_at = user.updated_at || now

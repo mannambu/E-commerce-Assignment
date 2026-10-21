@@ -21,11 +21,17 @@ export default function Navbar() {
   const dashboardPath =
     user?.role === 'Admin'
       ? '/dashboard/admin'
+      : user?.role === 'Manager'
+      ? '/workspace/manager'
+      : user?.role === 'Kitchen Staff'
+      ? '/workspace/kitchen'
+      : user?.role === 'Delivery Staff'
+      ? '/workspace/delivery'
       : '/dashboard/user';
 
-  const handleLogout = () => {
-    logout();
-    navigate('/');
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login', { replace: true });
   };
 
   return (

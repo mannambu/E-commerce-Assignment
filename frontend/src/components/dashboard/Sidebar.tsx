@@ -1,7 +1,7 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Utensils, ClipboardList,
-  LogOut, ShoppingBag, BarChart3
+  LogOut, ShoppingBag, BarChart3, User as UserIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -13,12 +13,14 @@ interface SidebarProps {
 export default function Sidebar({ role }: SidebarProps) {
   const { user, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
 
   // 1. Định nghĩa menu cho Khách hàng
   const customerLinks = [
     { icon: LayoutDashboard, label: 'Tổng quan', path: '/dashboard/user' },
-    { icon: Utensils, label: 'Thực đơn của tôi', path: '/dashboard/menu' },
-    { icon: ClipboardList, label: 'Nhật ký thực phẩm', path: '/dashboard/diary' },
+    { icon: Utensils, label: 'Gợi ý thực đơn', path: '/dashboard/menu' },
+    { icon: ClipboardList, label: 'Nhật ký & Theo dõi', path: '/dashboard/diary' },
+    { icon: UserIcon, label: 'Hồ sơ & Địa chỉ', path: '/dashboard/profile' },
   ];
 
   // 2. Định nghĩa menu cho Admin
@@ -37,6 +39,11 @@ export default function Sidebar({ role }: SidebarProps) {
 
   // Lựa chọn bộ menu dựa trên Role
   const activeLinks = normalizedRole === 'Admin' ? adminLinks : customerLinks;
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login', { replace: true });
+  };
 
   return (
     <aside className="sticky top-0 flex h-screen w-64 flex-col border-r border-[color:var(--role-border)] bg-[var(--role-surface)]/95 backdrop-blur-md">
@@ -69,8 +76,8 @@ export default function Sidebar({ role }: SidebarProps) {
 
       <div className="p-4 border-t border-gray-50">
         <button 
-          onClick={logout}
-          className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-500 hover:bg-red-50 rounded-xl transition-all"
+          onClick={handleLogout}
+          className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-500 hover:bg-red-50 rounded-xl transition-all min-h-[44px]"
         >
           <LogOut size={20} />
           Đăng xuất

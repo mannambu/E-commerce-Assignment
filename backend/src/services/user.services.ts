@@ -306,9 +306,14 @@ class UsersService {
 
   async login(payload: LoginReqBody) {
     const identifier = (payload.identifier || payload.email || '').trim()
+    const escapedIdentifier = identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const user = await databaseService.users.findOne({
       role: { $in: ALL_ROLES },
-      $or: [{ email: identifier.toLowerCase() }, { username: identifier }]
+      $or: [
+        { email: identifier.toLowerCase() },
+        { username: identifier },
+        { username: new RegExp(`^${escapedIdentifier}$`, 'i') }
+      ]
     })
 
     if (!user) {
@@ -550,7 +555,15 @@ class UsersService {
   }
 
   async updateMe(user_id: string, payload: UpdateMeReqBody) {
-    const safePayload: { username?: string; phone?: string; date_of_birth?: Date; avatar?: string } = {}
+    const safePayload: {
+      username?: string
+      phone?: string
+      date_of_birth?: Date
+      avatar?: string
+      addresses?: import('~/models/schemas/User.schema').UserAddress[]
+      password?: string
+      password_changed_at?: Date
+    } = {}
     const unsetPayload: { avatar?: '' } = {}
 
     if (typeof payload.username === 'string') {
@@ -563,6 +576,28 @@ class UsersService {
 
     if (typeof payload.date_of_birth === 'string') {
       safePayload.date_of_birth = new Date(payload.date_of_birth)
+    }
+
+    if (Array.isArray(payload.addresses)) {
+      safePayload.addresses = payload.addresses.map((addr, idx) => ({
+        _id: addr._id || new ObjectId().toString(),
+        name: typeof addr.name === 'string' ? addr.name.trim() : '',
+        phone: typeof addr.phone === 'string' ? addr.phone.trim() : '',
+        address: typeof addr.address === 'string' ? addr.address.trim() : '',
+        isDefault: addr.isDefault !== undefined ? Boolean(addr.isDefault) : idx === 0
+      }))
+    }
+
+    if (payload.old_password && payload.password) {
+      const user = await databaseService.users.findOne({ _id: new ObjectId(user_id) })
+      if (!user || !(await verifyPassword(payload.old_password, user.password))) {
+        throw new ErrorWithStatus({
+          message: 'Mật khẩu cũ không chính xác',
+          status: HTTP_STATUS.UNAUTHORIZED
+        })
+      }
+      safePayload.password = await hashPassword(payload.password)
+      safePayload.password_changed_at = new Date()
     }
 
     if (payload.avatar === null || payload.avatar === '') {

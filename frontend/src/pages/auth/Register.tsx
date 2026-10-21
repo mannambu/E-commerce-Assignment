@@ -1,156 +1,159 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { motion, AnimatePresence } from 'motion/react';
-import { Eye, EyeOff, Mail, User, Lock, Phone, CheckCircle2, AlertCircle, Loader2, ArrowLeft, Sparkles, ShieldCheck, Heart } from 'lucide-react';
+import { motion } from 'motion/react';
+import { Eye, EyeOff, Mail, User, Lock, Phone, CheckCircle2, AlertCircle, Loader2, ArrowLeft, ShieldCheck } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { cn } from '@/lib/utils';
+import { Checkbox } from '@/components/ui/Checkbox';
 import api from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
 
-const registerSchema = z.object({
-  email: z.string().email('Email không đúng định dạng'),
-  username: z.string().min(3, 'Tên đăng nhập ít nhất 3 ký tự'),
-  password: z.string()
-    .min(8, 'Mật khẩu phải dài ít nhất 8 ký tự')
-    .regex(/[A-Z]/, 'Phải có ít nhất 1 chữ hoa')
-    .regex(/[a-z]/, 'Phải có ít nhất 1 chữ thường')
-    .regex(/[0-9]/, 'Phải có ít nhất 1 con số'),
-  confirmPassword: z.string(),
-  phone: z.string().regex(/^[0-9]{10}$/, 'Số điện thoại phải đúng 10 chữ số'),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Mật khẩu xác nhận không khớp",
-  path: ["confirmPassword"],
-});
+const registerSchema = z
+  .object({
+    username: z
+      .string()
+      .trim()
+      .min(3, 'Tên người dùng phải từ 3 đến 30 ký tự')
+      .max(30, 'Tên người dùng tối đa 30 ký tự'),
+    email: z
+      .string()
+      .trim()
+      .email('Email không đúng định dạng')
+      .min(1, 'Email là bắt buộc'),
+    phone: z
+      .string()
+      .trim()
+      .min(1, 'Số điện thoại là bắt buộc')
+      .regex(/^(0|\+84)[0-9]{9,10}$/, 'Số điện thoại không hợp lệ (10 chữ số)'),
+    password: z
+      .string()
+      .min(8, 'Mật khẩu phải từ 8 đến 50 ký tự')
+      .max(50, 'Mật khẩu tối đa 50 ký tự')
+      .refine(
+        (val) => new TextEncoder().encode(val).length <= 72,
+        'Mật khẩu vượt quá giới hạn 72 byte UTF-8'
+      ),
+    confirmPassword: z.string().min(1, 'Vui lòng xác nhận mật khẩu'),
+    acceptTos: z.boolean().refine((val) => val === true, {
+      message: 'Bạn cần đồng ý với Điều khoản sử dụng và Chính sách bảo mật',
+    }),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Mật khẩu xác nhận không khớp với mật khẩu',
+    path: ['confirmPassword'],
+  });
 
 type RegisterForm = z.infer<typeof registerSchema>;
 
 export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
-  const [passwordStrength, setPasswordStrength] = useState(0);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
   const navigate = useNavigate();
   const { login } = useAuth();
 
   const {
     register,
     handleSubmit,
-    watch,
     formState: { errors, isSubmitting },
     setError,
-    clearErrors
+    clearErrors,
   } = useForm<RegisterForm>({
-    resolver: zodResolver(registerSchema)
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      username: '',
+      email: '',
+      phone: '',
+      password: '',
+      confirmPassword: '',
+      acceptTos: false,
+    },
   });
 
-  const password = watch('password');
-  const username = watch('username');
-
-  // Password strength logic
-  useEffect(() => {
-    if (!password) {
-      setPasswordStrength(0);
-      return;
-    }
-    let strength = 0;
-    if (password.length >= 8) strength += 1;
-    if (/[A-Z]/.test(password)) strength += 1;
-    if (/[a-z]/.test(password)) strength += 1;
-    if (/[0-9]/.test(password)) strength += 1;
-    setPasswordStrength(strength);
-  }, [password]);
-
-  // Real-time username check (Debounced)
-  useEffect(() => {
-    const checkUsername = async () => {
-      if (username && username.length >= 3) {
-        setUsernameStatus('checking');
-        try {
-          // Gọi API check-username
-          const res = await api.get(`/users/check-username?username=${username}`);
-          if (res.data.exists) {
-            setUsernameStatus('taken');
-            setError('username', { message: res.data.message || 'Tên đăng nhập này đã được sử dụng' });
-          } else {
-            setUsernameStatus('available');
-            clearErrors('username');
-          }
-        } catch (err) {
-          setUsernameStatus('idle');
-        }
-      } else {
-        setUsernameStatus('idle');
-      }
-    };
-
-const timer = setTimeout(checkUsername, 500);
-    return () => clearTimeout(timer);
-  }, [username, setError, clearErrors]);
-
   const onSubmit = async (data: RegisterForm) => {
+    clearErrors();
+
     try {
-      // API Spec yêu cầu payload đăng ký
       const payload = {
-        email: data.email,
-        username: data.username,
+        email: data.email.trim().toLowerCase(),
+        username: data.username.trim(),
         password: data.password,
         confirm_password: data.confirmPassword,
-        phone: data.phone,
-        role: 'Customer'
+        phone: data.phone.trim(),
+        role: 'Customer',
       };
 
       const response = await api.post('/users/register', payload);
 
-      const { access_token, refresh_token } = response.data.result || {};
+      const { access_token, refresh_token } = response.data?.result || {};
       if (access_token && refresh_token) {
-        await login(access_token, refresh_token);
-        localStorage.setItem('userRole', 'Customer');
+        await login(access_token, refresh_token, { role: 'Customer' });
       }
 
       setIsSuccess(true);
 
       setTimeout(() => {
-        navigate(access_token && refresh_token ? '/dashboard/user' : '/login');
+        navigate(access_token && refresh_token ? '/' : '/login', { replace: true });
       }, 1500);
-
     } catch (err: any) {
-      // Ưu tiên hiển thị lỗi validation 422 từ backend nếu có
-      let errorMsg = err.response?.data?.message || 'Đăng ký thất bại';
-      if (err.response?.status === 422 && err.response?.data?.errors) {
-         // Lấy lỗi đầu tiên từ object errors
-         const firstErrorKey = Object.keys(err.response.data.errors)[0];
-         errorMsg = err.response.data.errors[firstErrorKey].msg;
+      const status = err.response?.status;
+      const responseData = err.response?.data;
+
+      // Xử lý lỗi validation 422 từ Express Validator
+      if (status === 422 && responseData?.errors) {
+        const serverErrors = responseData.errors;
+
+        if (serverErrors.email) {
+          setError('email', { message: serverErrors.email.msg || 'Email đã tồn tại' });
+        }
+        if (serverErrors.username) {
+          setError('username', { message: serverErrors.username.msg || 'Tên người dùng đã được sử dụng' });
+        }
+        if (serverErrors.password) {
+          setError('password', { message: serverErrors.password.msg });
+        }
+        if (serverErrors.confirm_password) {
+          setError('confirmPassword', { message: serverErrors.confirm_password.msg });
+        }
+        if (serverErrors.phone) {
+          setError('phone', { message: serverErrors.phone.msg });
+        }
+
+        const firstKey = Object.keys(serverErrors)[0];
+        if (firstKey && !['email', 'username', 'password', 'confirmPassword', 'phone'].includes(firstKey)) {
+          setError('root', { message: serverErrors[firstKey].msg });
+        }
+      } else if (status === 409 || responseData?.message?.includes('Email đã tồn tại')) {
+        setError('email', { message: 'Email đã tồn tại trong hệ thống. Vui lòng dùng email khác.' });
+      } else {
+        setError('root', { message: responseData?.message || 'Đăng ký thất bại. Vui lòng kiểm tra lại thông tin.' });
       }
-      setError('root', { message: errorMsg });
     }
   };
 
   if (isSuccess) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#fafafa] p-4">
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.9 }}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="max-w-md w-full bg-white rounded-[40px] shadow-2xl p-10 text-center space-y-8 border border-gray-50"
+          className="max-w-md w-full bg-white rounded-[40px] shadow-2xl p-10 text-center space-y-6 border border-gray-100"
         >
-          <div className="w-24 h-24 bg-green-50 text-green-500 rounded-3xl flex items-center justify-center mx-auto rotate-12">
-            <CheckCircle2 size={48} />
+          <div className="w-20 h-20 bg-emerald-50 text-emerald-500 rounded-3xl flex items-center justify-center mx-auto shadow-inner">
+            <CheckCircle2 size={44} />
           </div>
-          <div className="space-y-3">
-            <h2 className="text-3xl font-black text-gray-900">
-              Tuyệt vời!
-            </h2>
-            <p className="text-gray-500 font-medium">
-              Chào mừng bạn đến với cộng đồng sức khỏe của chúng tôi. Đang chuyển hướng...
+          <div className="space-y-2">
+            <h2 className="text-3xl font-black text-gray-900 tracking-tight">Đăng ký thành công!</h2>
+            <p className="text-gray-500 font-medium text-sm">
+              Chào mừng bạn đến với FitBite. Hệ thống đang chuyển hướng tới trang chủ...
             </p>
           </div>
-          <Button className="w-full py-6 rounded-2xl text-lg font-black" onClick={() => navigate('/login')}>
-            Đăng nhập ngay
-          </Button>
+          <div className="flex justify-center pt-2">
+            <Loader2 className="animate-spin text-orange-500" size={28} />
+          </div>
         </motion.div>
       </div>
     );
@@ -158,176 +161,145 @@ const timer = setTimeout(checkUsername, 500);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#fafafa] p-4 py-12 relative overflow-hidden">
-      {/* Decorative Background Elements */}
-      <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] bg-orange-100 rounded-full blur-[150px] opacity-60" />
-      <div className="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-100 rounded-full blur-[150px] opacity-60" />
+      {/* Background Decor */}
+      <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-orange-100 rounded-full blur-[120px] opacity-50" />
+      <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-amber-100 rounded-full blur-[120px] opacity-50" />
 
-      <Link 
-        to="/" 
+      <Link
+        to="/"
         className="absolute top-8 left-8 flex items-center gap-2 text-gray-500 hover:text-gray-900 font-bold transition-colors group z-10"
       >
         <div className="w-10 h-10 rounded-xl bg-white shadow-sm border border-gray-100 flex items-center justify-center group-hover:scale-110 transition-transform">
           <ArrowLeft size={20} />
         </div>
-        <span className="hidden sm:inline">Quay lại trang chủ</span>
+        <span>Quay lại trang chủ</span>
       </Link>
 
-      <div className="max-w-5xl w-full bg-white/80 backdrop-blur-xl rounded-[48px] shadow-2xl shadow-orange-500/5 overflow-hidden flex flex-col lg:flex-row border border-white relative z-10">
-        {/* Left Side - Brand & Features */}
-        <div className="lg:w-[40%] bg-gradient-to-br from-orange-500 to-orange-600 p-12 text-white flex flex-col justify-between relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-32 -mt-32 blur-3xl" />
-          <div className="absolute bottom-0 left-0 w-64 h-64 bg-black/10 rounded-full -ml-32 -mb-32 blur-3xl" />
-          
-          <div className="relative z-10">
-            <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center mb-8">
-              <Sparkles size={32} />
-            </div>
-            <h1 className="text-4xl font-black leading-tight">Bắt đầu hành trình mới</h1>
-            <p className="mt-6 text-orange-100 font-medium text-lg">Tham gia cùng hàng ngàn người đang thay đổi cuộc sống mỗi ngày.</p>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-lg w-full bg-white/90 backdrop-blur-xl rounded-[40px] shadow-2xl shadow-orange-500/5 p-8 sm:p-10 space-y-8 border border-white relative z-10"
+      >
+        <div className="text-center">
+          <div className="inline-flex items-center justify-center w-14 h-14 bg-gradient-to-tr from-orange-500 to-amber-500 rounded-2xl text-white shadow-lg shadow-orange-500/30 mb-4">
+            <ShieldCheck size={26} />
           </div>
-
-          <div className="space-y-8 relative z-10 mt-12 lg:mt-0">
-            <div className="flex items-start gap-4">
-              <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0">
-                <Heart size={20} />
-              </div>
-              <div>
-                <h3 className="font-bold text-lg">Sức khỏe là vàng</h3>
-                <p className="text-sm text-orange-100">Chế độ dinh dưỡng khoa học được thiết kế riêng cho bạn.</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-4">
-              <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0">
-                <ShieldCheck size={20} />
-              </div>
-              <div>
-                <h3 className="font-bold text-lg">Theo dõi mỗi ngày</h3>
-                <p className="text-sm text-orange-100">Ghi lại bữa ăn và theo dõi tiến trình hướng tới mục tiêu của bạn.</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-12 pt-8 border-t border-white/20 relative z-10">
-            <p className="text-xs font-bold uppercase tracking-widest text-orange-200">FitBite Community</p>
-          </div>
+          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">Tạo tài khoản mới</h1>
+          <p className="text-gray-500 mt-2 text-sm">Khởi đầu lối sống ăn uống lành mạnh cùng FitBite</p>
         </div>
 
-        {/* Right Side - Form */}
-        <div className="flex-1 p-8 lg:p-16">
-          <div className="mb-10">
-            <h2 className="text-3xl font-black text-gray-900">Tạo tài khoản</h2>
-            <p className="text-gray-500 font-medium mt-2">Chỉ mất 1 phút để bắt đầu thay đổi bản thân.</p>
+        {errors.root && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-red-700 text-sm">
+            <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-600" />
+            <span>{errors.root.message}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <Input
+            label="Tên người dùng (Họ và tên)"
+            placeholder="Ví dụ: Huy Phúc hoặc nguyenvanan"
+            icon={<User size={18} />}
+            error={errors.username?.message}
+            disabled={isSubmitting}
+            {...register('username')}
+          />
+
+          <Input
+            label="Địa chỉ Email"
+            type="email"
+            placeholder="your-email@example.com"
+            icon={<Mail size={18} />}
+            error={errors.email?.message}
+            disabled={isSubmitting}
+            {...register('email')}
+          />
+
+          <Input
+            label="Số điện thoại"
+            type="tel"
+            placeholder="0901234567"
+            icon={<Phone size={18} />}
+            error={errors.phone?.message}
+            disabled={isSubmitting}
+            {...register('phone')}
+          />
+
+          <div className="relative">
+            <Input
+              label="Mật khẩu"
+              type={showPassword ? 'text' : 'password'}
+              placeholder="Tối thiểu 8 ký tự (tối đa 50 ký tự)"
+              icon={<Lock size={18} />}
+              error={errors.password?.message}
+              disabled={isSubmitting}
+              {...register('password')}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-10 text-gray-400 hover:text-gray-600 transition-colors p-1"
+              aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
           </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="md:col-span-2">
-              <Input
-                label="Email"
-                placeholder="example@gmail.com"
-                icon={<Mail size={18} />}
-                error={errors.email?.message}
-                className="rounded-2xl py-4"
-                {...register('email')}
-              />
-            </div>
-
-            <div className="relative md:col-span-2">
-              <Input
-                label="Tên đăng nhập"
-                placeholder="username123"
-                icon={<User size={18} />}
-                error={errors.username?.message}
-                className="rounded-2xl py-4"
-                {...register('username')}
-              />
-              <div className="absolute right-4 top-11">
-                {usernameStatus === 'checking' && <Loader2 className="animate-spin text-gray-400" size={18} />}
-                {usernameStatus === 'available' && <CheckCircle2 className="text-green-500" size={18} />}
-                {usernameStatus === 'taken' && <AlertCircle className="text-red-500" size={18} />}
-              </div>
-            </div>
-
-            <div className="relative">
-              <Input
-                label="Mật khẩu"
-                type={showPassword ? 'text' : 'password'}
-                placeholder="••••••••"
-                icon={<Lock size={18} />}
-                error={errors.password?.message}
-                className="rounded-2xl py-4"
-                {...register('password')}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-11 text-gray-400 hover:text-gray-600"
-              >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-              
-              {password && (
-                <div className="mt-2 px-1">
-                  <div className="flex gap-1 h-1">
-                    {[1, 2, 3, 4].map((i) => (
-                      <div
-                        key={i}
-                        className={cn(
-                          "flex-1 rounded-full transition-all duration-500",
-                          i <= passwordStrength 
-                            ? (passwordStrength <= 2 ? "bg-red-500" : passwordStrength === 3 ? "bg-yellow-500" : "bg-green-500")
-                            : "bg-gray-200"
-                        )}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
+          <div className="relative">
             <Input
               label="Xác nhận mật khẩu"
-              type={showPassword ? 'text' : 'password'}
-              placeholder="••••••••"
+              type={showConfirmPassword ? 'text' : 'password'}
+              placeholder="Nhập lại chính xác mật khẩu trên"
               icon={<Lock size={18} />}
               error={errors.confirmPassword?.message}
-              className="rounded-2xl py-4"
+              disabled={isSubmitting}
               {...register('confirmPassword')}
             />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              className="absolute right-3 top-10 text-gray-400 hover:text-gray-600 transition-colors p-1"
+              aria-label={showConfirmPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+            >
+              {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
 
-            <div className="md:col-span-2">
-              <Input
-                label="Số điện thoại"
-                placeholder="0912345678"
-                icon={<Phone size={18} />}
-                error={errors.phone?.message}
-                className="rounded-2xl py-4"
-                {...register('phone')}
-              />
-            </div>
+          <div className="pt-2">
+            <Checkbox
+              id="acceptTos"
+              label="Tôi đồng ý với Điều khoản sử dụng và Chính sách bảo mật của FitBite"
+              error={errors.acceptTos?.message}
+              disabled={isSubmitting}
+              {...register('acceptTos')}
+            />
+          </div>
 
-            {errors.root && (
-              <div className="md:col-span-2 p-4 rounded-2xl bg-red-50 text-red-600 text-sm font-bold flex items-center gap-3">
-                <AlertCircle size={20} />
-                {errors.root.message}
-              </div>
+          <Button
+            type="submit"
+            className="w-full h-12 text-base font-bold rounded-2xl shadow-lg shadow-orange-500/25 mt-4 min-h-[44px]"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 className="animate-spin" size={18} />
+                <span>Đang xử lý đăng ký...</span>
+              </span>
+            ) : (
+              'Tạo tài khoản'
             )}
+          </Button>
+        </form>
 
-            <div className="md:col-span-2 pt-4">
-              <Button type="submit" className="w-full py-6 rounded-2xl text-lg font-black shadow-xl shadow-orange-500/20" disabled={isSubmitting}>
-                {isSubmitting ? <Loader2 className="animate-spin mr-2" size={22} /> : null}
-                Đăng ký ngay
-              </Button>
-            </div>
-
-            <p className="md:col-span-2 text-center text-sm text-gray-500 mt-4">
-              Đã có tài khoản?{' '}
-              <Link to="/login" className="text-orange-500 font-black hover:underline">
-                Đăng nhập
-              </Link>
-            </p>
-          </form>
+        <div className="text-center pt-2 border-t border-gray-100">
+          <p className="text-sm text-gray-500">
+            Đã có tài khoản?{' '}
+            <Link to="/login" className="font-bold text-orange-600 hover:underline">
+              Đăng nhập ngay
+            </Link>
+          </p>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
