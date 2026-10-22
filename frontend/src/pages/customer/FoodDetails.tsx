@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import {
   ArrowLeft,
@@ -31,7 +31,9 @@ type UserOrder = {
 export default function FoodDetails() {
   const { id } = useParams<{ id: string }>();
   const [qty, setQty] = useState(1);
-  const { addItem } = useCart();
+  const { addItem, loading: cartLoading, mutating } = useCart();
+  const navigate = useNavigate();
+  const [cartError, setCartError] = useState('');
   const { user, isAuthenticated } = useAuth();
   const [foodItem, setFoodItem] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -110,12 +112,15 @@ export default function FoodDetails() {
   }, [user?.healthProfile?.allergies, foodItem]);
 
   // Inventory & Status checks
-  const isOutOfStock = foodItem?.status === 'OUT_OF_STOCK' || (typeof foodItem?.stock === 'number' && foodItem.stock <= 0);
-  const isDiscontinued = foodItem?.status === 'DISCONTINUED';
-  const availableStock = typeof foodItem?.stock === 'number' ? foodItem.stock : 99;
+  const availableStock = foodItem?.availability?.availableQuantity ?? Math.max(0, (foodItem?.stock ?? 0) - (foodItem?.reservedStock ?? 0));
+  const isOutOfStock = foodItem?.availability?.inStock === false || availableStock <= 0;
+  const isDiscontinued = foodItem?.isActive === false;
   const maxQty = Math.max(1, Math.min(10, availableStock));
 
   const handleAddToCart = async () => {
+    if (!isAuthenticated) { navigate('/login'); return; }
+    if (cartLoading || mutating) return;
+    setCartError(''); setAddedToast(null);
     if (!foodItem || isOutOfStock || isDiscontinued) return;
 
     const res = await addItem(
@@ -125,15 +130,17 @@ export default function FoodDetails() {
         price: foodItem.price,
         image: foodItem.images?.[0] || 'https://picsum.photos/seed/food/400/300',
         calories: foodItem.calories || 0,
-        type: foodItem.isCombo ? 'combo' : 'food'
+        type: 'food'
       },
       qty,
-      { cartType: foodItem.isCombo ? 'COMBO' : 'FOOD' }
+      { cartType: 'FOOD' }
     );
 
     if (res?.success) {
       setAddedToast(`Đã thêm ${qty} phần "${foodItem.name}" vào giỏ hàng!`);
       setTimeout(() => setAddedToast(null), 3500);
+    } else {
+      setCartError(res.message || 'Không thể thêm món vào giỏ hàng.');
     }
   };
 
@@ -212,6 +219,7 @@ export default function FoodDetails() {
         )}
 
         {/* Success Toast Banner */}
+        {cartError && <p role="alert" className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700">{cartError}</p>}
         {addedToast && (
           <motion.div
             initial={{ opacity: 0, y: -8 }}
@@ -442,7 +450,7 @@ export default function FoodDetails() {
                 size="lg"
                 className="w-full sm:flex-1 h-14 rounded-2xl text-lg shadow-xl shadow-orange-100 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 onClick={handleAddToCart}
-                disabled={isOutOfStock || isDiscontinued}
+                disabled={isOutOfStock || isDiscontinued || cartLoading || mutating}
               >
                 {isOutOfStock ? (
                   <>

@@ -22,10 +22,12 @@ import { getVietnamLocalDate, getVietnamLocalDateWithOffset } from '@/lib/date';
 import { useCart } from '@/context/CartContext';
 import { useAuth, UserAddress } from '@/context/AuthContext';
 import api from '@/services/api';
+import { apiError } from '@/lib/admin';
+import { checkoutDeliveryPayload, readShippingQuote, deliveryScheduleError } from '@/lib/checkout-shipping';
 
 export default function Checkout() {
   const navigate = useNavigate();
-  const { subtotal, cartType, items, fetchCart } = useCart();
+  const { subtotal, cartType, items, fetchCart, version, loading: cartLoading, mutating, error: cartError, canCheckout } = useCart();
   const { user } = useAuth();
 
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'vnpay' | 'momo'>('cod');
@@ -45,10 +47,15 @@ export default function Checkout() {
   const [fullName, setFullName] = useState(user?.username || '');
   const [phone, setPhone] = useState(user?.phone || '');
   const [address, setAddress] = useState('');
+  const [quotedDistance, setQuotedDistance] = useState<number | null>(null);
   const [selectedAddressId, setSelectedAddressId] = useState<string>('custom');
 
   const [deliveryDate, setDeliveryDate] = useState(() => getVietnamLocalDateWithOffset(1));
+  const [deliveryTime, setDeliveryTime] = useState('12:00');
+  const scheduleError = deliveryScheduleError(deliveryDate, deliveryTime);
   const [note, setNote] = useState('');
+  const [quotedKey, setQuotedKey] = useState('');
+  const quoteKey = JSON.stringify([address.trim(), deliveryDate, deliveryTime, paymentMethod, cartType, version]);
 
   const [fieldErrors, setFieldErrors] = useState<{
     fullName?: string;
@@ -109,69 +116,76 @@ export default function Checkout() {
 
   // Quote pricing
   useEffect(() => {
+    if (showSuccess || isProcessing) return;
+    setQuotedKey('');
+    setShippingFee(null);
+    setQuotedDistance(null);
     setCartVersion(null);
     setQuotedSubtotal(null);
     setQuotedTotal(null);
     setQuoteIssues([]);
     const trimmedAddress = address.trim();
 
-    if (!trimmedAddress || !deliveryDate || deliveryDate < minDeliveryDate) {
+    if (scheduleError || cartLoading || mutating || cartError || !items.length || !canCheckout || !trimmedAddress || !deliveryDate || deliveryDate < minDeliveryDate) {
       setShippingFee(null);
       setShippingStatus('idle');
       return;
     }
 
     let isActive = true;
+    const controller = new AbortController();
     setShippingStatus('loading');
+    setErrorMessage(null);
 
     const timer = setTimeout(async () => {
       try {
-        const response = await api.post('/orders/quote', {
-          deliveryAddress: trimmedAddress,
-          deliveryDate,
-          deliveryTime: '12:00',
-          packageType: cartType === 'COMBO' ? 'WEEKLY_7D' : 'ONE_DAY',
-          cartType: cartType || 'FOOD',
+        const response = await api.post('/orders/quote', checkoutDeliveryPayload({
+          address: trimmedAddress, deliveryDate, deliveryTime, cartType,
           paymentMethod: paymentMap[paymentMethod] || 'COD'
-        });
+        }), { signal: controller.signal, timeout: 20000 });
 
         if (!isActive) return;
 
         const result = response?.data?.result;
-        const fee = result?.pricing?.shippingFee;
-        const version = result?.cart?.version;
-        const pricing = result?.pricing;
+        const quote = readShippingQuote(result);
 
         if (Array.isArray(result?.issues) && result.issues.length > 0) {
           setQuoteIssues(result.issues.map((i: any) => i.message || String(i)));
         }
 
-        if (typeof fee === 'number' && Number.isFinite(fee) && Number.isSafeInteger(version)) {
-          setShippingFee(fee);
-          setCartVersion(version);
-          setQuotedSubtotal(pricing.subtotal);
-          setQuotedTotal(pricing.grandTotal);
-          setShippingStatus('ready');
-        } else {
-          setShippingFee(null);
-          setShippingStatus('error');
-        }
+        setShippingFee(quote.shippingFee);
+        setQuotedDistance(quote.distanceKm);
+        setCartVersion(quote.version);
+        setQuotedSubtotal(quote.subtotal);
+        setQuotedTotal(quote.grandTotal);
+        setQuotedKey(quoteKey);
+        setErrorMessage(null);
+        setShippingStatus('ready');
       } catch (err: any) {
         if (!isActive) return;
         setShippingFee(null);
         setShippingStatus('error');
-        setErrorMessage(err?.response?.data?.message || 'Không thể tính phí vận chuyển cho địa chỉ này.');
+        setErrorMessage(err?.code === 'ECONNABORTED'
+          ? 'Dịch vụ tính phí giao hàng phản hồi quá lâu. Vui lòng bấm tính lại phí.'
+          : apiError(err));
       }
     }, 600);
 
     return () => {
       isActive = false;
+      controller.abort();
       clearTimeout(timer);
     };
-  }, [address, deliveryDate, minDeliveryDate, paymentMethod, cartType, quoteRevision]);
+  }, [address, deliveryDate, deliveryTime, scheduleError, minDeliveryDate, paymentMethod, cartType, quoteRevision, version, cartLoading, mutating, cartError, items.length, canCheckout, quoteKey, showSuccess, isProcessing]);
 
   const handleCheckout = async () => {
     if (isProcessing || showSuccess) return;
+    const currentScheduleError = deliveryScheduleError(deliveryDate, deliveryTime);
+    if (currentScheduleError) { setErrorMessage(currentScheduleError); return; }
+    if (cartLoading || mutating || cartError || !items.length || !canCheckout || quoteIssues.length || quotedKey !== quoteKey || cartVersion !== version) {
+      setErrorMessage('Giỏ hàng hoặc thông tin giao hàng đã thay đổi. Vui lòng kiểm tra giỏ và chờ báo giá mới.');
+      return;
+    }
 
     if (paymentMethod !== 'cod') {
       setErrorMessage('Hiện tại FitBite chỉ hỗ trợ thanh toán khi nhận hàng (COD). Vui lòng chọn COD để đặt hàng.');
@@ -226,12 +240,7 @@ export default function Checkout() {
       setIsProcessing(true);
 
       const payload = {
-        deliveryAddress: trimmedAddress,
-        deliveryDate,
-        deliveryTime: '12:00',
-        packageType: cartType === 'COMBO' ? 'WEEKLY_7D' : 'ONE_DAY',
-        cartType: cartType || 'FOOD',
-        paymentMethod: paymentMap[paymentMethod] || 'COD',
+        ...checkoutDeliveryPayload({ address: trimmedAddress, deliveryDate, deliveryTime, cartType, paymentMethod: paymentMap[paymentMethod] || 'COD' }),
         note: [trimmedName, trimmedPhone, note.trim()].filter(Boolean).join(' | '),
         cartVersion
       };
@@ -286,6 +295,7 @@ export default function Checkout() {
         >
           <ArrowLeft size={18} className="mr-2" /> Quay lại giỏ hàng
         </Link>
+        {!showSuccess && !cartLoading && (cartError || !items.length || !canCheckout) && <p role="alert" className="p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl">{cartError || (!items.length ? 'Giỏ hàng đang trống.' : 'Giỏ hàng chưa hợp lệ. Vui lòng quay lại giỏ để xử lý các dòng có lỗi.')}</p>}
 
         {quoteIssues.length > 0 && (
           <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-900 text-sm space-y-1">
@@ -310,7 +320,7 @@ export default function Checkout() {
                   <MapPin size={24} className="text-orange-500" /> Thông tin giao hàng
                 </h2>
                 <span className="text-xs font-bold text-orange-600 bg-orange-50 border border-orange-200 px-3 py-1 rounded-full flex items-center gap-1">
-                  <Sparkles size={12} /> Ca trưa 12:00
+                  <Sparkles size={12} /> {deliveryTime || 'Chọn giờ giao'} · Giờ Việt Nam
                 </span>
               </div>
 
@@ -392,6 +402,7 @@ export default function Checkout() {
                   <Input
                     label="Ngày bắt đầu nhận hàng"
                     type="date"
+                    disabled={isProcessing || showSuccess}
                     value={deliveryDate}
                     min={minDeliveryDate}
                     error={fieldErrors.deliveryDate}
@@ -402,9 +413,20 @@ export default function Checkout() {
                       }
                     }}
                   />
-                  <p className="text-[11px] text-gray-400 mt-1">
-                    Giao hàng khung giờ trưa (12:00) các ngày theo gói của bạn.
-                  </p>
+                </div>
+
+                <div>
+                  <Input
+                    label="Giờ nhận hàng (giờ Việt Nam)"
+                    type="time"
+                    required
+                    step={60}
+                    value={deliveryTime}
+                    error={scheduleError || undefined}
+                    disabled={isProcessing || showSuccess}
+                    onChange={event => setDeliveryTime(event.target.value)}
+                  />
+                  <p className="text-xs text-gray-500 mt-2">{cartType === 'COMBO' ? 'Giờ đã chọn áp dụng cho cả 7 ngày của gói.' : 'Giao vào giờ đã chọn trong ngày nhận hàng.'} Lịch giao cần đáp ứng giờ chốt bếp của cửa hàng.</p>
                 </div>
 
                 <div className="md:col-span-2">
@@ -419,6 +441,8 @@ export default function Checkout() {
                       if (fieldErrors.address) setFieldErrors((prev) => ({ ...prev, address: undefined }));
                     }}
                   />
+                  <p className="text-xs text-gray-500 mt-2">Nhập đầy đủ số nhà, tên đường, phường/xã và tỉnh/thành phố. Phí giao hàng được tự động tính theo quãng đường từ cửa hàng đến địa chỉ này.</p>
+                  <p className="text-xs text-gray-500 mt-1">{cartType === 'COMBO' ? 'Gói tuần: dưới 5 km miễn phí; từ 5 km thu 20.000đ, chỉ thu ngày đầu.' : 'Món lẻ: miễn phí đến 2 km; phần vượt làm tròn lên mỗi km, 5.000đ/km.'}</p>
                 </div>
 
                 <div className="md:col-span-2">
@@ -533,6 +557,8 @@ export default function Checkout() {
                     {totalAmount !== null ? `${totalAmount.toLocaleString('vi-VN')}đ` : '--'}
                   </span>
                 </div>
+                {quotedDistance !== null && quotedKey === quoteKey && <p className="text-xs text-gray-500">Quãng đường từ cửa hàng: <strong>{quotedDistance.toLocaleString('vi-VN')} km</strong> · Tự tính theo địa chỉ nhận hàng</p>}
+                {!showSuccess && <Button type="button" variant="outline" size="sm" disabled={isProcessing || !!scheduleError || shippingStatus === 'loading' || cartLoading || mutating || !address.trim() || !items.length || !canCheckout} onClick={() => setQuoteRevision(value => value + 1)}><RotateCcw size={14} className="mr-2" />Tính lại phí giao hàng</Button>}
               </div>
 
               <div className="p-4 bg-green-50 rounded-2xl border border-green-100 flex items-start gap-3">
@@ -552,7 +578,7 @@ export default function Checkout() {
               <Button
                 className="w-full h-14 text-base font-bold rounded-2xl shadow-lg shadow-orange-200"
                 onClick={handleCheckout}
-                disabled={isProcessing || showSuccess || shippingStatus !== 'ready' || cartVersion === null}
+                disabled={isProcessing || showSuccess || !!scheduleError || cartLoading || mutating || !!cartError || !items.length || !canCheckout || quoteIssues.length > 0 || quotedKey !== quoteKey || cartVersion !== version || shippingStatus !== 'ready' || cartVersion === null}
               >
                 {isProcessing ? (
                   <span className="flex items-center gap-2">

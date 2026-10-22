@@ -19,6 +19,8 @@ import Navbar from '@/components/layout/Navbar';
 import { useCart } from '@/context/CartContext';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
+import { apiError, localDate } from '@/lib/admin';
+import { getVietnamLocalDate } from '@/lib/date';
 
 const MEAL_SLOT_LABELS: Record<string, string> = {
   Breakfast: 'Bữa sáng',
@@ -39,10 +41,23 @@ export default function Cart() {
     canCheckout,
     issues,
     loading,
+    mutating,
+    error: cartError,
+    updateLine,
     fetchCart
   } = useCart();
 
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editDate, setEditDate] = useState('');
+  const [editMeal, setEditMeal] = useState('');
+  const busy = loading || mutating || isRefreshing;
+  const run = async (action: () => Promise<void>) => {
+    setActionError('');
+    try { await action(); }
+    catch (err) { setActionError(apiError(err)); }
+  };
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -61,6 +76,10 @@ export default function Cart() {
         </div>
       </div>
     );
+  }
+
+  if (cartError && items.length === 0) {
+    return <div className="min-h-screen bg-gray-50"><Navbar /><main className="max-w-4xl mx-auto px-4 py-20 text-center space-y-4"><p role="alert" className="text-red-600">{cartError}</p><Button disabled={busy} onClick={handleRefresh}>Tải lại giỏ hàng</Button></main></div>;
   }
 
   // 2. Empty State
@@ -95,6 +114,7 @@ export default function Cart() {
       <Navbar />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+        {(actionError || cartError) && <p role="alert" className="p-4 bg-red-50 border border-red-200 rounded-2xl text-red-700">{actionError || cartError}</p>}
         {/* Header & Cart Type Badge */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -121,7 +141,7 @@ export default function Cart() {
               variant="outline"
               size="sm"
               onClick={handleRefresh}
-              disabled={isRefreshing}
+              disabled={busy}
               className="rounded-xl text-xs h-9"
             >
               <RotateCcw size={14} className={cn('mr-1.5', isRefreshing && 'animate-spin')} />
@@ -234,7 +254,7 @@ export default function Cart() {
                           <>
                             <span>•</span>
                             <span className="text-gray-400">
-                              Ngày: {new Date(item.deliveryDate).toLocaleDateString('vi-VN')}
+                              Ngày: {localDate(item.deliveryDate)}
                             </span>
                           </>
                         )}
@@ -249,6 +269,19 @@ export default function Cart() {
                           <AlertTriangle size={12} /> {lineIssue.message}
                         </p>
                       )}
+                      <button type="button" disabled={busy} className="text-xs text-orange-600 font-bold py-2" onClick={() => { setEditing(lineId); setEditDate(item.deliveryDate || ''); setEditMeal(item.mealSlot || ''); }}>Sửa ngày giao / bữa</button>
+                      {editing === lineId && <form className="space-y-2 pt-2" onSubmit={event => {
+                        event.preventDefault();
+                        void run(async () => {
+                          await updateLine(lineId, { deliveryDate: editDate || null, mealSlot: editMeal || null });
+                          setEditing(null);
+                        });
+                      }}>
+                        <label className="block text-xs">Ngày giao<input type="date" required={cartType === 'COMBO'} min={getVietnamLocalDate()} value={editDate} disabled={busy} onChange={event => setEditDate(event.target.value)} className="block w-full border rounded-xl px-3 py-2" /></label>
+                        <label className="block text-xs">Bữa<select value={editMeal} disabled={busy} onChange={event => setEditMeal(event.target.value)} className="block w-full border rounded-xl px-3 py-2"><option value="">Chưa chọn bữa</option>{Object.entries(MEAL_SLOT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                        <p className="text-xs text-gray-500">Món lẻ phải cùng ngày. Gói tuần cần đủ 7 ngày liên tiếp. Dòng trùng món/ngày/bữa sẽ được gộp.</p>
+                        <div className="flex gap-2"><Button type="submit" size="sm" disabled={busy}>Lưu</Button><Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(null)}>Bỏ qua</Button></div>
+                      </form>}
                     </div>
 
                     <div className="flex items-center justify-between w-full sm:w-auto gap-4 pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100">
@@ -256,7 +289,9 @@ export default function Cart() {
                       <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-2xl">
                         <button
                           type="button"
-                          onClick={() => updateQty(lineId, -1)}
+                          disabled={busy}
+                          aria-label={`Giảm số lượng ${itemName}`}
+                          onClick={() => void run(() => updateQty(lineId, -1))}
                           className="w-8 h-8 flex items-center justify-center bg-white rounded-xl shadow-xs text-gray-600 hover:text-orange-500 transition-colors"
                         >
                           <Minus size={15} />
@@ -264,7 +299,9 @@ export default function Cart() {
                         <span className="w-6 text-center font-black text-sm">{quantity}</span>
                         <button
                           type="button"
-                          onClick={() => updateQty(lineId, 1)}
+                          disabled={busy || isInactive || isOutOfStock}
+                          aria-label={`Tăng số lượng ${itemName}`}
+                          onClick={() => void run(() => updateQty(lineId, 1))}
                           className="w-8 h-8 flex items-center justify-center bg-white rounded-xl shadow-xs text-gray-600 hover:text-orange-500 transition-colors"
                         >
                           <Plus size={15} />
@@ -274,7 +311,8 @@ export default function Cart() {
                       {/* Remove Line Item */}
                       <button
                         type="button"
-                        onClick={() => removeItem(lineId)}
+                        disabled={busy}
+                        onClick={() => void run(() => removeItem(lineId))}
                         className="p-2 text-gray-400 hover:text-red-500 transition-colors rounded-xl hover:bg-red-50"
                         title="Xóa món này"
                       >
@@ -290,7 +328,8 @@ export default function Cart() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={clearCart}
+                disabled={busy}
+                onClick={() => void run(clearCart)}
                 className="rounded-xl text-xs text-gray-500 hover:text-red-600 hover:border-red-200"
               >
                 <Trash2 size={14} className="mr-1.5" /> Xóa tất cả món
@@ -347,7 +386,7 @@ export default function Cart() {
                   <Truck size={20} className="text-orange-500 shrink-0" />
                   <div className="text-xs">
                     <p className="font-bold text-gray-900">Giao bữa đúng giờ</p>
-                    <p className="text-gray-500">Hỗ trợ giao ca trưa 12:00 nóng hổi</p>
+                    <p className="text-gray-500">Chọn ngày và giờ nhận hàng khi thanh toán</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 border border-gray-100">
@@ -360,7 +399,7 @@ export default function Cart() {
               </div>
 
               {/* Checkout Action Button */}
-              {canCheckout ? (
+              {canCheckout && !busy && !cartError ? (
                 <Link to="/checkout" className="block">
                   <Button className="w-full h-14 text-base font-bold rounded-2xl shadow-lg shadow-orange-200">
                     Tiến hành thanh toán <ArrowRight size={20} className="ml-2" />

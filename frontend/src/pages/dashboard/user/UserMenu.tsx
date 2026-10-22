@@ -234,14 +234,14 @@ export default function UserMenu() {
   };
 
   // Thêm thực đơn vào giỏ hàng
-  const handleAddToCart = async (mode: 'today' | 'week') => {
+  const handleAddToCart = async (mode: 'today' | 'week', modeAlreadySwitched = false) => {
     if (!data || !data.plans) return;
     setCartSuccessMessage(null);
 
     const requiredCartType = mode === 'today' ? 'FOOD' : 'COMBO';
 
     // Kiểm tra xung đột chế độ giỏ hàng
-    if (cart && cart.items.length > 0 && cart.cartType !== requiredCartType) {
+    if (!modeAlreadySwitched && cart && cart.items.length > 0 && cart.cartType !== requiredCartType) {
       setPendingBulkAction(mode);
       setShowModeConflictModal(true);
       return;
@@ -312,14 +312,15 @@ export default function UserMenu() {
       setIsAddingCart(true);
       await clearCart();
       const targetMode = pendingBulkAction === 'today' ? 'FOOD' : 'COMBO';
-      await switchMode(targetMode);
+      const result = await switchMode(targetMode);
+      if (!result.success) throw new Error(result.message || 'Không thể đổi chế độ giỏ hàng.');
       setShowModeConflictModal(false);
 
       if (pendingBulkAction) {
-        await handleAddToCart(pendingBulkAction);
+        await handleAddToCart(pendingBulkAction, true);
       }
     } catch (err) {
-      console.error(err);
+      alert(err instanceof Error ? err.message : 'Không thể đổi chế độ giỏ hàng.');
     } finally {
       setIsAddingCart(false);
       setPendingBulkAction(null);

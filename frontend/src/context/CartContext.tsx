@@ -1,179 +1,78 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import api from '@/services/api';
+import { apiError } from '@/lib/admin';
+import { normalizeCart } from '@/lib/cart';
 import { useAuth } from './AuthContext';
 
 export interface CartLineItem {
-  _id: string; // Line ID
-  id?: string; // Compatibility alias
-  itemId: string; // Food ID
-  itemName: string;
-  name?: string; // Compatibility alias
-  unitPrice: number;
-  price?: number; // Compatibility alias
-  unitCalories?: number;
-  calories?: number; // Compatibility alias
-  image: string;
-  quantity: number;
-  qty?: number; // Compatibility alias
-  lineTotal: number;
-  deliveryDate?: string;
-  mealSlot?: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack' | string;
-  availability?: {
-    isActive: boolean;
-    inStock: boolean;
-    availableQuantity: number;
-  };
-  allergyWarning?: {
-    hasMatch: boolean;
-    matchedAllergens?: string[];
-  };
+  _id: string; id?: string; itemId: string; itemName: string; name?: string;
+  unitPrice: number; price?: number; unitCalories?: number; calories?: number;
+  image: string; quantity: number; qty?: number; lineTotal: number;
+  deliveryDate?: string; mealSlot?: string;
+  availability?: { isActive: boolean; inStock: boolean; availableQuantity: number };
+  allergyWarning?: { hasMatch: boolean; matchedAllergens?: string[] };
 }
-
-export interface CartIssue {
-  code: string;
-  message: string;
-  lineId?: string;
-}
-
+export interface CartIssue { code: string; message: string; lineId?: string }
 export interface CartSummary {
-  itemCount: number;
-  lineCount: number;
-  subtotal: number;
-  totalCalories: number;
-  deliveryDates: string[];
-  shippingPolicy: 'PER_ORDER' | 'FIRST_DAY_ONLY' | string;
-  shippingFee?: number | null;
+  itemCount: number; lineCount: number; subtotal: number; totalCalories: number;
+  deliveryDates: string[]; shippingPolicy: string; shippingFee?: number | null;
 }
-
 export interface CurrentCart {
-  _id?: string;
-  userId?: string;
-  cartType: 'FOOD' | 'COMBO';
-  version: number;
-  items: CartLineItem[];
-  summary: CartSummary;
-  canCheckout: boolean;
-  issues: CartIssue[];
+  _id?: string; userId?: string; cartType: 'FOOD' | 'COMBO'; version: number;
+  items: CartLineItem[]; summary: CartSummary; canCheckout: boolean; issues: CartIssue[];
 }
-
-interface AddItemOptions {
-  deliveryDate?: string;
-  mealSlot?: string;
-  cartType?: 'FOOD' | 'COMBO';
-}
-
 interface CartContextType {
-  cart: CurrentCart | null;
-  items: CartLineItem[];
-  cartCount: number;
-  subtotal: number;
-  totalCalories: number;
-  cartType: 'FOOD' | 'COMBO';
-  version: number;
-  canCheckout: boolean;
-  issues: CartIssue[];
-  loading: boolean;
+  cart: CurrentCart | null; items: CartLineItem[]; cartCount: number; subtotal: number;
+  totalCalories: number; cartType: 'FOOD' | 'COMBO'; version: number; canCheckout: boolean;
+  issues: CartIssue[]; loading: boolean; mutating: boolean; error: string;
   fetchCart: () => Promise<CurrentCart | null>;
   addItem: (
     item: { id?: string | number; itemId?: string | number; name?: string; price?: number; image?: string; calories?: number; type?: string },
-    quantity?: number,
-    options?: AddItemOptions
+    quantity?: number, options?: { deliveryDate?: string; mealSlot?: string; cartType?: 'FOOD' | 'COMBO' }
   ) => Promise<{ success: boolean; message?: string }>;
-  addBulkItems: (
-    items: Array<{ itemId: string; quantity: number; deliveryDate?: string; mealSlot?: string }>,
-    cartType?: 'FOOD' | 'COMBO'
-  ) => Promise<{ success: boolean; message?: string }>;
+  addBulkItems: (items: Array<{ itemId: string; quantity: number; deliveryDate?: string; mealSlot?: string }>, cartType?: 'FOOD' | 'COMBO') => Promise<{ success: boolean; message?: string }>;
   updateQty: (lineId: string | number, delta: number) => Promise<void>;
-  updateLine: (
-    lineId: string,
-    payload: { quantity?: number; deliveryDate?: string | null; mealSlot?: string | null }
-  ) => Promise<void>;
+  updateLine: (lineId: string, payload: { quantity?: number; deliveryDate?: string | null; mealSlot?: string | null }) => Promise<void>;
   removeItem: (lineId: string | number) => Promise<void>;
   clearCart: () => Promise<void>;
-  switchMode: (newMode: 'FOOD' | 'COMBO') => Promise<{ success: boolean; message?: string }>;
+  switchMode: (mode: 'FOOD' | 'COMBO') => Promise<{ success: boolean; message?: string }>;
 }
-
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading } = useAuth();
   const [cart, setCart] = useState<CurrentCart | null>(null);
   const [loading, setLoading] = useState(false);
+  const [mutating, setMutating] = useState(false);
+  const [error, setError] = useState('');
+  const cartRef = useRef<CurrentCart | null>(null);
+  const mutationRef = useRef(false);
   const accountId = !authLoading && user?.role === 'Customer' ? user._id : null;
   const accountRef = useRef(accountId);
   accountRef.current = accountId;
   const requestRef = useRef(0);
 
-  // AuthContext determines the role; the API interceptor handles token refresh.
   const fetchCart = useCallback(async (): Promise<CurrentCart | null> => {
     if (accountRef.current !== accountId) return null;
     const requestId = ++requestRef.current;
     if (!accountId) {
-      setCart(null);
-      setLoading(false);
+      cartRef.current = null; setCart(null); setLoading(false);
       return null;
     }
     const isCurrentRequest = () => accountRef.current === accountId && requestRef.current === requestId;
-
     try {
-      setLoading(true);
-      const res = await api.get('/cart');
+      setLoading(true); setError('');
+      const response = await api.get('/cart');
       if (!isCurrentRequest()) return null;
-      const rawCurrentCart =
-        res.data?.result?.currentCart ||
-        res.data?.result?.foodCart ||
-        res.data?.result ||
-        null;
-
-      if (!rawCurrentCart) {
-        setCart(null);
-        return null;
-      }
-
-      // Chuẩn hóa danh sách items với đầy đủ alias
-      const normalizedItems: CartLineItem[] = (rawCurrentCart.items || []).map((item: any) => ({
-        ...item,
-        _id: item._id || item.id,
-        id: item._id || item.id || item.itemId,
-        itemId: item.itemId || item.id,
-        name: item.itemName || item.name || '',
-        price: item.unitPrice ?? item.price ?? 0,
-        unitPrice: item.unitPrice ?? item.price ?? 0,
-        image: item.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80',
-        qty: item.quantity ?? 1,
-        quantity: item.quantity ?? 1,
-        unitCalories: item.unitCalories ?? item.calories ?? 0,
-        calories: item.unitCalories ?? item.calories ?? 0,
-        lineTotal: item.lineTotal ?? (item.unitPrice ?? 0) * (item.quantity ?? 1),
-      }));
-
-      const normalizedCart: CurrentCart = {
-        _id: rawCurrentCart._id,
-        userId: rawCurrentCart.userId,
-        cartType: rawCurrentCart.cartType || 'FOOD',
-        version: rawCurrentCart.version ?? 0,
-        items: normalizedItems,
-        summary: {
-          itemCount: rawCurrentCart.summary?.itemCount ?? normalizedItems.reduce((acc, i) => acc + i.quantity, 0),
-          lineCount: rawCurrentCart.summary?.lineCount ?? normalizedItems.length,
-          subtotal: rawCurrentCart.summary?.subtotal ?? normalizedItems.reduce((acc, i) => acc + i.lineTotal, 0),
-          totalCalories: rawCurrentCart.summary?.totalCalories ?? 0,
-          deliveryDates: rawCurrentCart.summary?.deliveryDates || [],
-          shippingPolicy: rawCurrentCart.summary?.shippingPolicy || (rawCurrentCart.cartType === 'COMBO' ? 'FIRST_DAY_ONLY' : 'PER_ORDER'),
-          shippingFee: rawCurrentCart.summary?.shippingFee ?? null,
-        },
-        canCheckout: Boolean(rawCurrentCart.canCheckout),
-        issues: rawCurrentCart.issues || [],
-      };
-
-      setCart(normalizedCart);
-      return normalizedCart;
-    } catch (err: any) {
+      const updated = normalizeCart(response.data?.result);
+      cartRef.current = updated; setCart(updated);
+      return updated;
+    } catch (err) {
       if (!isCurrentRequest()) return null;
-      if (err?.response?.status === 401) {
-        setCart(null);
+      if ((err as { response?: { status?: number } }).response?.status === 401) {
+        cartRef.current = null; setCart(null);
       }
-      console.error('Lỗi khi lấy giỏ hàng:', err);
+      setError(apiError(err));
       return null;
     } finally {
       if (isCurrentRequest()) setLoading(false);
@@ -181,203 +80,89 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [accountId]);
 
   useEffect(() => {
-    setCart(null);
+    cartRef.current = null; setCart(null); setError('');
     void fetchCart();
     return () => { requestRef.current += 1; };
   }, [fetchCart]);
 
-  // Lắng nghe sự kiện đăng nhập/đăng xuất/đổi hồ sơ để re-fetch cart
   useEffect(() => {
-    const handleSync = () => {
-      fetchCart();
-    };
-    window.addEventListener('fitbite-profile-updated', handleSync);
-    return () => window.removeEventListener('fitbite-profile-updated', handleSync);
+    const sync = () => { void fetchCart(); };
+    window.addEventListener('fitbite-profile-updated', sync);
+    return () => window.removeEventListener('fitbite-profile-updated', sync);
   }, [fetchCart]);
 
-  const addItem = async (
-    item: { id?: string | number; itemId?: string | number; name?: string; price?: number; image?: string; calories?: number },
-    quantity: number = 1,
-    options?: AddItemOptions
-  ): Promise<{ success: boolean; message?: string }> => {
-    const foodId = String(item.itemId || item.id || '');
-    if (!foodId) return { success: false, message: 'Thiếu mã món ăn' };
-
+  // Read the latest server version even across sequential actions in one event handler.
+  const mutate = async (method: 'post' | 'patch' | 'delete', url: string, data: Record<string, unknown> = {}) => {
+    if (!accountId || accountRef.current !== accountId) throw new Error('Vui lòng đăng nhập bằng tài khoản khách hàng.');
+    if (mutationRef.current) throw new Error('Giỏ hàng đang được cập nhật. Vui lòng chờ.');
+    mutationRef.current = true; setMutating(true); setError('');
     try {
-      const payload: any = {
-        itemId: foodId,
-        quantity,
-        version: cart?.version ?? 0,
-      };
-
-      if (options?.cartType) payload.cartType = options.cartType;
-      if (options?.deliveryDate) payload.deliveryDate = options.deliveryDate;
-      if (options?.mealSlot) payload.mealSlot = options.mealSlot;
-
-      await api.post('/cart/items', payload);
-      await fetchCart();
-      return { success: true };
-    } catch (err: any) {
-      if (err?.response?.status === 409) {
+      const current = cartRef.current || await fetchCart();
+      if (!current || accountRef.current !== accountId) throw new Error('Chưa tải được giỏ hàng. Vui lòng thử lại.');
+      requestRef.current += 1;
+      const response = await api.request({ method, url, data: { ...data, version: current.version } });
+      if (accountRef.current !== accountId) throw new Error('Phiên đăng nhập đã thay đổi.');
+      // Older GET responses must not overwrite this mutation's result.
+      requestRef.current += 1;
+      const updated = normalizeCart(response.data?.result);
+      cartRef.current = updated; setCart(updated);
+    } catch (err) {
+      if (accountRef.current === accountId) {
+        // Re-read after conflicts/network failures, but never replay a write automatically.
         await fetchCart();
-      }
-      const msg = err?.response?.data?.message || 'Không thể thêm món vào giỏ hàng';
-      return { success: false, message: msg };
-    }
-  };
-
-  const addBulkItems = async (
-    bulkItems: Array<{ itemId: string; quantity: number; deliveryDate?: string; mealSlot?: string }>,
-    targetCartType?: 'FOOD' | 'COMBO'
-  ): Promise<{ success: boolean; message?: string }> => {
-    try {
-      const payload: any = {
-        cartType: targetCartType || cart?.cartType || 'COMBO',
-        version: cart?.version ?? 0,
-        items: bulkItems,
-      };
-
-      await api.post('/cart/items/bulk', payload);
-      await fetchCart();
-      return { success: true };
-    } catch (err: any) {
-      if (err?.response?.status === 409) {
-        await fetchCart();
-      }
-      const msg = err?.response?.data?.message || 'Không thể thêm thực đơn vào giỏ hàng';
-      return { success: false, message: msg };
-    }
-  };
-
-  const updateLine = async (
-    lineId: string,
-    payload: { quantity?: number; deliveryDate?: string | null; mealSlot?: string | null }
-  ) => {
-    try {
-      await api.patch(`/cart/items/${lineId}`, {
-        ...payload,
-        version: cart?.version ?? 0,
-      });
-      await fetchCart();
-    } catch (err: any) {
-      if (err?.response?.status === 409) {
-        await fetchCart();
+        setError(apiError(err));
       }
       throw err;
+    } finally {
+      mutationRef.current = false; setMutating(false);
+      if (accountRef.current === accountId) setLoading(false);
     }
   };
 
-  const updateQty = async (lineIdOrFoodId: string | number, delta: number) => {
-    const currentItem = (cart?.items || []).find(
-      (i) => i._id === String(lineIdOrFoodId) || i.id === String(lineIdOrFoodId) || i.itemId === String(lineIdOrFoodId)
-    );
-    if (!currentItem) return;
-
-    const lineId = currentItem._id;
-    const newQty = currentItem.quantity + delta;
-
+  const addItem: CartContextType['addItem'] = async (item, quantity = 1, options) => {
     try {
-      if (newQty <= 0) {
-        await removeItem(lineId);
-      } else {
-        await updateLine(lineId, { quantity: newQty });
-      }
-    } catch (err) {
-      console.error('Lỗi cập nhật số lượng:', err);
-    }
-  };
-
-  const removeItem = async (lineIdOrFoodId: string | number) => {
-    const currentItem = (cart?.items || []).find(
-      (i) => i._id === String(lineIdOrFoodId) || i.id === String(lineIdOrFoodId) || i.itemId === String(lineIdOrFoodId)
-    );
-    const lineId = currentItem ? currentItem._id : String(lineIdOrFoodId);
-
-    try {
-      await api.delete(`/cart/items/${lineId}`, {
-        data: { version: cart?.version ?? 0 },
-      });
-      await fetchCart();
-    } catch (err: any) {
-      if (err?.response?.status === 409) {
-        await fetchCart();
-      }
-      console.error('Lỗi xóa món khỏi giỏ hàng:', err);
-    }
-  };
-
-  const clearCart = async () => {
-    try {
-      await api.delete('/cart', {
-        data: { version: cart?.version ?? 0 },
-      });
-      await fetchCart();
-    } catch (err: any) {
-      if (err?.response?.status === 409) {
-        await fetchCart();
-      }
-      console.error('Lỗi làm trống giỏ hàng:', err);
-    }
-  };
-
-  const switchMode = async (newMode: 'FOOD' | 'COMBO'): Promise<{ success: boolean; message?: string }> => {
-    try {
-      await api.patch('/cart/mode', {
-        cartType: newMode,
-        version: cart?.version ?? 0,
-      });
-      await fetchCart();
+      const itemId = String(item.itemId || item.id || '');
+      if (!itemId) throw new Error('Thiếu mã món ăn.');
+      await mutate('post', '/cart/items', { itemId, quantity, cartType: 'FOOD', ...options });
       return { success: true };
-    } catch (err: any) {
-      if (err?.response?.status === 409) {
-        await fetchCart();
-      }
-      const msg = err?.response?.data?.message || 'Không thể chuyển đổi chế độ giỏ hàng khi giỏ chưa rỗng';
-      return { success: false, message: msg };
-    }
+    } catch (err) { return { success: false, message: apiError(err) }; }
+  };
+  const addBulkItems: CartContextType['addBulkItems'] = async (items, cartType = 'COMBO') => {
+    try {
+      await mutate('post', '/cart/items/bulk', { items, cartType });
+      return { success: true };
+    } catch (err) { return { success: false, message: apiError(err) }; }
+  };
+  const updateLine: CartContextType['updateLine'] = async (lineId, payload) => {
+    await mutate('patch', '/cart/items/' + lineId, payload);
+  };
+  const updateQty: CartContextType['updateQty'] = async (lineId, delta) => {
+    const item = cartRef.current?.items.find(item => item._id === String(lineId));
+    if (!item) throw new Error('Dòng giỏ hàng đã thay đổi. Vui lòng tải lại.');
+    await updateLine(item._id, { quantity: Math.max(0, item.quantity + delta) });
+  };
+  const removeItem: CartContextType['removeItem'] = async lineId => {
+    await mutate('delete', '/cart/items/' + lineId);
+  };
+  const clearCart = async () => { await mutate('delete', '/cart'); };
+  const switchMode: CartContextType['switchMode'] = async cartType => {
+    try {
+      await mutate('patch', '/cart/mode', { cartType });
+      return { success: true };
+    } catch (err) { return { success: false, message: apiError(err) }; }
   };
 
   const items = cart?.items || [];
-  const cartCount = cart?.summary?.itemCount ?? items.reduce((acc, item) => acc + item.quantity, 0);
-  const subtotal = cart?.summary?.subtotal ?? 0;
-  const totalCalories = cart?.summary?.totalCalories ?? 0;
-  const cartType = cart?.cartType || 'FOOD';
-  const version = cart?.version ?? 0;
-  const canCheckout = cart?.canCheckout ?? false;
-  const issues = cart?.issues || [];
-
-  return (
-    <CartContext.Provider
-      value={{
-        cart,
-        items,
-        cartCount,
-        subtotal,
-        totalCalories,
-        cartType,
-        version,
-        canCheckout,
-        issues,
-        loading,
-        fetchCart,
-        addItem,
-        addBulkItems,
-        updateQty,
-        updateLine,
-        removeItem,
-        clearCart,
-        switchMode,
-      }}
-    >
-      {children}
-    </CartContext.Provider>
-  );
+  return <CartContext.Provider value={{
+    cart, items, cartCount: cart?.summary.itemCount ?? 0, subtotal: cart?.summary.subtotal ?? 0,
+    totalCalories: cart?.summary.totalCalories ?? 0, cartType: cart?.cartType || 'FOOD',
+    version: cart?.version ?? 0, canCheckout: cart?.canCheckout ?? false, issues: cart?.issues || [],
+    loading, mutating, error, fetchCart, addItem, addBulkItems, updateQty, updateLine, removeItem, clearCart, switchMode
+  }}>{children}</CartContext.Provider>;
 }
 
 export function useCart() {
   const context = useContext(CartContext);
-  if (context === undefined) {
-    throw new Error('useCart must be used within a CartProvider');
-  }
+  if (!context) throw new Error('useCart must be used within a CartProvider');
   return context;
 }

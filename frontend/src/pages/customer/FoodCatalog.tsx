@@ -13,7 +13,7 @@ import {
   XCircle,
   RotateCcw
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
@@ -26,7 +26,9 @@ const categories = ['Tất cả', 'Giảm cân', 'Tăng cơ', 'Duy trì', 'Ăn c
 
 export default function FoodCatalog() {
   const { isAuthenticated } = useAuth();
-  const { addItem } = useCart();
+  const { addItem, loading: cartLoading, mutating } = useCart();
+  const navigate = useNavigate();
+  const [cartFeedback, setCartFeedback] = useState<{ success: boolean; message: string } | null>(null);
 
   const [activeCategory, setActiveCategory] = useState<(typeof categories)[number]>('Tất cả');
   const [searchQuery, setSearchQuery] = useState('');
@@ -158,6 +160,7 @@ export default function FoodCatalog() {
       <Navbar />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 pt-24 space-y-6">
+        {cartFeedback && <p role={cartFeedback.success ? 'status' : 'alert'} className={`p-4 rounded-2xl border ${cartFeedback.success ? 'bg-green-50 text-green-800 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{cartFeedback.message}{cartFeedback.success && <Link to="/cart" className="font-bold underline ml-3">Xem giỏ hàng</Link>}</p>}
         {/* Header & Search */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
@@ -444,11 +447,13 @@ export default function FoodCatalog() {
 
                           <Button
                             size="sm"
-                            disabled={!inStock}
+                            disabled={!inStock || cartLoading || mutating}
                             className="rounded-xl w-10 h-10 p-0 min-h-[44px] min-w-[44px] z-10"
-                            onClick={(e) => {
+                            onClick={async (e) => {
                               e.preventDefault();
-                              addItem(
+                              if (!isAuthenticated) { navigate('/login'); return; }
+                              setCartFeedback(null);
+                              const result = await addItem(
                                 {
                                   id: food._id,
                                   name: food.name,
@@ -458,6 +463,7 @@ export default function FoodCatalog() {
                                 },
                                 1
                               );
+                              setCartFeedback({ success: result.success, message: result.success ? `Đã thêm ${food.name} vào giỏ hàng.` : result.message || 'Không thể thêm món.' });
                             }}
                             aria-label={`Thêm ${food.name} vào giỏ hàng`}
                           >

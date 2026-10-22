@@ -10,7 +10,9 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test:admin": "node --experimental-strip-types --test tests/admin.test.ts",
-    "test:workspace": "node --experimental-strip-types --test tests/staff-workspace.test.ts"
+    "test:workspace": "node --experimental-strip-types --test tests/staff-workspace.test.ts",
+    "test:cart": "node --experimental-strip-types --test tests/cart.test.ts",
+    "test:checkout": "node --experimental-strip-types --test tests/checkout-shipping.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
