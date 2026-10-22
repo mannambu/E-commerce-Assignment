@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -20,6 +20,20 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import api from '@/services/api';
+import { apiError } from '@/lib/admin';
+
+const requestOptions = { timeout: 30000 };
+
+function requestError(error: any, resetting = false): string {
+  if (error?.code === 'ECONNABORTED' || error?.code === 'ETIMEDOUT') {
+    return resetting
+      ? 'Chưa nhận được phản hồi từ máy chủ. Hãy thử đăng nhập bằng mật khẩu mới trước khi yêu cầu mã khác.'
+      : 'Máy chủ phản hồi quá lâu. Hãy kiểm tra hộp thư và thư rác trước khi gửi lại yêu cầu.';
+  }
+  if (error?.code === 'ERR_NETWORK') return 'Không kết nối được máy chủ. Vui lòng kiểm tra kết nối và thử lại.';
+  if (error?.response?.status === 503) return 'Dịch vụ gửi email hiện chưa sẵn sàng. Vui lòng thử lại sau hoặc liên hệ hỗ trợ.';
+  return apiError(error);
+}
 
 // Schema Bước 1: Nhập email yêu cầu mã OTP
 const forgotSchema = z.object({
@@ -60,6 +74,8 @@ export default function ForgotPassword() {
   const [step, setStep] = useState<1 | 2 | 3>(1); // 1: Yêu cầu mã, 2: Nhập mã & đổi mật khẩu, 3: Thành công
   const [targetEmail, setTargetEmail] = useState('');
   const [cooldown, setCooldown] = useState(0);
+  const [resendAvailableAt, setResendAvailableAt] = useState(0);
+  const requestInFlight = useRef(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [generalError, setGeneralError] = useState<string | null>(null);
@@ -94,56 +110,65 @@ export default function ForgotPassword() {
 
   // Đếm ngược 60s cooldown gửi lại mã OTP (FR-AUTH-014)
   useEffect(() => {
-    if (cooldown <= 0) return;
-    const timer = setInterval(() => {
-      setCooldown((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
+    const updateCooldown = () => setCooldown(Math.max(0, Math.ceil((resendAvailableAt - Date.now()) / 1000)));
+    updateCooldown();
+    if (resendAvailableAt <= Date.now()) return;
+    const timer = setInterval(updateCooldown, 1000);
     return () => clearInterval(timer);
-  }, [cooldown]);
+  }, [resendAvailableAt]);
+
+  const startCooldown = () => {
+    setResendAvailableAt(Date.now() + 60000);
+    setCooldown(60);
+  };
 
   // Gửi yêu cầu mã OTP (Bước 1)
   const onSubmitForgot = async (data: ForgotForm) => {
+    if (requestInFlight.current) return;
+    const normalizedEmail = data.email.trim().toLowerCase();
     setGeneralError(null);
+    if (normalizedEmail === targetEmail && resendAvailableAt > Date.now()) {
+      setStep(2);
+      return;
+    }
+    requestInFlight.current = true;
     try {
-      const normalizedEmail = data.email.trim().toLowerCase();
-      await api.post('/users/forgot-password', { email: normalizedEmail });
+      await api.post('/users/forgot-password', { email: normalizedEmail }, requestOptions);
 
       setTargetEmail(normalizedEmail);
       setStep(2);
-      setCooldown(60);
+      startCooldown();
       resetResetForm();
     } catch (err: any) {
-      const status = err.response?.status;
-      if (status === 503) {
-        setGeneralError('Dịch vụ gửi email (SMTP) hiện chưa được cấu hình trên máy chủ. Vui lòng liên hệ Admin.');
-      } else {
-        setGeneralError(err.response?.data?.message || 'Không thể gửi mã xác nhận. Vui lòng thử lại sau.');
-      }
+      setGeneralError(requestError(err));
+    } finally {
+      requestInFlight.current = false;
     }
   };
 
   // Gửi lại mã OTP
   const handleResendCode = async () => {
-    if (cooldown > 0 || isResending || !targetEmail) return;
+    if (resendAvailableAt > Date.now() || requestInFlight.current || !targetEmail) return;
+    requestInFlight.current = true;
     setIsResending(true);
     setGeneralError(null);
 
     try {
-      await api.post('/users/forgot-password', { email: targetEmail });
-      setCooldown(60);
+      await api.post('/users/forgot-password', { email: targetEmail }, requestOptions);
+      startCooldown();
+      resetResetForm();
     } catch (err: any) {
-      if (err.response?.status === 503) {
-        setGeneralError('Dịch vụ email SMTP hiện chưa sẵn sàng.');
-      } else {
-        setGeneralError(err.response?.data?.message || 'Chưa thể gửi lại mã xác nhận. Vui lòng thử lại.');
-      }
+      setGeneralError(requestError(err));
     } finally {
+      requestInFlight.current = false;
       setIsResending(false);
     }
   };
 
   // Xác nhận mã và Đặt lại mật khẩu (Bước 2)
   const onSubmitReset = async (data: ResetForm) => {
+    if (requestInFlight.current || !targetEmail) return;
+    requestInFlight.current = true;
     setGeneralError(null);
     try {
       await api.post('/users/reset-password', {
@@ -151,7 +176,7 @@ export default function ForgotPassword() {
         reset_code: data.reset_code.trim(),
         password: data.password,
         confirm_password: data.confirm_password,
-      });
+      }, requestOptions);
 
       // Xóa mọi token cũ còn lưu ở client
       localStorage.removeItem('access_token');
@@ -170,6 +195,7 @@ export default function ForgotPassword() {
             'Mã xác nhận không hợp lệ, đã hết hạn hoặc vượt quá số lần thử. Vui lòng yêu cầu mã mới.'
         );
       } else if (status === 422 && responseData?.errors) {
+        setGeneralError(apiError(err));
         if (responseData.errors.reset_code) {
           setErrorReset('reset_code', { message: responseData.errors.reset_code.msg });
         }
@@ -180,8 +206,10 @@ export default function ForgotPassword() {
           setErrorReset('confirm_password', { message: responseData.errors.confirm_password.msg });
         }
       } else {
-        setGeneralError(responseData?.message || 'Đặt lại mật khẩu thất bại. Vui lòng thử lại.');
+        setGeneralError(requestError(err, true));
       }
+    } finally {
+      requestInFlight.current = false;
     }
   };
 
@@ -275,12 +303,13 @@ export default function ForgotPassword() {
                 </div>
                 <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Đặt lại mật khẩu</h1>
                 <p className="text-gray-500 mt-1 text-sm">
-                  Mã xác nhận 6 chữ số đã được gửi tới email:
+                  Nếu email có tài khoản, bạn sẽ nhận được mã xác nhận 6 chữ số. Hãy kiểm tra cả hộp thư và thư rác:
                 </p>
                 <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 bg-orange-50 border border-orange-200 rounded-full text-orange-800 text-xs font-bold">
                   <span>{targetEmail}</span>
                   <button
                     type="button"
+                    disabled={isResending || isSubmittingReset}
                     onClick={() => {
                       setStep(1);
                       setGeneralError(null);
@@ -299,6 +328,7 @@ export default function ForgotPassword() {
                     <p>{generalError}</p>
                     <button
                       type="button"
+                      disabled={isResending || isSubmittingReset}
                       onClick={() => {
                         setStep(1);
                         setGeneralError(null);
@@ -318,8 +348,10 @@ export default function ForgotPassword() {
                     placeholder="Ví dụ: 012345"
                     icon={<KeyRound size={18} />}
                     maxLength={6}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
                     error={errorsReset.reset_code?.message}
-                    disabled={isSubmittingReset}
+                    disabled={isSubmittingReset || isResending}
                     className="font-mono text-center tracking-widest text-lg font-bold"
                     {...registerReset('reset_code')}
                   />
@@ -328,7 +360,7 @@ export default function ForgotPassword() {
                     <button
                       type="button"
                       onClick={handleResendCode}
-                      disabled={cooldown > 0 || isResending}
+                      disabled={cooldown > 0 || isResending || isSubmittingReset}
                       className="font-bold text-orange-600 disabled:text-gray-400 hover:underline flex items-center gap-1"
                     >
                       {isResending ? (
@@ -353,7 +385,7 @@ export default function ForgotPassword() {
                     placeholder="Tối thiểu 8 ký tự (tối đa 50 ký tự)"
                     icon={<Lock size={18} />}
                     error={errorsReset.password?.message}
-                    disabled={isSubmittingReset}
+                    disabled={isSubmittingReset || isResending}
                     {...registerReset('password')}
                   />
                   <button
@@ -373,7 +405,7 @@ export default function ForgotPassword() {
                     placeholder="Nhập lại chính xác mật khẩu mới"
                     icon={<Lock size={18} />}
                     error={errorsReset.confirm_password?.message}
-                    disabled={isSubmittingReset}
+                    disabled={isSubmittingReset || isResending}
                     {...registerReset('confirm_password')}
                   />
                   <button
@@ -389,7 +421,7 @@ export default function ForgotPassword() {
                 <Button
                   type="submit"
                   className="w-full h-12 text-base font-bold rounded-2xl shadow-lg shadow-orange-500/25 mt-4 min-h-[44px]"
-                  disabled={isSubmittingReset}
+                  disabled={isSubmittingReset || isResending}
                 >
                   {isSubmittingReset ? (
                     <span className="flex items-center justify-center gap-2">
