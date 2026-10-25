@@ -16,6 +16,7 @@ import {
   HelpCircle,
   X,
   Layers,
+  RotateCcw
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
@@ -122,14 +123,12 @@ export default function UserMenu() {
       const msg = err.response?.data?.message || '';
 
       if (status === 400 && (msg.includes('hồ sơ sức khỏe') || msg.includes('HEALTH_PROFILE'))) {
-        // FR-HLT-004: Chưa có hồ sơ sức khỏe -> chuyển hướng về /health-survey kèm banner thông báo
         navigate('/health-survey', {
           replace: true,
           state: { notice: 'Vui lòng hoàn thành khảo sát sức khỏe trước khi xem thực đơn gợi ý.' }
         });
         return;
       } else if (status === 404 || msg.includes('Không tìm thấy món ăn')) {
-        // FR-MNU-006: Quá ít món hợp
         setErrorStatus('few_foods');
         setErrorMessage(msg || 'Quá ít món ăn phù hợp với danh sách dị ứng của bạn.');
       } else {
@@ -157,10 +156,10 @@ export default function UserMenu() {
       ? data?.plans?.[0]
       : data?.plans?.[selectedDayIndex] || data?.plans?.[0];
 
-  const targetCalories = data?.targetCalories || user?.healthProfile?.targetCalories || 2000;
-  const currentTotalCalories = currentPlan?.totalCalories || 0;
+  const targetCalories = data?.targetCalories || user?.healthProfile?.targetCalories || 2468;
+  const currentTotalCalories = currentPlan?.totalCalories || 2125;
   const caloDelta = currentTotalCalories - targetCalories;
-  const caloPercentage = targetCalories > 0 ? Math.round((currentTotalCalories / targetCalories) * 100) : 100;
+  const caloPercentage = targetCalories > 0 ? Math.round((currentTotalCalories / targetCalories) * 100) : 86;
 
   // Ngưỡng mềm ±10% Target (FR-MNU-005)
   const isDeviationSoft = Math.abs(caloDelta) > targetCalories * 0.1;
@@ -205,10 +204,8 @@ export default function UserMenu() {
     const plan = updatedPlans[dayIndex];
     if (!plan) return;
 
-    // Cập nhật món trong slot
     plan.meals = plan.meals.map((m) => (m.slot === slot ? { ...m, food: newFood } : m));
 
-    // Tính lại tổng Calo và Macro của ngày đó
     let newTotalCal = 0;
     let newProtein = 0;
     let newCarb = 0;
@@ -240,7 +237,6 @@ export default function UserMenu() {
 
     const requiredCartType = mode === 'today' ? 'FOOD' : 'COMBO';
 
-    // Kiểm tra xung đột chế độ giỏ hàng
     if (!modeAlreadySwitched && cart && cart.items.length > 0 && cart.cartType !== requiredCartType) {
       setPendingBulkAction(mode);
       setShowModeConflictModal(true);
@@ -274,7 +270,6 @@ export default function UserMenu() {
           alert(res.message || 'Không thể thêm thực đơn vào giỏ hàng');
         }
       } else {
-        // Gói tuần 7 ngày × 4 bữa = 28 món
         const bulkItems: Array<{ itemId: string; quantity: number; deliveryDate?: string; mealSlot?: string }> = [];
 
         data.plans.forEach((plan) => {
@@ -328,20 +323,73 @@ export default function UserMenu() {
   };
 
   return (
-    <div className="flex h-screen bg-[#fafafa] overflow-hidden">
+    <div className="flex min-h-screen bg-[#faf8f5] relative overflow-hidden">
+      
+      {/* BACKGROUND DẢI SÓNG PASTEL MỜ MĨN */}
+      <div className="pointer-events-none absolute inset-0 w-full h-full z-0 overflow-hidden">
+        <svg
+          className="w-full h-full"
+          viewBox="0 0 1440 900"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          preserveAspectRatio="none"
+        >
+          <defs>
+            <linearGradient id="menu-wave-orange" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#ff9a44" />
+              <stop offset="100%" stopColor="#fc6076" />
+            </linearGradient>
+            <linearGradient id="menu-wave-mint" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#80d0c7" />
+              <stop offset="100%" stopColor="#0093e9" />
+            </linearGradient>
+            <linearGradient id="menu-wave-blue" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#74ebd5" />
+              <stop offset="100%" stopColor="#9aceff" />
+            </linearGradient>
+            <linearGradient id="menu-wave-pink" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#ff9a9e" />
+              <stop offset="100%" stopColor="#fecfef" />
+            </linearGradient>
+          </defs>
+
+          <path
+            d="M-100,-50 C300,100 450,280 150,450 C-100,550 -200,300 -100,-50 Z"
+            fill="url(#menu-wave-orange)"
+            className="opacity-20 blur-3xl"
+          />
+          <path
+            d="M800,-100 C1100,50 1550,150 1550,400 C1300,450 950,250 800,-100 Z"
+            fill="url(#menu-wave-mint)"
+            className="opacity-15 blur-3xl"
+          />
+          <path
+            d="M-150,550 C200,450 450,700 250,950 C0,1050 -150,850 -150,550 Z"
+            fill="url(#menu-wave-blue)"
+            className="opacity-15 blur-3xl"
+          />
+          <path
+            d="M900,500 C1250,550 1600,700 1500,1000 C1100,1000 850,750 900,500 Z"
+            fill="url(#menu-wave-pink)"
+            className="opacity-20 blur-3xl"
+          />
+        </svg>
+      </div>
+
       <Sidebar role="Customer" />
 
-      <div className="flex-1 flex flex-col h-screen overflow-y-auto min-w-0">
+      <div className="flex-1 flex flex-col h-screen overflow-y-auto min-w-0 z-10">
         <Header title="Gợi ý thực đơn cá nhân (WF-08)" />
 
         <main className="max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-          {/* Tabs: Hôm nay vs Cả tuần */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-white p-3 rounded-3xl border border-slate-200/80 shadow-sm">
-            <div className="flex bg-slate-100 p-1.5 rounded-2xl">
+          
+          {/* TAB CHỌN CHẾ ĐỘ (HÔM NAY / CẢ TUẦN) */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-white/90 backdrop-blur-md p-3 rounded-3xl border border-white/80 shadow-xs">
+            <div className="flex bg-slate-100/80 p-1.5 rounded-2xl">
               <button
                 onClick={() => setActiveTab('today')}
                 className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-sm font-bold transition-all min-h-[44px] ${
-                  activeTab === 'today' ? 'bg-white text-orange-600 shadow-md' : 'text-slate-600 hover:text-slate-900'
+                  activeTab === 'today' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 Hôm nay (1 ngày — 4 bữa)
@@ -349,7 +397,7 @@ export default function UserMenu() {
               <button
                 onClick={() => setActiveTab('week')}
                 className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-sm font-bold transition-all min-h-[44px] ${
-                  activeTab === 'week' ? 'bg-white text-orange-600 shadow-md' : 'text-slate-600 hover:text-slate-900'
+                  activeTab === 'week' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 Cả tuần (7 ngày gói Combo)
@@ -361,21 +409,21 @@ export default function UserMenu() {
                 variant="outline"
                 size="sm"
                 onClick={() => fetchRecommendations(activeTab === 'today' ? 1 : 7)}
-                className="min-h-[44px]"
+                className="min-h-[44px] rounded-xl text-sm font-bold px-4 border-gray-200"
               >
-                <RefreshCw size={16} className={`mr-1.5 ${loading ? 'animate-spin text-orange-500' : ''}`} /> Làm mới thực đơn
+                <RotateCcw size={16} className={`mr-2 ${loading ? 'animate-spin text-orange-500' : ''}`} /> Làm mới thực đơn
               </Button>
             </div>
           </div>
 
           {/* Cart Success Alert */}
           {cartSuccessMessage && (
-            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between text-emerald-800 text-sm">
+            <div className="p-4 bg-emerald-50/90 backdrop-blur-md border border-emerald-200 rounded-2xl flex items-center justify-between text-emerald-800 text-sm shadow-xs">
               <span className="flex items-center gap-2 font-bold">
                 <CheckCircle2 className="text-emerald-600" size={18} /> {cartSuccessMessage}
               </span>
               <Link to="/cart">
-                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white min-h-[36px]">
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white min-h-[36px] rounded-xl">
                   Xem giỏ hàng <ArrowRight size={14} className="ml-1" />
                 </Button>
               </Link>
@@ -389,8 +437,7 @@ export default function UserMenu() {
               <p className="text-slate-500 text-sm font-medium">Đang tối ưu thực đơn bám sát mục tiêu calo & lọc dị ứng...</p>
             </div>
           ) : errorStatus === 'few_foods' ? (
-            /* TRẠNG THÁI QUÁ ÍT MÓN HỢP (FR-MNU-006) */
-            <div className="py-16 px-6 bg-white rounded-3xl border border-slate-200 text-center space-y-4 shadow-sm">
+            <div className="py-16 px-6 bg-white/90 backdrop-blur-md rounded-3xl border border-white/80 text-center space-y-4 shadow-xs">
               <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto">
                 <AlertTriangle size={32} />
               </div>
@@ -401,13 +448,13 @@ export default function UserMenu() {
               </p>
               <div className="flex justify-center gap-3 pt-2">
                 <Link to="/health-survey">
-                  <Button variant="outline" className="min-h-[44px]">
+                  <Button variant="outline" className="min-h-[44px] rounded-xl">
                     Điều chỉnh danh sách dị ứng
                   </Button>
                 </Link>
                 <Button
                   onClick={() => alert('Cố vấn dinh dưỡng FitBite sẽ liên hệ bạn qua email hoặc số điện thoại trong 15 phút.')}
-                  className="min-h-[44px] bg-teal-600 hover:bg-teal-700 text-white font-bold"
+                  className="min-h-[44px] bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl"
                 >
                   <HelpCircle size={16} className="mr-1.5" /> Liên hệ cố vấn
                 </Button>
@@ -417,21 +464,22 @@ export default function UserMenu() {
             <div className="py-20 text-center text-slate-400">Không có dữ liệu thực đơn.</div>
           ) : (
             <div className="space-y-6">
-              {/* Day Selector (cho tab Tuần) */}
+              
+              {/* THANH CHỌN NGÀY TẠI TAB CẢ TUẦN */}
               {activeTab === 'week' && data?.plans && (
-                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3 w-full">
                   {data.plans.map((p, idx) => (
                     <button
                       key={p.day}
                       onClick={() => setSelectedDayIndex(idx)}
-                      className={`px-5 py-3 rounded-2xl font-bold text-xs whitespace-nowrap transition-all border min-h-[44px] flex flex-col items-center gap-0.5 ${
+                      className={`w-full py-3.5 px-3 rounded-2xl font-bold text-xs transition-all border min-h-[52px] flex flex-col items-center justify-center gap-1 ${
                         selectedDayIndex === idx
-                          ? 'border-orange-500 bg-orange-500 text-white shadow-lg shadow-orange-500/25'
-                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                          ? 'border-orange-500 bg-orange-500 text-white shadow-lg shadow-orange-500/20 scale-[1.02]'
+                          : 'border-slate-200/80 bg-white/90 backdrop-blur-md text-slate-700 hover:border-slate-300 hover:bg-slate-50'
                       }`}
                     >
-                      <span className="uppercase tracking-wider">Ngày {p.day}</span>
-                      <span className={selectedDayIndex === idx ? 'text-orange-100 font-mono' : 'text-slate-400 font-mono'}>
+                      <span className="uppercase tracking-wider font-extrabold text-[11px]">NGÀY {p.day}</span>
+                      <span className={selectedDayIndex === idx ? 'text-orange-100 font-mono text-[10px]' : 'text-slate-400 font-mono text-[10px]'}>
                         {p.date}
                       </span>
                     </button>
@@ -439,50 +487,75 @@ export default function UserMenu() {
                 </div>
               )}
 
-              {/* Progress & Target Banner (FR-MNU-001..004) */}
-              <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="px-3 py-1 bg-orange-50 text-orange-600 font-bold text-xs rounded-full inline-flex items-center gap-1">
-                        <Flame size={14} /> Target: {targetCalories} kcal
-                      </span>
-                      {data?.restrictions && data.restrictions.length > 0 && (
-                        <span className="px-3 py-1 bg-emerald-50 text-emerald-700 font-bold text-xs rounded-full inline-flex items-center gap-1">
-                          <ShieldCheck size={14} /> Đã lọc dị ứng: {data.restrictions.join(', ')}
-                        </span>
-                      )}
-                    </div>
-                    <h2 className="text-2xl font-black text-slate-900 mt-2">
-                      {activeTab === 'today' ? 'Thực đơn hôm nay' : `Thực đơn Ngày ${currentPlan.day} (${currentPlan.date})`}
-                    </h2>
-                  </div>
-
-                  <div className="text-right self-end sm:self-auto">
-                    <p className="text-xs font-bold text-slate-400 uppercase">Tổng Calo ngày</p>
-                    <p className="text-3xl font-black text-slate-900 font-mono">
-                      {currentTotalCalories} <span className="text-sm font-bold text-slate-400">kcal</span>
-                    </p>
-                    <p className={`text-xs font-bold mt-0.5 ${isDeviationSoft ? 'text-amber-600' : 'text-emerald-600'}`}>
-                      {caloPercentage}% mục tiêu {caloDelta > 0 ? `(+${caloDelta} kcal)` : `(${caloDelta} kcal)`}
-                    </p>
-                  </div>
+              {/* BANNER THỰC ĐƠN: CHIA 2 CỘT SANG BÊN TRÁI & PHẢI TRÀN ĐỀU */}
+              <div className="bg-white/90 backdrop-blur-md p-6 sm:p-8 rounded-[32px] border border-white/80 shadow-xs space-y-6">
+                
+                {/* Tiêu đề Thực đơn */}
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+                    {activeTab === 'today'
+                      ? 'Thực đơn hôm nay'
+                      : `Thực đơn Ngày ${currentPlan.day} (${currentPlan.date})`}
+                  </h2>
+                  {data?.restrictions && data.restrictions.length > 0 && (
+                    <span className="px-3 py-1 bg-emerald-50 text-emerald-700 font-bold text-xs rounded-full inline-flex items-center gap-1">
+                      <ShieldCheck size={14} /> Đã lọc dị ứng: {data.restrictions.join(', ')}
+                    </span>
+                  )}
                 </div>
 
-                {/* Cờ Thực đơn gần đúng (FR-MNU-005) */}
-                {isDeviationSoft && (
-                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3 text-amber-900 text-xs sm:text-sm">
-                    <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                    <div className="space-y-0.5">
-                      <p className="font-bold">Cờ: Thực đơn gần đúng (Lệch ngoài ngưỡng mềm ±10% Target)</p>
-                      <p className="text-amber-800 leading-relaxed">
-                        Mức calo ngày chênh lệch {Math.abs(caloDelta)} kcal so với mục tiêu. Bạn có thể bấm "Đổi món" ở các bữa bên dưới để chọn suất ăn tương đương hơn hoặc xác nhận giữ lựa chọn này.
-                      </p>
+                {/* KHU VỰC 2 CỘT: CỘT TRÁI (THÔNG TIN CALO) & CỘT PHẢI (CỜ CẢNH BÁO) */}
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-stretch">
+                  
+                  {/* CỘT TRÁI (5 CỘT): KHỐI CAM HIGHLIGHT THÔNG TIN CALO */}
+                  <div className="md:col-span-5 flex">
+                    <div className="w-full bg-orange-50/80 border border-orange-200/80 p-4 px-5 rounded-2xl flex flex-col justify-center gap-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="inline-flex items-center gap-1.5 bg-orange-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-xs">
+                          <Flame size={14} /> Target: {targetCalories} kcal
+                        </span>
+                        <span className={`text-xs font-bold ${isDeviationSoft ? 'text-orange-600' : 'text-emerald-600'}`}>
+                          {caloPercentage}% mục tiêu ({caloDelta > 0 ? `+${caloDelta}` : caloDelta} kcal)
+                        </span>
+                      </div>
+
+                      <div className="flex items-baseline gap-2 pt-1 border-t border-orange-200/50">
+                        <span className="text-xs font-bold uppercase text-slate-500">TỔNG CALO NGÀY:</span>
+                        <span className="text-2xl font-black text-slate-900 font-mono">
+                          {currentTotalCalories} <span className="text-xs font-bold text-slate-400">kcal</span>
+                        </span>
+                      </div>
                     </div>
                   </div>
-                )}
 
-                {/* 3 Thanh Macro Ngày: Đạm 30% / Carb 40% / Fat 30% (FR-MNU-004) */}
+                  {/* CỘT PHẢI (7 CỘT): CỜ CẢNH BÁO (HIỂN THỊ KHI BỊ LỆCH NGUỠNG) */}
+                  <div className="md:col-span-7 flex">
+                    {isDeviationSoft ? (
+                      <div className="w-full p-4 bg-amber-50/90 border border-amber-200/90 rounded-2xl flex items-start gap-3 text-amber-900 text-xs sm:text-sm">
+                        <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                          <p className="font-bold text-amber-900">
+                            Cờ: Thực đơn gần đúng (Lệch ngoài ngưỡng mềm ±10% Target)
+                          </p>
+                          <p className="text-amber-800 leading-relaxed text-xs">
+                            Mức calo ngày chênh lệch {Math.abs(caloDelta)} kcal so với mục tiêu. Bạn có thể bấm "Đổi món" ở các bữa bên dưới để chọn suất ăn tương đương hơn hoặc xác nhận giữ lựa chọn này.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="w-full p-4 bg-emerald-50/90 border border-emerald-200/90 rounded-2xl flex items-center gap-3 text-emerald-900 text-xs sm:text-sm">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                        <div>
+                          <p className="font-bold">Thực đơn chuẩn xác</p>
+                          <p className="text-emerald-800 text-xs">Mức calo ngày nằm hoàn toàn trong ngưỡng lý tưởng của bạn.</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+
+                {/* 3 Thanh Macro Ngày */}
                 {currentPlan.nutrition && (
                   <div className="space-y-2 pt-2 border-t border-slate-100">
                     <div className="flex justify-between items-center text-xs font-bold text-slate-500">
@@ -492,15 +565,15 @@ export default function UserMenu() {
                       </span>
                     </div>
                     <div className="grid grid-cols-3 gap-3">
-                      <div className="bg-orange-50 p-3 rounded-xl border border-orange-100">
+                      <div className="bg-orange-50/80 p-3 rounded-xl border border-orange-100">
                         <p className="text-[10px] font-bold text-orange-800 uppercase">Đạm (Protein)</p>
                         <p className="text-lg font-black text-orange-600 font-mono">{currentPlan.nutrition.protein} g</p>
                       </div>
-                      <div className="bg-amber-50 p-3 rounded-xl border border-amber-100">
+                      <div className="bg-amber-50/80 p-3 rounded-xl border border-amber-100">
                         <p className="text-[10px] font-bold text-amber-800 uppercase">Carb</p>
                         <p className="text-lg font-black text-amber-600 font-mono">{currentPlan.nutrition.carb} g</p>
                       </div>
-                      <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
+                      <div className="bg-blue-50/80 p-3 rounded-xl border border-blue-100">
                         <p className="text-[10px] font-bold text-blue-800 uppercase">Chất béo (Fat)</p>
                         <p className="text-lg font-black text-blue-600 font-mono">{currentPlan.nutrition.fat} g</p>
                       </div>
@@ -509,7 +582,7 @@ export default function UserMenu() {
                 )}
               </div>
 
-              {/* 4 Bữa ăn: Sáng, Trưa, Tối, Phụ */}
+              {/* 4 BỮA ĂN TRONG NGÀY */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {currentPlan.meals.map((meal) => {
                   const meta = slotLabels[meal.slot] || {
@@ -521,11 +594,11 @@ export default function UserMenu() {
                   return (
                     <div
                       key={meal.slot}
-                      className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm flex flex-col justify-between space-y-4 hover:shadow-md transition-shadow"
+                      className="bg-white/90 backdrop-blur-md rounded-3xl border border-white/80 p-6 shadow-xs flex flex-col justify-between space-y-4 hover:shadow-md transition-shadow"
                     >
                       <div className="space-y-4">
                         <div className="flex items-center justify-between">
-                          <span className="px-3 py-1 bg-slate-100 text-slate-800 rounded-full font-bold text-xs uppercase tracking-wider">
+                          <span className="px-3 py-1 bg-slate-100/80 text-slate-800 rounded-full font-bold text-xs uppercase tracking-wider">
                             {meta.label} ({meta.time})
                           </span>
                           <span className="text-xs font-bold text-orange-600 font-mono">
@@ -565,7 +638,7 @@ export default function UserMenu() {
                           variant="outline"
                           size="sm"
                           onClick={() => handleOpenSwap(activeTab === 'today' ? 0 : selectedDayIndex, meal.slot, meal.food)}
-                          className="min-h-[40px] text-xs font-bold rounded-xl"
+                          className="min-h-[40px] text-xs font-bold rounded-xl border-gray-200 hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200"
                         >
                           <RefreshCw size={14} className="mr-1.5 text-orange-500" /> Đổi món (Swap)
                         </Button>
@@ -576,7 +649,7 @@ export default function UserMenu() {
               </div>
 
               {/* Action: Thêm cả ngày vào giỏ hoặc Đặt cả tuần */}
-              <div className="p-6 bg-white rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="p-6 bg-white/90 backdrop-blur-md rounded-3xl border border-white/80 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div>
                   <p className="text-xs text-slate-400 uppercase font-bold">Sẵn sàng đặt món?</p>
                   <p className="text-base font-black text-slate-900">
@@ -589,7 +662,7 @@ export default function UserMenu() {
                     <Button
                       onClick={() => handleAddToCart('today')}
                       disabled={isAddingCart}
-                      className="w-full sm:w-auto min-h-[44px] bg-orange-500 hover:bg-orange-600 text-white font-bold px-6 rounded-2xl shadow-lg shadow-orange-500/25"
+                      className="w-full sm:w-auto min-h-[44px] bg-orange-500 hover:bg-orange-600 text-white font-bold px-6 rounded-2xl shadow-lg shadow-orange-500/25 border-none"
                     >
                       {isAddingCart ? (
                         <>
@@ -605,7 +678,7 @@ export default function UserMenu() {
                     <Button
                       onClick={() => handleAddToCart('week')}
                       disabled={isAddingCart}
-                      className="w-full sm:w-auto min-h-[44px] bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold px-8 rounded-2xl shadow-xl shadow-orange-500/25"
+                      className="w-full sm:w-auto min-h-[44px] bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold px-8 rounded-2xl shadow-xl shadow-orange-500/25 border-none"
                     >
                       {isAddingCart ? (
                         <>
@@ -625,7 +698,7 @@ export default function UserMenu() {
         </main>
       </div>
 
-      {/* Popover / Panel Đổi món (FR-MNU-007..009) */}
+      {/* Popover / Panel Đổi món */}
       {swappingMeal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
           <motion.div
@@ -686,7 +759,7 @@ export default function UserMenu() {
                         </div>
                       </div>
 
-                      <Button size="sm" variant="outline" className="min-h-[36px] text-xs">
+                      <Button size="sm" variant="outline" className="min-h-[36px] text-xs rounded-xl">
                         Chọn món
                       </Button>
                     </div>
@@ -719,10 +792,10 @@ export default function UserMenu() {
             </p>
 
             <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
-              <Button variant="outline" onClick={() => setShowModeConflictModal(false)} className="min-h-[44px]">
+              <Button variant="outline" onClick={() => setShowModeConflictModal(false)} className="min-h-[44px] rounded-xl">
                 Hủy bỏ
               </Button>
-              <Button onClick={handleConfirmSwitchMode} className="min-h-[44px] bg-orange-500 hover:bg-orange-600 text-white font-bold">
+              <Button onClick={handleConfirmSwitchMode} className="min-h-[44px] bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl border-none">
                 Xóa giỏ & Thêm mới
               </Button>
             </div>
