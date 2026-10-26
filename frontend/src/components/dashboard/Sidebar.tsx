@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Utensils, ClipboardList,
-  LogOut, ShoppingBag, BarChart3, Users as UserIcon, Settings, Receipt, Truck
+  LogOut, ShoppingBag, BarChart3, Users as UserIcon, Settings, Receipt
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -10,7 +10,7 @@ import { waitForSessionRefresh } from '@/services/api';
 import { apiError } from '@/lib/admin';
 
 interface SidebarProps {
-  role?: 'admin' | 'user' | 'Admin' | 'Customer' | 'kitchen' | 'delivery' | 'manager' | 'Kitchen Staff' | 'Delivery Staff' | 'Manager' | string;
+  role?: 'admin' | 'user' | 'Admin' | 'Customer';
 }
 
 export default function Sidebar({ role }: SidebarProps) {
@@ -19,7 +19,6 @@ export default function Sidebar({ role }: SidebarProps) {
   const navigate = useNavigate();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState('');
-
   const handleLogout = async () => {
     if (isLoggingOut) return;
     setIsLoggingOut(true);
@@ -35,9 +34,7 @@ export default function Sidebar({ role }: SidebarProps) {
         navigate('/login', { replace: true });
       }
       else setLogoutError(apiError(error));
-    } finally { 
-      setIsLoggingOut(false); 
-    }
+    } finally { setIsLoggingOut(false); }
   };
 
   // 1. Định nghĩa menu cho Khách hàng
@@ -48,23 +45,7 @@ export default function Sidebar({ role }: SidebarProps) {
     { icon: UserIcon, label: 'Hồ sơ & Địa chỉ', path: '/dashboard/profile' },
   ];
 
-  // 2. Định nghĩa menu cho Bếp
-  const kitchenLinks = [
-    { icon: Utensils, label: 'Khu vực Chế biến Bếp', path: '/workspace/kitchen' },
-  ];
-
-  // 3. Định nghĩa menu cho Nhân viên Giao hàng
-  const deliveryLinks = [
-    { icon: Truck, label: 'Khu vực Giao hàng', path: '/workspace/delivery' },
-  ];
-
-  // 4. Định nghĩa menu cho Quản lý / Điều phối Vận hành
-  const managerLinks = [
-    { icon: ClipboardList, label: 'Điều phối vận hành', path: '/workspace/manager' },
-    { icon: Receipt, label: 'Sổ giao dịch COD', path: '/workspace/transactions' },
-  ];
-
-  // 5. Định nghĩa menu cho Admin
+  // 2. Định nghĩa menu cho Admin
   const adminLinks = [
     { icon: UserIcon, label: 'Quản lý người dùng', path: '/dashboard/admin/users' },
     { icon: LayoutDashboard, label: 'Quản trị hệ thống', path: '/dashboard/admin' },
@@ -76,19 +57,14 @@ export default function Sidebar({ role }: SidebarProps) {
     { icon: Settings, label: 'Giờ chốt bếp', path: '/dashboard/admin/settings' },
   ];
 
-  // Xác định Role hoạt động dựa trên prop truyền vào hoặc thông tin user đăng nhập
-  const effectiveRole = (role || user?.role || '').toLowerCase();
+  const normalizedRole = role?.toLowerCase() === 'admin'
+    ? 'Admin'
+    : role?.toLowerCase() === 'user' || role === 'Customer'
+      ? 'Customer'
+      : user?.role;
 
-  let activeLinks = customerLinks;
-  if (effectiveRole.includes('admin')) {
-    activeLinks = adminLinks;
-  } else if (effectiveRole.includes('kitchen')) {
-    activeLinks = kitchenLinks;
-  } else if (effectiveRole.includes('delivery') || effectiveRole.includes('shipper')) {
-    activeLinks = deliveryLinks;
-  } else if (effectiveRole.includes('manager')) {
-    activeLinks = managerLinks;
-  }
+  // Lựa chọn bộ menu dựa trên Role
+  const activeLinks = normalizedRole === 'Admin' ? adminLinks : customerLinks;
 
   return (
     <aside className="sticky top-0 flex h-screen w-64 shrink-0 flex-col border-r border-[color:var(--role-border)] bg-[var(--role-surface)]/95 backdrop-blur-md">
