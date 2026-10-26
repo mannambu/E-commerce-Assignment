@@ -29,11 +29,9 @@ const AdminFinanceRevenue = lazy(() => import('./pages/dashboard/admin/finance/R
 const AdminFinanceExpenses = lazy(() => import('./pages/dashboard/admin/finance/Expenses'));
 const AdminFinanceTransactions = lazy(() => import('./pages/dashboard/admin/finance/Transactions'));
 
-// Workspace Pages (5 roles)
 const ManagerWorkspace = lazy(() => import('./pages/workspace/ManagerWorkspace'));
 const KitchenWorkspace = lazy(() => import('./pages/workspace/KitchenWorkspace'));
 const DeliveryWorkspace = lazy(() => import('./pages/workspace/DeliveryWorkspace'));
-const CodTransactionsPage = lazy(() => import('./pages/workspace/CodTransactionsPage'));
 
 const FoodCatalog = lazy(() => import('./pages/customer/FoodCatalog'));
 const FoodDetails = lazy(() => import('./pages/customer/FoodDetails'));
@@ -88,37 +86,34 @@ const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
   return <>{children}</>;
 };
 
-// Đồng bộ 5 Theme màu đại diện cho 5 Vai trò
 const RouteThemeClassSync = () => {
   const { user } = useAuth();
   const location = useLocation();
 
   useEffect(() => {
-    const roleThemeClasses = [
-      'role-theme-customer',
-      'role-theme-kitchen',
-      'role-theme-delivery',
-      'role-theme-manager',
-      'role-theme-admin'
-    ];
+    const roleThemeClasses = ['role-theme-customer', 'role-theme-admin'];
     document.body.classList.remove(...roleThemeClasses);
 
     const pathname = location.pathname;
-    let nextThemeClass = 'role-theme-customer';
+    let nextThemeClass = '';
 
-    if (pathname.startsWith('/dashboard/admin')) {
+    if (pathname.startsWith('/dashboard/admin') || pathname.startsWith('/workspace')) {
       nextThemeClass = 'role-theme-admin';
-    } else if (pathname.startsWith('/workspace/kitchen')) {
-      nextThemeClass = 'role-theme-kitchen';
-    } else if (pathname.startsWith('/workspace/delivery')) {
-      nextThemeClass = 'role-theme-delivery';
-    } else if (pathname.startsWith('/workspace/manager') || pathname.startsWith('/workspace/transactions')) {
-      nextThemeClass = 'role-theme-manager';
-    } else {
+    } else if (
+      pathname.startsWith('/dashboard') ||
+      pathname.startsWith('/cart') ||
+      pathname.startsWith('/checkout') ||
+      pathname.startsWith('/food-catalog') ||
+      pathname.startsWith('/food/')
+    ) {
+      nextThemeClass = 'role-theme-customer';
+    } else if (pathname === '/' && user?.role === 'Customer') {
       nextThemeClass = 'role-theme-customer';
     }
 
-    document.body.classList.add(nextThemeClass);
+    if (nextThemeClass) {
+      document.body.classList.add(nextThemeClass);
+    }
 
     return () => {
       document.body.classList.remove(...roleThemeClasses);
@@ -213,20 +208,12 @@ function AppRoutes() {
             }
           />
 
-          {/* Operational Workspace Routes */}
+          {/* Operational Workspace Routes (5 roles) */}
           <Route
             path="/workspace/manager"
             element={
               <ProtectedRoute allowedRoles={['Manager', 'Admin']}>
                 <ManagerWorkspace />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/workspace/transactions"
-            element={
-              <ProtectedRoute allowedRoles={['Manager', 'Admin']}>
-                <CodTransactionsPage />
               </ProtectedRoute>
             }
           />

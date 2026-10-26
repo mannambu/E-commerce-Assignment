@@ -69,6 +69,7 @@ export default function Login() {
         remember_me: Boolean(data.rememberMe),
       });
 
+      // API Spec: response.data.result = { access_token, refresh_token, role, ... }
       const { access_token, refresh_token, role } = response.data?.result || {};
 
       if (!access_token || !refresh_token) {
@@ -81,17 +82,25 @@ export default function Login() {
         return;
       }
 
-      // Điều hướng chuẩn xác theo vai trò
+      // Điều hướng chuẩn xác theo 5 vai trò (FR-AUTH-007)
       switch (profile.role) {
         case 'Admin':
+          navigate('/dashboard/admin/users', { replace: true });
+          break;
         case 'Manager':
-          navigate('/dashboard/manager', { replace: true });
+          navigate('/workspace/manager', { replace: true });
+          break;
+        case 'Kitchen Staff':
+          navigate('/workspace/kitchen', { replace: true });
+          break;
+        case 'Delivery Staff':
+          navigate('/workspace/delivery', { replace: true });
           break;
         case 'Customer':
           navigate('/dashboard/user', { replace: true });
           break;
         default:
-          navigate('/dashboard/user', { replace: true });
+          setError('root', { message: 'Vai trò tài khoản không được hỗ trợ.' });
           break;
       }
     } catch (err: any) {
@@ -99,14 +108,23 @@ export default function Login() {
       const serverMessage = err.response?.data?.message || '';
 
       if (status === 401) {
-        setError('root', { message: 'Email hoặc mật khẩu chưa đúng.' });
+        // FR-AUTH-008: Thông báo chung, không tiết lộ tài khoản có tồn tại hay không
+        setError('root', {
+          message: 'Email hoặc mật khẩu chưa đúng.',
+        });
       } else if (status === 400 && serverMessage.includes('quá nhiều lần')) {
+        // FR-AUTH-009: 5 lần sai -> Khóa tạm 5 phút kèm đồng hồ đếm ngược
         setLockCountdown(300);
-        setError('root', { message: 'Tài khoản tạm thời bị khóa do nhập sai mật khẩu 5 lần liên tiếp.' });
+        setError('root', {
+          message: 'Tài khoản tạm thời bị khóa do nhập sai mật khẩu 5 lần liên tiếp.',
+        });
       } else if (status === 403) {
+        // FR-AUTH-011: Khóa bởi Admin
         setAdminLockMessage(serverMessage || 'Tài khoản của bạn đã bị khóa bởi Quản trị viên.');
       } else {
-        setError('root', { message: serverMessage || 'Đăng nhập không thành công. Vui lòng thử lại.' });
+        setError('root', {
+          message: serverMessage || 'Đăng nhập không thành công. Vui lòng thử lại.',
+        });
       }
     }
   };
@@ -114,99 +132,32 @@ export default function Login() {
   const isFormLocked = lockCountdown !== null && lockCountdown > 0;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#faf8f5] p-4 relative overflow-hidden">
-      
-      {/* ========================================================= */}
-      {/* CÁC DẢI SÓNG MẢNG MÀU PASTEL UỐN LƯỢN TỪ TRÁI SANG PHẢI    */}
-      {/* ========================================================= */}
-      <div className="pointer-events-none absolute inset-0 w-full h-full z-0 overflow-hidden">
-        <svg
-          className="w-full h-full"
-          viewBox="0 0 1440 900"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          preserveAspectRatio="none"
-        >
-          <defs>
-            {/* 1. Gradient Cam - Vàng Top-Left */}
-            <linearGradient id="wave-orange" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#ff9a44" />
-              <stop offset="100%" stopColor="#fc6076" />
-            </linearGradient>
+    <div className="min-h-screen flex items-center justify-center bg-[#fafafa] p-4 relative overflow-hidden">
+      {/* Background Decor */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-orange-100 rounded-full blur-[120px] opacity-50" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-100 rounded-full blur-[120px] opacity-50" />
 
-            {/* 2. Gradient Xanh Ngọc Top-Right */}
-            <linearGradient id="wave-mint" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#80d0c7" />
-              <stop offset="100%" stopColor="#0093e9" />
-            </linearGradient>
-
-            {/* 3. Gradient Xanh Dương Bottom-Left */}
-            <linearGradient id="wave-blue" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#74ebd5" />
-              <stop offset="100%" stopColor="#9aceff" />
-            </linearGradient>
-
-            {/* 4. Gradient Hồng - Cam Bottom-Right */}
-            <linearGradient id="wave-pink" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#ff9a9e" />
-              <stop offset="100%" stopColor="#fecfef" />
-            </linearGradient>
-          </defs>
-
-          {/* Dải 1: Mảng sóng Cam/Vàng phía góc trên bên trái */}
-          <path
-            d="M-100,-50 C300,100 450,280 150,450 C-100,550 -200,300 -100,-50 Z"
-            fill="url(#wave-orange)"
-            className="opacity-30 blur-2xl"
-          />
-
-          {/* Dải 2: Mảng sóng Xanh Mint uốn từ trên chạy sang phải */}
-          <path
-            d="M800,-100 C1100,50 1550,150 1550,400 C1300,450 950,250 800,-100 Z"
-            fill="url(#wave-mint)"
-            className="opacity-25 blur-2xl"
-          />
-
-          {/* Dải 3: Mảng sóng Xanh Biển uốn phía dưới bên trái */}
-          <path
-            d="M-150,550 C200,450 450,700 250,950 C0,1050 -150,850 -150,550 Z"
-            fill="url(#wave-blue)"
-            className="opacity-25 blur-2xl"
-          />
-
-          {/* Dải 4: Mảng sóng Hồng/Cam mềm uốn dưới bên phải */}
-          <path
-            d="M900,500 C1250,550 1600,700 1500,1000 C1100,1000 850,750 900,500 Z"
-            fill="url(#wave-pink)"
-            className="opacity-30 blur-2xl"
-          />
-        </svg>
-      </div>
-
-      {/* Nút Quay lại trang chủ */}
       <Link
         to="/"
-        className="absolute top-8 left-8 flex items-center gap-2 text-gray-600 hover:text-gray-900 font-bold transition-colors group z-20"
+        className="absolute top-8 left-8 flex items-center gap-2 text-gray-500 hover:text-gray-900 font-bold transition-colors group z-10"
       >
-        <div className="w-10 h-10 rounded-xl bg-white/80 backdrop-blur-md shadow-sm border border-gray-100 flex items-center justify-center group-hover:scale-110 transition-transform">
+        <div className="w-10 h-10 rounded-xl bg-white shadow-sm border border-gray-100 flex items-center justify-center group-hover:scale-110 transition-transform">
           <ArrowLeft size={20} />
         </div>
         <span>Quay lại trang chủ</span>
       </Link>
 
-      {/* CARD ĐĂNG NHẬP */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-md w-full bg-white/85 backdrop-blur-2xl rounded-[44px] shadow-2xl shadow-orange-500/10 p-8 sm:p-10 space-y-8 border border-white/90 relative z-10"
+        className="max-w-md w-full bg-white/90 backdrop-blur-xl rounded-[40px] shadow-2xl shadow-orange-500/5 p-8 sm:p-10 space-y-8 border border-white relative z-10"
       >
-        {/* LOGO BIỂU TƯỢNG KHÓA MÀU CAM */}
         <div className="text-center">
           <div className="inline-flex items-center justify-center w-14 h-14 bg-gradient-to-tr from-orange-500 to-amber-500 rounded-2xl text-white shadow-lg shadow-orange-500/30 mb-4">
             <Lock size={26} />
           </div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight">Chào mừng trở lại</h1>
-          <p className="text-gray-400 font-medium mt-1 text-sm">Đăng nhập tài khoản FitBite để tiếp tục</p>
+          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">Chào mừng trở lại</h1>
+          <p className="text-gray-500 mt-2 text-sm">Đăng nhập tài khoản FitBite để tiếp tục</p>
         </div>
 
         {/* Cảnh báo khóa do Admin */}
@@ -221,7 +172,7 @@ export default function Login() {
           </div>
         )}
 
-        {/* Cảnh báo khóa tạm thời (FR-AUTH-009) */}
+        {/* Cảnh báo khóa tạm thời kèm đếm ngược (FR-AUTH-009) */}
         {isFormLocked && (
           <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3 text-amber-800 text-sm">
             <Clock className="w-5 h-5 flex-shrink-0 mt-0.5 text-amber-600 animate-pulse" />
@@ -252,7 +203,6 @@ export default function Login() {
             icon={<User size={18} />}
             error={errors.identifier?.message}
             disabled={isFormLocked || isSubmitting}
-            className="rounded-2xl py-3.5 bg-gray-50/50"
             {...register('identifier')}
           />
 
@@ -265,7 +215,6 @@ export default function Login() {
                 icon={<Lock size={18} />}
                 error={errors.password?.message}
                 disabled={isFormLocked || isSubmitting}
-                className="rounded-2xl py-3.5 bg-gray-50/50"
                 {...register('password')}
               />
               <button
@@ -280,7 +229,7 @@ export default function Login() {
             <div className="flex justify-end pt-1">
               <Link
                 to="/forgot-password"
-                className="text-xs font-bold text-orange-600 hover:text-orange-700 hover:underline"
+                className="text-xs font-semibold text-orange-600 hover:text-orange-700 hover:underline"
               >
                 Quên mật khẩu?
               </Link>
@@ -298,7 +247,7 @@ export default function Login() {
 
           <Button
             type="submit"
-            className="w-full h-12 text-base font-black rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white shadow-lg shadow-orange-500/30 transition-all border-none"
+            className="w-full h-12 text-base font-bold rounded-2xl shadow-lg shadow-orange-500/25 min-h-[44px]"
             disabled={isFormLocked || isSubmitting}
           >
             {isSubmitting ? (
@@ -313,7 +262,7 @@ export default function Login() {
         </form>
 
         <div className="text-center pt-2 border-t border-gray-100">
-          <p className="text-sm font-medium text-gray-500">
+          <p className="text-sm text-gray-500">
             Chưa có tài khoản FitBite?{' '}
             <Link to="/register" className="font-bold text-orange-600 hover:underline">
               Đăng ký ngay

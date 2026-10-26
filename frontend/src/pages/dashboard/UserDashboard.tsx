@@ -257,69 +257,15 @@ export default function UserDashboard() {
   ).length;
 
   return (
-    <div className="flex min-h-screen bg-[#faf8f5] relative overflow-hidden">
-      
-      {/* ========================================================= */}
-      {/* BACKGROUND WAVES */}
-      {/* ========================================================= */}
-      <div className="pointer-events-none absolute inset-0 w-full h-full z-0 overflow-hidden">
-        <svg
-          className="w-full h-full"
-          viewBox="0 0 1440 900"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          preserveAspectRatio="none"
-        >
-          <defs>
-            <linearGradient id="dash-wave-orange" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#ff9a44" />
-              <stop offset="100%" stopColor="#fc6076" />
-            </linearGradient>
-            <linearGradient id="dash-wave-mint" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#80d0c7" />
-              <stop offset="100%" stopColor="#0093e9" />
-            </linearGradient>
-            <linearGradient id="dash-wave-blue" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#74ebd5" />
-              <stop offset="100%" stopColor="#9aceff" />
-            </linearGradient>
-            <linearGradient id="dash-wave-pink" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#ff9a9e" />
-              <stop offset="100%" stopColor="#fecfef" />
-            </linearGradient>
-          </defs>
-
-          <path
-            d="M-100,-50 C300,100 450,280 150,450 C-100,550 -200,300 -100,-50 Z"
-            fill="url(#dash-wave-orange)"
-            className="opacity-20 blur-3xl"
-          />
-          <path
-            d="M800,-100 C1100,50 1550,150 1550,400 C1300,450 950,250 800,-100 Z"
-            fill="url(#dash-wave-mint)"
-            className="opacity-15 blur-3xl"
-          />
-          <path
-            d="M-150,550 C200,450 450,700 250,950 C0,1050 -150,850 -150,550 Z"
-            fill="url(#dash-wave-blue)"
-            className="opacity-15 blur-3xl"
-          />
-          <path
-            d="M900,500 C1250,550 1600,700 1500,1000 C1100,1000 850,750 900,500 Z"
-            fill="url(#dash-wave-pink)"
-            className="opacity-20 blur-3xl"
-          />
-        </svg>
-      </div>
-
+    <div className="flex min-h-screen role-page-shell">
       <Sidebar role="user" />
 
-      <div className="flex-1 flex flex-col min-w-0 z-10">
+      <div className="flex-1 flex flex-col min-w-0">
         <Header title="Tổng quan khách hàng" userRole="Người dùng" hideSearch={true} />
 
         <main className="p-8 space-y-8 overflow-y-auto min-w-0">
           {dashboardWarning && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50/90 backdrop-blur-md px-5 py-4 text-sm font-semibold text-amber-800 flex items-center justify-between shadow-xs">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-800 flex items-center justify-between shadow-xs">
               <div className="flex items-center gap-3">
                 <AlertTriangle size={20} className="text-amber-600 shrink-0" />
                 <span>{dashboardWarning}</span>
@@ -334,7 +280,7 @@ export default function UserDashboard() {
 
           {/* Quick Metrics */}
           <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <article className="bg-white/90 backdrop-blur-md p-6 rounded-[28px] shadow-xs border border-white/80 flex items-center justify-between">
+            <article className="bg-white p-6 rounded-[28px] shadow-xs border border-gray-100 flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Calories hôm nay</p>
                 <p className="text-3xl font-black text-gray-900 mt-2">
@@ -347,7 +293,7 @@ export default function UserDashboard() {
               </div>
             </article>
 
-            <article className="bg-white/90 backdrop-blur-md p-6 rounded-[28px] shadow-xs border border-white/80 flex items-center justify-between">
+            <article className="bg-white p-6 rounded-[28px] shadow-xs border border-gray-100 flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Mục tiêu Calories</p>
                 <p className="text-3xl font-black text-gray-900 mt-2">
@@ -360,7 +306,7 @@ export default function UserDashboard() {
               </div>
             </article>
 
-            <article className="bg-white/90 backdrop-blur-md p-6 rounded-[28px] shadow-xs border border-white/80 flex items-center justify-between">
+            <article className="bg-white p-6 rounded-[28px] shadow-xs border border-gray-100 flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Đơn hàng đang xử lý</p>
                 <p className="text-3xl font-black text-gray-900 mt-2">{activeOrdersCount} đơn</p>
@@ -372,31 +318,31 @@ export default function UserDashboard() {
           </section>
 
           {/* Health Profile Overview */}
-          <section className="bg-white/90 backdrop-blur-md p-8 rounded-[32px] shadow-xs border border-white/80 space-y-6">
+          <section className="bg-white p-8 rounded-[32px] shadow-xs border border-gray-100 space-y-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <UserCircle size={26} className="text-gray-900" />
                 <h2 className="text-xl font-black text-gray-900">Hồ sơ sức khỏe của bạn</h2>
               </div>
               <Link to="/health-survey">
-                <Button variant="outline" className="rounded-xl text-sm font-bold px-4 py-2 h-auto border-gray-200">
+                <Button variant="outline" size="sm" className="rounded-xl text-xs">
                   Cập nhật chỉ số
                 </Button>
               </Link>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="rounded-2xl bg-gray-50/70 p-4 border border-gray-100">
+              <div className="rounded-2xl bg-gray-50 p-4 border border-gray-100">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Khách hàng</p>
                 <p className="text-lg font-black text-gray-900 mt-1">{profile?.username || 'Khách hàng FitBite'}</p>
               </div>
-              <div className="rounded-2xl bg-gray-50/70 p-4 border border-gray-100">
+              <div className="rounded-2xl bg-gray-50 p-4 border border-gray-100">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Mục tiêu thể hình</p>
                 <p className="text-lg font-black text-gray-900 mt-1">
                   {mapGoalLabel(profile?.healthProfile?.goal)}
                 </p>
               </div>
-              <div className="rounded-2xl bg-gray-50/70 p-4 border border-gray-100">
+              <div className="rounded-2xl bg-gray-50 p-4 border border-gray-100">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Cân nặng hiện tại</p>
                 <p className="text-lg font-black text-gray-900 mt-1">
                   {weightMetrics.currentWeight || Number(profile?.healthProfile?.weightKg || 0)} kg
@@ -406,24 +352,23 @@ export default function UserDashboard() {
           </section>
 
           {/* Orders Tracking Section */}
-          <section className="bg-white/90 backdrop-blur-md p-8 rounded-[32px] shadow-xs border border-white/80 space-y-6">
+          <section className="bg-white p-8 rounded-[32px] shadow-xs border border-gray-100 space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-3">
                 <ClipboardList size={26} className="text-gray-900" />
                 <div>
                   <h2 className="text-xl font-black text-gray-900">Quản lý & Theo dõi đơn hàng</h2>
-                  <p className="text-sm font-medium text-gray-500 mt-0.5">
-                    Theo dõi hành trình chuẩn bị và giao món từng ngày
-                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">Theo dõi hành trình chuẩn bị và giao món từng ngày</p>
                 </div>
               </div>
 
               <Button
                 variant="outline"
+                size="sm"
                 onClick={fetchDashboardData}
-                className="rounded-xl text-sm font-bold px-4 py-2 h-auto border-gray-200 self-start sm:self-auto"
+                className="rounded-xl text-xs self-start sm:self-auto"
               >
-                <RotateCcw size={16} className="mr-2" /> Làm mới
+                <RotateCcw size={14} className="mr-1.5" /> Làm mới
               </Button>
             </div>
 
@@ -614,7 +559,7 @@ export default function UserDashboard() {
                         <div>
                           <p className="font-bold text-sm text-gray-900">{item.name || 'Món ăn FitBite'}</p>
                           <p className="text-xs text-gray-500">
-                            Số lượng: {item.quantity || 1} x {Number(item.price || 0).toLocaleString('vi-VN')}đ
+                            Số lượng: {item.quantity || 1} • {Number(item.price || 0).toLocaleString('vi-VN')}đ
                           </p>
                         </div>
                       </div>
@@ -763,6 +708,7 @@ function mapGoalLabel(goal?: 'LoseFat' | 'GainMuscle' | 'MaintainWeight') {
   return 'Chưa thiết lập';
 }
 
+// Icon + Text for status badge (NFR-USA-004)
 function renderStatusBadge(status: OrderStatus) {
   switch (status) {
     case 'Pending':

@@ -34,27 +34,6 @@ body.role-theme-admin {
   --role-border: #c7ece8;
 }
 
-.role-theme-kitchen {
-  --role-accent: #dc2626;
-  --role-accent-soft: #fef2f2;
-  --role-border: #fee2e2;
-  --role-surface: #ffffff;
-}
-
-.role-theme-delivery {
-  --role-accent: #2563eb;
-  --role-accent-soft: #eff6ff;
-  --role-border: #dbeafe;
-  --role-surface: #ffffff;
-}
-
-.role-theme-manager {
-  --role-accent: #9333ea;
-  --role-accent-soft: #faf5ff;
-  --role-border: #f3e8ff;
-  --role-surface: #ffffff;
-}
-
 @layer base {
   body {
     @apply font-sans text-gray-900 antialiased bg-white;
