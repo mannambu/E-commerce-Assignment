@@ -144,18 +144,15 @@ export default function UserDiary() {
     fetchTrackingData();
   }, []);
 
-  // Most recent weight
   const latestWeight = useMemo(() => {
     if (weightHistory.length === 0) return null;
     return weightHistory[weightHistory.length - 1];
   }, [weightHistory]);
 
-  // Calorie calculations
   const remainingCalories = Math.max(0, targetCalories - todayCalories);
   const isExceededTarget = todayCalories > targetCalories;
   const calorieProgressPercent = Math.min(100, Math.round((todayCalories / (targetCalories || 1)) * 100));
 
-  // Add Manual Calorie Log
   const handleAddManualCalories = async () => {
     const calories = Number(manualCalories);
     if (!calorieDate || !Number.isFinite(calories) || calories <= 0) {
@@ -187,7 +184,6 @@ export default function UserDiary() {
     }
   };
 
-  // Pre-check Weight Update for Fluctuations (NFR-HLT-004)
   const handleRequestUpdateWeight = async () => {
     const weightNum = Number(inputWeight);
     if (!weightDate || !Number.isFinite(weightNum) || weightNum < 30 || weightNum > 300) {
@@ -201,7 +197,6 @@ export default function UserDiary() {
       const daysDiff =
         Math.abs(new Date(weightDate).getTime() - new Date(latestWeight.date).getTime()) / (1000 * 3600 * 24);
 
-      // Fluctuation threshold: > 5% within 7 days, > 3kg within 7 days, hoặc biến động đột ngột >= 10kg (US-09)
       if ((daysDiff <= 7 && (percentDiff > 5 || diffKg > 3)) || diffKg >= 10) {
         setFluctuationAlert({
           diffKg: Number(diffKg.toFixed(1)),
@@ -242,7 +237,7 @@ export default function UserDiary() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen role-page-shell">
+      <div className="flex min-h-screen bg-[#faf8f5]">
         <Sidebar role="user" />
         <div className="flex-1 flex items-center justify-center">
           <Loader2 className="animate-spin text-orange-500" size={40} />
@@ -251,21 +246,71 @@ export default function UserDiary() {
     );
   }
 
-  // Chart data formatting
   const chartData = weightHistory.map((item) => ({
     date: new Date(item.date).toLocaleDateString('vi-VN', { month: 'numeric', day: 'numeric' }),
     weight: item.weightKg
   }));
 
   return (
-    <div className="flex min-h-screen role-page-shell">
+    <div className="flex min-h-screen bg-[#faf8f5] relative overflow-hidden">
+      
+      {/* Background dải sóng mờ pastel */}
+      <div className="pointer-events-none absolute inset-0 w-full h-full z-0 overflow-hidden">
+        <svg
+          className="w-full h-full"
+          viewBox="0 0 1440 900"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          preserveAspectRatio="none"
+        >
+          <defs>
+            <linearGradient id="diary-wave-orange" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#ff9a44" />
+              <stop offset="100%" stopColor="#fc6076" />
+            </linearGradient>
+            <linearGradient id="diary-wave-mint" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#80d0c7" />
+              <stop offset="100%" stopColor="#0093e9" />
+            </linearGradient>
+            <linearGradient id="diary-wave-blue" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#74ebd5" />
+              <stop offset="100%" stopColor="#9aceff" />
+            </linearGradient>
+            <linearGradient id="diary-wave-pink" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#ff9a9e" />
+              <stop offset="100%" stopColor="#fecfef" />
+            </linearGradient>
+          </defs>
+
+          <path
+            d="M-100,-50 C300,100 450,280 150,450 C-100,550 -200,300 -100,-50 Z"
+            fill="url(#diary-wave-orange)"
+            className="opacity-20 blur-3xl"
+          />
+          <path
+            d="M800,-100 C1100,50 1550,150 1550,400 C1300,450 950,250 800,-100 Z"
+            fill="url(#diary-wave-mint)"
+            className="opacity-15 blur-3xl"
+          />
+          <path
+            d="M-150,550 C200,450 450,700 250,950 C0,1050 -150,850 -150,550 Z"
+            fill="url(#diary-wave-blue)"
+            className="opacity-15 blur-3xl"
+          />
+          <path
+            d="M900,500 C1250,550 1600,700 1500,1000 C1100,1000 850,750 900,500 Z"
+            fill="url(#diary-wave-pink)"
+            className="opacity-20 blur-3xl"
+          />
+        </svg>
+      </div>
+
       <Sidebar role="user" />
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 z-10">
         <Header title="Nhật ký dinh dưỡng & Cân nặng" userRole="Người dùng" hideSearch={true} />
 
         <main className="p-8 space-y-8 overflow-y-auto min-w-0">
-          {/* Alerts */}
           {warning && (
             <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800 flex items-center gap-2">
               <AlertTriangle size={18} className="shrink-0 text-red-600" />
@@ -280,7 +325,6 @@ export default function UserDiary() {
             </div>
           )}
 
-          {/* Calorie Exceeded Warning Badge (Icon + Text, NFR-USA-004) */}
           {isExceededTarget && (
             <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-900 flex items-center gap-3 shadow-xs">
               <AlertTriangle size={24} className="text-amber-600 shrink-0" />
@@ -297,9 +341,9 @@ export default function UserDiary() {
 
           {/* Calorie Tracking Dashboard */}
           <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <article className="bg-white p-6 rounded-[28px] shadow-xs border border-gray-100 flex flex-col justify-between">
+            <article className="bg-white/90 backdrop-blur-md p-6 rounded-[28px] shadow-xs border border-white/80 flex flex-col justify-between">
               <div>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Calories hôm nay</p>
+                <p className="text-xs font-extrabold text-orange-400 uppercase tracking-wider">CALORIES HÔM NAY</p>
                 <p className="text-3xl font-black text-gray-900 mt-2">
                   {todayCalories.toLocaleString('vi-VN')}{' '}
                   <span className="text-xs font-bold text-gray-400">kcal</span>
@@ -322,9 +366,9 @@ export default function UserDiary() {
               </div>
             </article>
 
-            <article className="bg-white p-6 rounded-[28px] shadow-xs border border-gray-100 flex flex-col justify-between">
+            <article className="bg-white/90 backdrop-blur-md p-6 rounded-[28px] shadow-xs border border-white/80 flex flex-col justify-between">
               <div>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Mục tiêu mỗi ngày</p>
+                <p className="text-xs font-extrabold text-orange-400 uppercase tracking-wider">MỤC TIÊU MỖI NGÀY</p>
                 <p className="text-3xl font-black text-gray-900 mt-2">
                   {targetCalories.toLocaleString('vi-VN')}{' '}
                   <span className="text-xs font-bold text-gray-400">kcal</span>
@@ -335,9 +379,9 @@ export default function UserDiary() {
               </p>
             </article>
 
-            <article className="bg-white p-6 rounded-[28px] shadow-xs border border-gray-100 flex flex-col justify-between">
+            <article className="bg-white/90 backdrop-blur-md p-6 rounded-[28px] shadow-xs border border-white/80 flex flex-col justify-between">
               <div>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Calories còn lại</p>
+                <p className="text-xs font-extrabold text-orange-400 uppercase tracking-wider">CALORIES CÒN LẠI</p>
                 <p
                   className={cn(
                     'text-3xl font-black mt-2',
@@ -355,7 +399,7 @@ export default function UserDiary() {
           </section>
 
           {/* Manual Calorie Entry Form */}
-          <section className="bg-white p-8 rounded-[32px] shadow-xs border border-gray-100 space-y-6">
+          <section className="bg-white/90 backdrop-blur-md p-8 rounded-[32px] shadow-xs border border-white/80 space-y-6">
             <div className="flex items-center gap-3">
               <Plus size={22} className="text-gray-900" />
               <h2 className="text-xl font-black text-gray-900">Ghi nhận calories từ món ăn ngoài thực đơn</h2>
@@ -397,7 +441,7 @@ export default function UserDiary() {
           </section>
 
           {/* Weight Tracking Section */}
-          <section className="bg-white p-8 rounded-[32px] shadow-xs border border-gray-100 space-y-6">
+          <section className="bg-white/90 backdrop-blur-md p-8 rounded-[32px] shadow-xs border border-white/80 space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-3">
                 <Scale size={24} className="text-gray-900" />
@@ -445,7 +489,7 @@ export default function UserDiary() {
               </div>
             </div>
 
-            {/* Weight Chart (Recharts) */}
+            {/* Weight Chart */}
             {chartData.length > 1 && (
               <div className="pt-6 space-y-2">
                 <h3 className="text-sm font-bold text-gray-700">Biểu đồ tiến trình cân nặng</h3>
@@ -489,7 +533,7 @@ export default function UserDiary() {
               </div>
             )}
 
-            {/* Accessible Weight Data Table (NFR-USA-006) */}
+            {/* Accessible Weight Data Table */}
             <div className="pt-4 space-y-2">
               <h3 className="text-sm font-bold text-gray-700">Bảng dữ liệu lịch sử cân nặng</h3>
               <div className="overflow-x-auto border border-gray-100 rounded-2xl">
@@ -549,7 +593,7 @@ export default function UserDiary() {
         </main>
       </div>
 
-      {/* Fluctuation Confirmation Warning Modal (NFR-HLT-004) */}
+      {/* Modal Cảnh báo Biến động Cân nặng */}
       {fluctuationAlert && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white rounded-[32px] p-6 sm:p-8 max-w-md w-full space-y-6 shadow-2xl">
