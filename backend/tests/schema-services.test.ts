@@ -76,7 +76,11 @@ test('weekly quote uses actual day menus, charges shipping once and saves nested
   t.mock.getter(
     database,
     'foods',
-    () => ({ updateOne: async () => ({ matchedCount: 1 }) }) as unknown as Collection<Food>
+    () =>
+      ({
+        updateOne: async () => ({ matchedCount: 1 }),
+        find: () => ({ toArray: async () => [{ _id: foodId }] })
+      }) as unknown as Collection<Food>
   )
   t.mock.method(carts, 'finishCheckout', async () => {
     cleared = true
@@ -205,7 +209,6 @@ test('daily tracking atomically deduplicates a consumed serving and preserves al
   const calories = await tracking.getDailyCalories(String(user._id))
   assert.equal(calories.history.find((entry) => entry.date === date)!.caloriesConsumed, 400)
 })
-
 
 test('US-08: calculateHealthMetrics follows Mifflin-St Jeor, BMR floor constraint and guards against missing fields', () => {
   // 1. Missing fields throw 'Chưa đủ dữ liệu để tính chỉ số'

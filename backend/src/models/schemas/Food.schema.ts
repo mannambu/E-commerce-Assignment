@@ -25,6 +25,7 @@ export interface FoodType {
   version?: number
   images: string[]
   price: number
+  cost_price?: number | null // Admin-only unit cost in VND; null means estimate at checkout.
   calories: number
   nutrition: Nutrition
   ingredients: Ingredient[]
@@ -49,6 +50,7 @@ export default class Food implements FoodType {
   description: string
   images: string[]
   price: number
+  cost_price?: number | null
   calories: number
   nutrition: Nutrition
   ingredients: Ingredient[]
@@ -71,6 +73,7 @@ export default class Food implements FoodType {
     this.description = food.description
     this.images = food.images
     this.price = food.price
+    if (food.cost_price !== undefined) this.cost_price = food.cost_price
     this.calories = food.calories
     this.nutrition = food.nutrition
     this.ingredients = food.ingredients

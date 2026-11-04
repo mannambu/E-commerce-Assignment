@@ -932,6 +932,8 @@ _Trường hợp biên là đơn hủy có hoàn tiền thì sinh bản ghi hoà
 
 **FR-FIN-001** — Hệ thống phải lập báo cáo món ăn theo khoảng ngày gồm doanh thu, số đơn Completed/paid, chi phí, lãi/lỗ (chi phí = cost_price do Admin nhập; trống thì = 60% giá bán kèm cờ ước tính).
 
+**Chốt bổ sung cho COD (04/11/2026), ưu tiên so với diễn giải tổng quát của mục này:** Ghi nhận theo từng ngày giao Completed và chỉ khi đã thu đủ tiền phải trả của ngày đó, gồm tiền món và phí ship; không chờ cả gói tuần hoàn tất. Thu bù/trả lại thuộc ngày thực tế phát sinh. Tách doanh thu món, phí ship và dòng tiền; thu thừa/trả lại phần thừa không làm tăng/giảm doanh thu món. Ngày hủy chưa từng đủ điều kiện ghi nhận không phát sinh doanh thu âm khi hoàn tiền. Giá vốn chụp tại checkout; thiếu thì ước tính 60% giá bán trong đơn, làm tròn mỗi suất và gắn cờ. Giá vốn ghi cùng kỳ doanh thu món. Đếm riêng số ngày giao được ghi nhận và số đơn duy nhất trong kỳ. Backend đã triển khai API chỉ đọc và hướng dẫn tại [cod-finance.md](../backend/docs/cod-finance.md); Excel FR-FIN-003 vẫn là yêu cầu chưa triển khai ở bước này.
+
 Báo cáo món ăn trên WF-25 theo khoảng ngày gồm doanh thu, số đơn Completed đã thanh toán, chi phí và lãi/lỗ với công thức lãi bằng giá đã chụp trừ cost_price do Admin nhập ở WF-23; món trống cost_price thì tạm tính chi phí bằng 60% giá bán kèm cờ ước tính.
 
 - Ưu tiên: Should (nên có); Nguồn: US-29; Xác minh: kiểm thử.
@@ -988,7 +990,7 @@ CĐ là vấn đề cần quyết định, không phải yêu cầu mới đã d
 | CĐ-01 — đã chốt cho COD | Trừ kho ngay khi đặt COD, không có hạn chờ Manager. Đơn COD lẻ dùng chung cấu hình cutoff chốt bếp với gói tuần (mặc định 20:00 hôm trước; chốt 20/10/2026). | Checkout, kho, xác nhận/hủy đơn lẻ. |
 | CĐ-02 — không còn áp dụng | Đã bỏ chức năng đổi món sau đặt hàng cho cả đơn ngày và gói tuần (20/10/2026). | Không triển khai yêu cầu/duyệt đổi hoặc đếm lượt đổi. |
 | CĐ-03 | Hoàn ngày Failed/Rejected xử lý ship gói thế nào, có khác khách tự hủy ngày không? | Hoàn tự động/đối soát; không tự áp chính sách hủy thường vào ngoại lệ. |
-| CĐ-04 | Gói lẫn Completed và Cancelled/Rejected tổng hợp trạng thái nào? Doanh thu/số đơn tính theo gói hay ngày, giá vốn/hoàn thuộc kỳ nào? | Trạng thái tổng, FR-FIN-001; không trì hoãn review/calo ngày. |
+| CĐ-04 | Còn cần chốt trạng thái tổng của gói lẫn Completed và Cancelled/Rejected. Phần tài chính COD đã chốt tại FR-FIN-001: theo ngày Completed thu đủ; thu bù/trả lại theo ngày thực tế. | Trạng thái tổng; không trì hoãn review/calo ngày hay báo cáo COD. |
 | CĐ-05 | Thao tác người dùng, request xác thực hay refresh gia hạn phiên? Request nền khi không sử dụng có tính hoạt động không? | Phiên trượt, tránh polling giữ phiên vô hạn. |
 | CĐ-06 | Target đã tính nhưng chưa tới thứ Hai dùng thế nào trên thanh calo hiện tại và ngày chưa đặt? | Hồ sơ, thực đơn, tracking, snapshot. |
 | CĐ-07 | Khiếu nại cần minh chứng gì, hạn giải quyết/kết quả bồi hoàn; mốc nhận hàng có đồng nhất Completed không? | FR-ORD-025, ngoại lệ, tài chính. |

@@ -7,6 +7,7 @@ import { CreateFoodReqBody, UpdateFoodReqBody } from '~/models/requests/Food.req
 import { normalizeSearchText } from '~/models/schemas/common'
 import { HealthGoal, UserRole } from '~/models/schemas/User.schema'
 import databaseService from './database.services'
+import { costSnapshot } from '~/utils/food-cost'
 
 type GetFoodsQuery = {
   page?: string
@@ -47,10 +48,12 @@ function legacyNamePattern(normalizedSearch: string) {
     .join('')
 }
 
-function withAvailability(food: Food) {
+function withAvailability(food: Food, isAdmin = false) {
   const availableQuantity = Math.max(0, food.stock - (food.reservedStock ?? 0))
+  const visible = { ...food }
+  if (!isAdmin) delete visible.cost_price
   return {
-    ...food,
+    ...visible,
     availability: {
       isActive: food.isActive,
       availableQuantity,
@@ -286,7 +289,10 @@ class FoodService {
     ])
 
     return {
-      foods: foods.map((food) => ({ ...withAvailability(food), allergyWarning: allergyWarning(food, allergyContext) })),
+      foods: foods.map((food) => ({
+        ...withAvailability(food, isAdmin),
+        allergyWarning: allergyWarning(food, allergyContext)
+      })),
       pagination: {
         page,
         limit,
@@ -310,7 +316,7 @@ class FoodService {
     }
   }
 
-  async getFoodById(food_id: string, customerId?: string) {
+  async getFoodById(food_id: string, customerId?: string, isAdmin = false) {
     if (!ObjectId.isValid(food_id)) {
       throw new ErrorWithStatus({
         message: 'Food ID không hợp lệ',
@@ -332,15 +338,17 @@ class FoodService {
 
     // An active but sold-out item remains readable by direct URL.
     const allergyContext = await this.getAllergyContext(customerId)
-    return { ...withAvailability(food), allergyWarning: allergyWarning(food, allergyContext) }
+    return { ...withAvailability(food, isAdmin), allergyWarning: allergyWarning(food, allergyContext) }
   }
 
   async createFood(payload: CreateFoodReqBody) {
+    if (payload.cost_price != null) costSnapshot(payload.price, payload.cost_price)
     const food = new Food({
       name: payload.name.trim(),
       description: payload.description.trim(),
       images: payload.images,
       price: payload.price,
+      cost_price: payload.cost_price,
       calories: payload.calories,
       nutrition: {
         protein: payload.nutrition.protein,
@@ -374,6 +382,7 @@ class FoodService {
     }
 
     const update: Partial<Food> = {}
+    if (payload.cost_price != null) costSnapshot(0, payload.cost_price)
     if (payload.name !== undefined) {
       update.name = payload.name.trim()
       update.normalizedName = normalizeSearchText(update.name)
@@ -382,6 +391,7 @@ class FoodService {
       'description',
       'images',
       'price',
+      'cost_price',
       'calories',
       'nutrition',
       'ingredients',

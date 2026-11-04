@@ -49,6 +49,12 @@ function foodBodyValidator(partial: boolean): RequestHandler {
       options: Number
     }),
     calories: field(nonnegativeNumber, 'Calories phải là số hữu hạn không âm', { options: Number }),
+    cost_price: field(
+      (value) => value === null || (nonnegativeNumber(value) && Number.isSafeInteger(Number(value))),
+      'Giá vốn phải là số nguyên VND không âm hoặc null để dùng ước tính',
+      { options: (value) => (value === null ? null : Number(value)) },
+      true
+    ),
     nutrition: field(
       (value) => isObject(value) && ['protein', 'carb', 'fat'].every((key) => nonnegativeNumber(value[key])),
       'nutrition phải có đủ protein, carb, fat là số hữu hạn không âm',

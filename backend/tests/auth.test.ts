@@ -801,8 +801,8 @@ test('HTTP routes enforce Customer features, staff read-only orders and ownershi
     role: UserRole.ADMIN
   })
   accounts.push(manager, admin)
-  const order = { _id: new ObjectId(), userId: account._id, status: 'Pending' }
-  const otherOrder = { _id: new ObjectId(), userId: new ObjectId(), status: 'Pending' }
+  const order = { _id: new ObjectId(), userId: account._id, status: 'Pending', deliveries: [] }
+  const otherOrder = { _id: new ObjectId(), userId: new ObjectId(), status: 'Pending', deliveries: [] }
   t.mock.getter(database, 'orders', () => collection([order, otherOrder]) as any)
   t.mock.method(carts, 'buildCartSummary', async () => ({}) as any)
   t.mock.method(tracking, 'getDailyCalories', async () => ({}) as any)

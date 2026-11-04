@@ -23,6 +23,7 @@ import weeklyOrders from '~/services/weekly-orders.services'
 import inventory from '~/services/inventory.services'
 import cancellations from './cancellation.services'
 import { getKitchenCutoff, parseDeliveryStart } from '~/utils/delivery'
+import { costSnapshot } from '~/utils/food-cost'
 
 const COMBO_FREE_KM = 5
 const COMBO_FLAT_FEE = 20000
@@ -449,6 +450,15 @@ class OrdersService {
           updatedAt: now
         }
         await inventory.reserve(order, session, now)
+        const costFoods = await databaseService.foods
+          .find(
+            { _id: { $in: order.deliveries.flatMap((day) => day.items.map((item) => item.foodId)) } },
+            { session, projection: { cost_price: 1 } }
+          )
+          .toArray()
+        const costs = new Map(costFoods.map((food) => [String(food._id), food.cost_price]))
+        for (const day of order.deliveries)
+          for (const item of day.items) Object.assign(item, costSnapshot(item.price, costs.get(String(item.foodId))))
         await databaseService.orders.insertOne(order, { session })
         await cartService.finishCheckout(
           userId,
