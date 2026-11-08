@@ -50,6 +50,8 @@ export interface OrderItem {
   image?: string
   quantity: number
   price: number
+  costPrice?: number // Immutable unit cost at checkout, excluded from ordinary order responses.
+  costEstimated?: boolean // Missing snapshots in old orders are estimated from their original sale price.
   calories: number
   nutrition: NutritionSnapshot
   mealSlot?: MealSlot

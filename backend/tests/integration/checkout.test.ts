@@ -91,6 +91,34 @@ test('checkout and inventory on an isolated MongoDB replica set', { timeout: 180
   }
 
   await t.test(
+    'checkout freezes unit costs without leaking them; catalog edits and retries cannot rewrite old costs',
+    async () => {
+      for (const [weekly, cost] of [
+        [true, 21000],
+        [false, 0],
+        [false, null]
+      ] as const) {
+        const f = await fixture(weekly)
+        await database.foods.updateOne({ _id: f.food._id }, { $set: { cost_price: cost } })
+        const payload = { ...f.payload, paymentMethod: 'COD' as const }
+        const result = await orders.createOrder(f.userId, payload)
+        assert.equal(JSON.stringify(result).includes('costPrice'), false)
+        const saved = (await database.orders.findOne({ _id: result.orderId }))!
+        for (const day of saved.deliveries) {
+          assert.equal(day.items[0].costPrice, cost ?? 30000)
+          assert.equal(day.items[0].costEstimated, cost === null)
+        }
+        await database.foods.updateOne({ _id: f.food._id }, { $set: { cost_price: 99000 } })
+        const replayed = await orders.createOrder(f.userId, payload)
+        assert.equal(replayed.replayed, true)
+        assert.equal(JSON.stringify(replayed).includes('costPrice'), false)
+        assert.deepEqual((await database.orders.findOne({ _id: saved._id }))!.deliveries, saved.deliveries)
+        assert.equal(JSON.stringify(await orders.getMyOrders(f.userId)).includes('costPrice'), false)
+      }
+    }
+  )
+
+  await t.test(
     'online checkout holds the aggregate once, snapshots every day, clears cart and records one fifteen-minute deadline',
     async () => {
       const f = await fixture(true)

@@ -6,6 +6,7 @@ export const FOOD_WRITABLE_FIELDS = [
   'description',
   'images',
   'price',
+  'cost_price',
   'calories',
   'nutrition',
   'ingredients',

@@ -595,6 +595,7 @@ Body:
 | `name`, `description` | Chuỗi không rỗng sau khi trim. |
 | `images` | Mảng có ít nhất một chuỗi không rỗng; trim từng phần tử. Hiện không kiểm tra URL hoặc khả năng tải ảnh. |
 | `price` | Số hữu hạn lớn hơn 0. |
+| `cost_price` | Tùy chọn, số nguyên không âm hoặc `null`; Admin quản lý. Chỉ Admin đọc trường này trong danh mục. Xem [báo cáo COD](cod-finance.md). |
 | `calories` | Số hữu hạn không âm. |
 | `nutrition` | Object đủ `protein`, `carb`, `fat`, mỗi giá trị là số hữu hạn không âm, đơn vị gram. |
 | `ingredients` | Mảng có ít nhất một object gồm `name` không rỗng và `allergyTags` là mảng chuỗi không rỗng. `allergyTags: []` hợp lệ khi không khai báo tag dị ứng. |
@@ -1141,7 +1142,7 @@ Cart, Tracking, Health Profile, gợi ý thực đơn và tạo/sửa review đ�
 ## **11) Phần chưa triển khai hoặc cần đồng bộ tiếp**
 
 - Frontend hiện vẫn cần cập nhật các trang/route/API PT cũ, guard vai trò, trang reset email và giao diện Admin tạo/khóa user.
-- Backend chưa có báo cáo tài chính/Excel Manager, API liệt kê/xóa riêng phiên theo ID hay API đọc audit log. Có schema/service nội bộ không có nghĩa đã có endpoint public.
+- Backend đã có báo cáo COD chỉ đọc cho Manager/Admin tại `GET /workspace/finance/summary` và `/workspace/finance/deliveries`; xem [quy tắc và cách kiểm tra](cod-finance.md). Chưa có xuất Excel, API liệt kê/xóa riêng phiên theo ID hay API đọc audit log.
 - Frontend quản lý user cần đọc `result.items` và `result.total`, gửi `reason` khi khóa/mở/đổi role. Dashboard Admin phải dùng `orders.byStatus`; response không còn `revenue`. Các trang frontend cũ chưa được chuyển trong đợt backend này.
 - Checkout đã có giữ/trừ kho bằng transaction, idempotency và job hủy online chưa trả sau 15 phút. Manager đã có API xác nhận/từ chối và tạo yêu cầu hoàn. IPN và hoàn tiền thật qua cổng thanh toán chưa tích hợp; không coi Paid thủ công là xác nhận thanh toán.
 - Gói tuần đã có API hủy ngày; món cố định sau checkout, không có chức năng đổi. Customer COD tự hủy chưa thu hoặc yêu cầu Manager duyệt phần đã thu. Manager có phân công bếp/shipper, bếp có Confirmed → Cooking → Ready, shipper có nhận/giao và ghi COD/Failed. Manager xử lý Failed/đối soát và job 24 giờ đã có cho COD. Luồng hủy online và tích hợp cổng thanh toán vẫn cần đồng bộ tiếp. Thông báo chuyển sang [email](email-notifications.md), không làm WebSocket hoặc API danh sách/đánh dấu đã đọc; cần bật worker và SMTP để gửi thật. Review đã có khóa Order–Delivery–Food, sửa trong 7 ngày, lọc sao/ảnh và Admin ẩn có lý do; database cũ cần chạy migration review trước khi dùng. Gợi ý/lựa chọn thực đơn trước checkout hiện chưa lưu MealPlan; các rule dinh dưỡng nâng cao còn cần triển khai.

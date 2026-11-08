@@ -68,6 +68,7 @@ Response: `{ "message": "...", "result": { "items": [], "total": 0, "page": 1, "
 - `GET /workspace/orders`: tối đa 100 đơn gần nhất khớp bộ lọc, trả từng ngày giao. Manager/Admin đọc danh sách và mã nhân viên được gán; bếp lọc `deliveries.kitchenStaffIds` và trạng thái Confirmed/Cooking; giao hàng lọc `deliveries.assignedShipperId` và trạng thái Ready/Delivering/Failed. Manager gán trực tiếp qua [API phân công](order-assignments.md), không chia ca. Shipper có [API ghi kết quả](shipper-workflow.md), tiền COD cần thu theo ngày và kết quả Failed với lý do bắt buộc, ảnh tùy chọn.
 - `GET /workspace/staff`: Manager chọn nhân viên bếp hoặc giao hàng Active; chỉ trả ID, username, email, role. Không thay thế API quản lý tài khoản của Admin.
 - `GET /workspace/transactions`: tối đa 100 giao dịch gần nhất, chỉ đọc; gồm ID, loại, trạng thái, số tiền, mã đơn, thời điểm, mô tả. Không phải báo cáo doanh thu đầy đủ hoặc file Excel.
+- Manager và Admin Active đọc báo cáo COD qua `GET /workspace/finance/summary` và `/workspace/finance/deliveries`; xem [hướng dẫn](cod-finance.md). Bếp/shipper/khách không có quyền này. Báo cáo không có API sửa tiền/trạng thái; chưa xuất Excel.
 - Các API Admin sửa trạng thái đơn/ngày và hủy đơn/ngày cần thêm `"exceptionReason": "Lý do can thiệp"` vào body hiện có. Lý do không cho phép bỏ qua cutoff, version, thanh toán, tồn kho hay quy tắc chuyển trạng thái; không mở lại chức năng đổi món đã bỏ.
 
 ## 4. Phần còn phụ thuộc — chưa nghiệm thu đủ FR

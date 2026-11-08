@@ -12,6 +12,7 @@ import tracking from './tracking.services'
 import inventory from './inventory.services'
 import { CartSummaryItem } from './cart.services'
 import cancellations from './cancellation.services'
+import { withoutOrderCosts } from '~/utils/food-cost'
 
 class WeeklyOrdersService {
   private dayNutrition(delivery: DeliveryPeriod) {
@@ -63,7 +64,8 @@ class WeeklyOrdersService {
     }
   }
 
-  describeOrder(order: Order) {
+  describeOrder(source: Order) {
+    const order = withoutOrderCosts(source)
     if (order.packageType !== 'WEEKLY_7D') return order
     return {
       ...order,

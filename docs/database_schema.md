@@ -66,7 +66,7 @@ orders
     status, statusHistory[]
     items[]
       foodId, foodName, image
-      quantity, price, calories, nutrition
+      quantity, price, calories, nutrition, costPrice?, costEstimated?
       mealSlot, mealPlanId, mealPlanItemId
     subtotal, shipping, waivedShippingFee, refundedAmount
     cancellation

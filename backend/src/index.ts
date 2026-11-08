@@ -1,4 +1,5 @@
 import workspaceRouter from './routes/workspace.routes'
+import financeRouter from './routes/finance.routes'
 import { config } from 'dotenv'
 import express from 'express'
 import usersRouter from '~/routes/users.routes'
@@ -59,6 +60,7 @@ app.use('/uploads', express.static('uploads'))
 app.use('/medias', mediasRouter)
 
 app.use('/admin', adminRouter)
+app.use('/workspace/finance', financeRouter)
 app.use('/workspace', workspaceRouter)
 
 app.use(defaultErrorHandler)

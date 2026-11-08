@@ -26,7 +26,11 @@ export const getFoodsController = async (req: Request, res: Response) => {
 export const getFoodDetailController = async (req: Request<FoodParams>, res: Response) => {
   const customerId =
     req.decoded_authorization?.role === UserRole.CUSTOMER ? req.decoded_authorization.user_id : undefined
-  const result = await foodService.getFoodById(req.params.food_id, customerId)
+  const result = await foodService.getFoodById(
+    req.params.food_id,
+    customerId,
+    req.decoded_authorization?.role === UserRole.ADMIN
+  )
 
   res.set('Cache-Control', 'private, no-store')
   return res.status(HTTP_STATUS.OK).json({
