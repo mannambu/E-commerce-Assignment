@@ -11,13 +11,22 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import api from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
 
+const hasVietnameseDiacritics = (str: string) =>
+  /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđĐ]/i.test(str);
+
 const registerSchema = z
   .object({
     username: z
       .string()
       .trim()
       .min(3, 'Tên người dùng phải từ 3 đến 30 ký tự')
-      .max(30, 'Tên người dùng tối đa 30 ký tự'),
+      .max(30, 'Tên người dùng tối đa 30 ký tự')
+      .refine((val) => !hasVietnameseDiacritics(val), {
+        message: 'Tên người dùng không được chứa tiếng Việt có dấu',
+      })
+      .refine((val) => /^[a-zA-Z0-9._ -]+$/.test(val), {
+        message: 'Tên người dùng chỉ gồm chữ không dấu, số, khoảng trắng hoặc ký tự (._-)',
+      }),
     email: z
       .string()
       .trim()

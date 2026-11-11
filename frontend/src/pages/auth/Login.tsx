@@ -11,8 +11,16 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import api from '@/services/api';
 import { useAuth, UserRole } from '@/context/AuthContext';
 
+const hasVietnameseDiacritics = (str: string) =>
+  /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđĐ]/i.test(str);
+
 const loginSchema = z.object({
-  identifier: z.string().min(1, 'Vui lòng nhập Email hoặc Tên đăng nhập'),
+  identifier: z
+    .string()
+    .min(1, 'Vui lòng nhập Email hoặc Tên đăng nhập')
+    .refine((val) => !hasVietnameseDiacritics(val), {
+      message: 'Tên đăng nhập hoặc Email không được chứa tiếng Việt có dấu',
+    }),
   password: z.string().min(1, 'Vui lòng nhập mật khẩu'),
   rememberMe: z.boolean().optional(),
 });
